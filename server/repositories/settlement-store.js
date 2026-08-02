@@ -8,11 +8,17 @@ function clone(value) {
 
 const reservationTerminalStates = new Set(['COMPLETE', 'DENIED', 'EXPIRED', 'CANCELLED', 'FAILED']);
 
-function withInitialReservation(record, records, treasuryAvailableUnits) {
+function withInitialReservation(
+  record,
+  records,
+  treasuryAvailableUnits,
+  agentDailyCapUnits,
+) {
   if (!record.policy?.approved) return { ...record, reservation: null };
+  const recordList = [...records];
   const requestedUnits = BigInt(record.amount.creatorPayoutUnits);
-  const reservedUnits = [...records]
-    .filter((candidate) => candidate.reservation?.status === 'ACTIVE')
+  const reservedUnits = recordList
+    .filter((candidate) => ['ACTIVE', 'HELD'].includes(candidate.reservation?.status))
     .reduce((sum, candidate) => sum + BigInt(candidate.reservation.units), 0n);
   if (treasuryAvailableUnits !== undefined
     && reservedUnits + requestedUnits > BigInt(treasuryAvailableUnits)) {
@@ -27,6 +33,20 @@ function withInitialReservation(record, records, treasuryAvailableUnits) {
           requestedUnits: requestedUnits.toString(),
         },
       },
+    );
+  }
+  const recordDay = record.createdAt.slice(0, 10);
+  const agentDailyUsedUnits = recordList
+    .filter((candidate) => candidate.agentDecision
+      && candidate.createdAt.slice(0, 10) === recordDay
+      && ['ACTIVE', 'HELD', 'CONSUMED'].includes(candidate.reservation?.status))
+    .reduce((sum, candidate) => sum + BigInt(candidate.reservation.units), 0n);
+  if (agentDailyCapUnits !== undefined
+    && agentDailyUsedUnits + requestedUnits > BigInt(agentDailyCapUnits)) {
+    throw new DomainError(
+      'AGENT_DAILY_CAP_EXCEEDED',
+      'The autonomous settlement daily payout cap has been reached.',
+      { status: 409 },
     );
   }
   return {
@@ -44,6 +64,7 @@ function withUpdatedReservation(record) {
   if (!record.reservation) return record;
   let status = record.reservation.status;
   if (record.state === 'COMPLETE') status = 'CONSUMED';
+  else if (record.state === 'FAILED' && (record.broadcast || record.circle?.transactionId)) status = 'HELD';
   else if (reservationTerminalStates.has(record.state)) status = 'RELEASED';
   return {
     ...record,
@@ -81,14 +102,19 @@ export class MemorySettlementStore {
     return clone([...this.records.values()].find((record) => record.circle?.transactionId === id));
   }
 
-  async createIfAbsent(record, { treasuryAvailableUnits } = {}) {
+  async createIfAbsent(record, { treasuryAvailableUnits, agentDailyCapUnits } = {}) {
     return this.mutate(async () => {
       const existing = [...this.records.values()].find(
         (candidate) => candidate.idempotencyKey === record.idempotencyKey,
       );
       if (existing) return { record: clone(existing), created: false };
 
-      const stored = withInitialReservation(record, this.records.values(), treasuryAvailableUnits);
+      const stored = withInitialReservation(
+        record,
+        this.records.values(),
+        treasuryAvailableUnits,
+        agentDailyCapUnits,
+      );
       this.records.set(stored.id, clone(stored));
       return { record: clone(stored), created: true };
     });
@@ -108,6 +134,12 @@ export class MemorySettlementStore {
       .filter((record) => record.circle?.transactionId && !['COMPLETE', 'FAILED', 'DENIED', 'CANCELLED'].includes(record.state))
       .map(clone);
   }
+
+  async claimReconciliationCandidates() {
+    return this.listReconciliationCandidates();
+  }
+
+  async releaseReconciliationLease() {}
 
   mutate(operation) {
     const result = this.writeQueue.then(operation);
@@ -159,14 +191,19 @@ export class JsonSettlementStore {
     return clone([...this.records.values()].find((record) => record.circle?.transactionId === id));
   }
 
-  async createIfAbsent(record, { treasuryAvailableUnits } = {}) {
+  async createIfAbsent(record, { treasuryAvailableUnits, agentDailyCapUnits } = {}) {
     return this.mutate(async () => {
       const existing = [...this.records.values()].find(
         (candidate) => candidate.idempotencyKey === record.idempotencyKey,
       );
       if (existing) return { record: clone(existing), created: false };
 
-      const stored = withInitialReservation(record, this.records.values(), treasuryAvailableUnits);
+      const stored = withInitialReservation(
+        record,
+        this.records.values(),
+        treasuryAvailableUnits,
+        agentDailyCapUnits,
+      );
       this.records.set(stored.id, clone(stored));
       await this.persist();
       return { record: clone(stored), created: true };

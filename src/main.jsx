@@ -26,10 +26,9 @@ import {
 } from './transaction-lifecycle';
 import {
   createIdempotencyKey,
-  createSettlementQuote,
+  createAgentDecision,
   executeSettlement,
   getApiHealth,
-  prepareSettlement,
   reconcileSettlement,
 } from './api';
 import './styles.css';
@@ -597,7 +596,11 @@ function Agent() {
   const [form, setForm] = useState({
     recipient: '0x1111111111111111111111111111111111111111',
     requestedAmount: '25.00',
-    viralityScore: '84',
+    engagementVelocity: '94',
+    holderRetention: '92',
+    liquidityDepth: '90',
+    fraudRisk: '8',
+    confidence: '96',
     reference: 'MEME-CREATOR-PAYOUT',
   });
   const [requestState, setRequestState] = useState({ status: 'idle', error: null, replayed: false });
@@ -611,7 +614,7 @@ function Agent() {
   const circleConfigured = health.data?.circle?.configured === true;
   const approved = record?.policy?.approved === true;
   const trace = [
-    ['01', 'INGEST SIGNAL', record ? `SCORE ${record.viralityScore}` : 'PENDING'],
+    ['01', 'INGEST + WEIGHT SIGNALS', record?.agentDecision ? `SCORE ${record.agentDecision.confidenceAdjustedScore}` : 'PENDING'],
     ['02', 'CHECK SERVER POLICY', record ? (approved ? 'PASS / CAP OK' : 'DENIED') : 'PENDING'],
     ['03', 'CALCULATE CREATOR SHARE', record ? `${record.amount.creatorPayoutUsdc} USDC` : 'PENDING'],
     ['04', 'PERSIST MEMO REFERENCE', record ? 'MEMO ID READY' : 'PENDING'],
@@ -625,23 +628,38 @@ function Agent() {
 
   async function runPolicy(event) {
     event.preventDefault();
-    const input = { ...form, viralityScore: Number(form.viralityScore) };
-    const requestFingerprint = JSON.stringify(input);
+    const requestFingerprint = JSON.stringify(form);
     if (lastAttempt.current?.fingerprint !== requestFingerprint) {
-      lastAttempt.current = { fingerprint: requestFingerprint, key: createIdempotencyKey() };
+      lastAttempt.current = {
+        fingerprint: requestFingerprint,
+        key: createIdempotencyKey(),
+        observedAt: new Date().toISOString(),
+      };
     }
-
+    const input = {
+      recipient: form.recipient,
+      requestedAmount: form.requestedAmount,
+      reference: form.reference,
+      signals: {
+        engagementVelocity: Number(form.engagementVelocity),
+        holderRetention: Number(form.holderRetention),
+        liquidityDepth: Number(form.liquidityDepth),
+        fraudRisk: Number(form.fraudRisk),
+        confidence: Number(form.confidence),
+        observedAt: lastAttempt.current.observedAt,
+        source: 'MANUAL_DEMO',
+        sourceReference: form.reference,
+      },
+    };
     setRequestState({ status: 'loading', error: null, replayed: false });
     setRecord(null);
     try {
-      const quote = await createSettlementQuote(input, lastAttempt.current.key);
+      const quote = await createAgentDecision(input, lastAttempt.current.key);
       setRecord(quote.data);
       if (!quote.data.policy.approved) {
         setRequestState({ status: 'denied', error: null, replayed: quote.meta.replayed });
         return;
       }
-      const prepared = await prepareSettlement(quote.data.id);
-      setRecord(prepared.data);
       setRequestState({ status: 'success', error: null, replayed: quote.meta.replayed });
     } catch (error) {
       setRequestState({
@@ -686,21 +704,27 @@ function Agent() {
     <section className="page agent-page">
       <Title n="05" t="AUTONOMOUS SETTLEMENT" />
       <p className="lede">
-        The curator submits a signal to the MemeVerse backend, where an enforced policy
-        creates an expiring treasury reservation and a persisted execution plan in {network.money}.
-        Explicit approval sends the call through Arc Memo to the verified MemeVerseSettlement contract.
+        The backend weights fresh engagement, retention, liquidity, fraud-risk, and confidence
+        signals against live Arc and Circle treasury evidence. The agent may quote and prepare,
+        but explicit human approval is always required before Arc Memo execution.
       </p>
       <div className="agent-grid">
         <form className="agent-rules" onSubmit={runPolicy}>
-          <span>SERVER-ENFORCED POLICY / V1.1</span>
+          <span>SERVER-ENFORCED AGENT POLICY / V2</span>
           <label>RECIPIENT<input name="recipient" value={form.recipient} onChange={updateForm} required /></label>
           <label>REQUESTED SPEND<input name="requestedAmount" inputMode="decimal" value={form.requestedAmount} onChange={updateForm} required /><small>{network.money}</small></label>
-          <label>VIRALITY SCORE<input name="viralityScore" type="number" min="0" max="100" value={form.viralityScore} onChange={updateForm} required /><small>/100</small></label>
+          <label>ENGAGEMENT VELOCITY<input name="engagementVelocity" type="number" min="0" max="100" value={form.engagementVelocity} onChange={updateForm} required /><small>45%</small></label>
+          <label>HOLDER RETENTION<input name="holderRetention" type="number" min="0" max="100" value={form.holderRetention} onChange={updateForm} required /><small>25%</small></label>
+          <label>LIQUIDITY DEPTH<input name="liquidityDepth" type="number" min="0" max="100" value={form.liquidityDepth} onChange={updateForm} required /><small>30%</small></label>
+          <label>FRAUD RISK<input name="fraudRisk" type="number" min="0" max="100" value={form.fraudRisk} onChange={updateForm} required /><small>MAX 20</small></label>
+          <label>SIGNAL CONFIDENCE<input name="confidence" type="number" min="0" max="100" value={form.confidence} onChange={updateForm} required /><small>MIN 80</small></label>
           <label>RECONCILIATION REFERENCE<input name="reference" value={form.reference} onChange={updateForm} minLength="3" maxLength="120" required /></label>
           <dl>
             <dt>MAX SPEND</dt><dd>25.00 USDC</dd>
             <dt>MIN. SCORE</dt><dd>78 / 100</dd>
             <dt>CREATOR SHARE</dt><dd>60%</dd>
+            <dt>DAILY AGENT CAP</dt><dd>30.00 USDC</dd>
+            <dt>EXECUTION AUTHORITY</dt><dd>HUMAN ONLY</dd>
             <dt>NETWORK</dt><dd>{network.chain.name}</dd>
             <dt>RETRY POLICY</dt><dd>NO BLIND RETRIES</dd>
           </dl>
@@ -733,6 +757,8 @@ function Agent() {
           <span>CREATOR // {record.amount.creatorPayoutUsdc} USDC</span>
           <span>TREASURY // {record.amount.treasuryRetainedUsdc} USDC</span>
           <span>MEMO // {record.memoId}</span>
+          {record.agentDecision ? <span>AGENT SCORE // RAW {record.agentDecision.weightedScore} / ADJUSTED {record.agentDecision.confidenceAdjustedScore}</span> : null}
+          {record.agentDecision ? <span>AUTONOMY // QUOTE + PREPARE ONLY / HUMAN EXECUTION REQUIRED</span> : null}
           {record.reservation ? <span>RESERVATION // {Number(record.reservation.units) / 1e6} USDC / {record.reservation.status}</span> : null}
           {record.executionPlan?.targetContract ? <span>SETTLEMENT CONTRACT // {record.executionPlan.targetContract}</span> : null}
           {record.expiresAt ? <span>QUOTE EXPIRY // {record.expiresAt}</span> : null}
@@ -775,6 +801,8 @@ function Agent() {
         <span>NO BLIND RETRIES</span>
         <span>CONDITIONAL SETTLEMENT</span>
         <span>CIRCLE DEV-CONTROLLED EOA</span>
+        <span>APP KIT BOUNDARY / FAIL-CLOSED</span>
+        <span>SEPARATE LEASED WORKER</span>
       </div>
     </section>
   );

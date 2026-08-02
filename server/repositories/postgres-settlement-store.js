@@ -16,7 +16,13 @@ function recordFromRow(row) {
   return clone(typeof row.record === 'string' ? JSON.parse(row.record) : row.record);
 }
 
-function reservationForCreate(record, reservedUnits, treasuryAvailableUnits) {
+function reservationForCreate(
+  record,
+  reservedUnits,
+  treasuryAvailableUnits,
+  agentDailyUsedUnits,
+  agentDailyCapUnits,
+) {
   if (!record.policy?.approved) return null;
   const requestedUnits = BigInt(record.amount.creatorPayoutUnits);
   if (treasuryAvailableUnits !== undefined
@@ -34,6 +40,21 @@ function reservationForCreate(record, reservedUnits, treasuryAvailableUnits) {
       },
     );
   }
+  if (agentDailyCapUnits !== undefined
+    && agentDailyUsedUnits + requestedUnits > BigInt(agentDailyCapUnits)) {
+    throw new DomainError(
+      'AGENT_DAILY_CAP_EXCEEDED',
+      'The autonomous settlement daily payout cap has been reached.',
+      {
+        status: 409,
+        details: {
+          dailyCapUnits: BigInt(agentDailyCapUnits).toString(),
+          dailyUsedUnits: agentDailyUsedUnits.toString(),
+          requestedUnits: requestedUnits.toString(),
+        },
+      },
+    );
+  }
   return {
     units: requestedUnits.toString(),
     status: 'ACTIVE',
@@ -46,6 +67,7 @@ function updateReservation(record) {
   if (!record.reservation) return record;
   let status = record.reservation.status;
   if (record.state === 'COMPLETE') status = 'CONSUMED';
+  else if (record.state === 'FAILED' && (record.broadcast || record.circle?.transactionId)) status = 'HELD';
   else if (terminalStates.has(record.state)) status = 'RELEASED';
   return {
     ...record,
@@ -88,13 +110,25 @@ class PoolDatabase {
 }
 
 export class PostgresSettlementStore {
-  constructor({ database, legacyDataFile }) {
+  constructor({ database, legacyDataFile, legacyNotificationFile }) {
     this.database = database;
     this.legacyDataFile = legacyDataFile;
+    this.legacyNotificationFile = legacyNotificationFile;
     this.reservationQueue = Promise.resolve();
+    this.notificationQueue = Promise.resolve();
   }
 
-  async initialize() {
+  async initialize({ migrate = true } = {}) {
+    if (!migrate) {
+      const result = await this.database.query(
+        `SELECT to_regclass('public.settlements') IS NOT NULL AS settlements_ready,
+                to_regclass('public.circle_notifications') IS NOT NULL AS notifications_ready`,
+      );
+      if (!result.rows[0]?.settlements_ready || !result.rows[0]?.notifications_ready) {
+        throw new Error('Database schema is missing. Run npm run db:migrate first.');
+      }
+      return;
+    }
     await this.database.exec(`
       CREATE TABLE IF NOT EXISTS settlements (
         id text PRIMARY KEY,
@@ -105,7 +139,17 @@ export class PostgresSettlementStore {
         reservation_status text NOT NULL DEFAULT 'NONE',
         record jsonb NOT NULL,
         created_at timestamptz NOT NULL,
-        updated_at timestamptz NOT NULL
+        updated_at timestamptz NOT NULL,
+        reconciliation_lease_owner text,
+        reconciliation_lease_until timestamptz
+      );
+      ALTER TABLE settlements
+        ADD COLUMN IF NOT EXISTS reconciliation_lease_owner text,
+        ADD COLUMN IF NOT EXISTS reconciliation_lease_until timestamptz;
+      CREATE TABLE IF NOT EXISTS circle_notifications (
+        notification_id text PRIMARY KEY,
+        processed_at timestamptz NOT NULL,
+        outcome jsonb NOT NULL
       );
       CREATE INDEX IF NOT EXISTS settlements_state_idx ON settlements (state);
       CREATE INDEX IF NOT EXISTS settlements_created_at_idx ON settlements (created_at DESC);
@@ -114,6 +158,26 @@ export class PostgresSettlementStore {
         WHERE circle_transaction_id IS NOT NULL;
     `);
     await this.importLegacyRecords();
+    await this.importLegacyNotifications();
+  }
+
+  async importLegacyNotifications() {
+    if (!this.legacyNotificationFile) return;
+    const count = await this.database.query('SELECT count(*)::text AS count FROM circle_notifications');
+    if (count.rows[0]?.count !== '0') return;
+    try {
+      const payload = JSON.parse(await readFile(this.legacyNotificationFile, 'utf8'));
+      for (const receipt of payload.notifications ?? []) {
+        await this.database.query(
+          `INSERT INTO circle_notifications (notification_id, processed_at, outcome)
+           VALUES ($1, $2::timestamptz, $3::jsonb)
+           ON CONFLICT DO NOTHING`,
+          [receipt.notificationId, receipt.processedAt, JSON.stringify(receipt.outcome)],
+        );
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
   }
 
   async importLegacyRecords() {
@@ -131,10 +195,15 @@ export class PostgresSettlementStore {
   }
 
   async insertLegacyRecord(record) {
+    const legacyReservationStatus = record.state === 'COMPLETE'
+      ? 'CONSUMED'
+      : record.state === 'FAILED' && (record.broadcast || record.circle?.transactionId)
+        ? 'HELD'
+        : terminalStates.has(record.state) ? 'RELEASED' : 'ACTIVE';
     const stored = record.reservation === undefined
       ? { ...record, reservation: record.policy?.approved ? {
         units: record.amount.creatorPayoutUnits,
-        status: terminalStates.has(record.state) ? 'RELEASED' : 'ACTIVE',
+        status: legacyReservationStatus,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
       } : null }
@@ -189,7 +258,7 @@ export class PostgresSettlementStore {
     return result.rows[0] ? recordFromRow(result.rows[0]) : undefined;
   }
 
-  async createIfAbsent(record, { treasuryAvailableUnits } = {}) {
+  async createIfAbsent(record, { treasuryAvailableUnits, agentDailyCapUnits } = {}) {
     const operation = () => this.database.transaction(async (transaction) => {
       if (this.database.supportsAdvisoryLocks) {
         await transaction.query('SELECT pg_advisory_xact_lock($1)', [5042002]);
@@ -203,17 +272,30 @@ export class PostgresSettlementStore {
       const aggregate = await transaction.query(
         `SELECT COALESCE(sum(reservation_units), 0)::text AS units
          FROM settlements
-         WHERE reservation_status = 'ACTIVE'
+         WHERE reservation_status IN ('ACTIVE', 'HELD')
            AND (
              state NOT IN ('PREPARED', 'AWAITING_SIGNATURE')
              OR NULLIF(record->>'expiresAt', '') IS NULL
              OR NULLIF(record->>'expiresAt', '')::timestamptz > now()
            )`,
       );
+      const dailyAggregate = agentDailyCapUnits === undefined
+        ? { rows: [{ units: '0' }] }
+        : await transaction.query(
+          `SELECT COALESCE(sum(reservation_units), 0)::text AS units
+           FROM settlements
+           WHERE record->'agentDecision' IS NOT NULL
+             AND reservation_status IN ('ACTIVE', 'HELD', 'CONSUMED')
+             AND created_at >= date_trunc('day', $1::timestamptz)
+             AND created_at < date_trunc('day', $1::timestamptz) + interval '1 day'`,
+          [record.createdAt],
+        );
       const reservation = reservationForCreate(
         record,
         BigInt(aggregate.rows[0]?.units ?? '0'),
         treasuryAvailableUnits,
+        BigInt(dailyAggregate.rows[0]?.units ?? '0'),
+        agentDailyCapUnits,
       );
       const stored = { ...record, reservation };
       await transaction.query(
@@ -265,6 +347,81 @@ export class PostgresSettlementStore {
     return result.rows.map(recordFromRow);
   }
 
+  async claimReconciliationCandidates({ owner, leaseSeconds = 30, limit = 100 }) {
+    const result = await this.database.query(
+      `WITH candidates AS (
+         SELECT id
+         FROM settlements
+         WHERE circle_transaction_id IS NOT NULL
+           AND state NOT IN ('COMPLETE', 'FAILED', 'DENIED', 'CANCELLED')
+           AND (reconciliation_lease_until IS NULL OR reconciliation_lease_until <= now())
+         ORDER BY updated_at ASC
+         FOR UPDATE SKIP LOCKED
+         LIMIT $1
+       )
+       UPDATE settlements AS settlement
+       SET reconciliation_lease_owner = $2,
+           reconciliation_lease_until = now() + ($3::text || ' seconds')::interval
+       FROM candidates
+       WHERE settlement.id = candidates.id
+       RETURNING settlement.record`,
+      [limit, owner, leaseSeconds],
+    );
+    return result.rows.map(recordFromRow);
+  }
+
+  async releaseReconciliationLease(id, owner) {
+    await this.database.query(
+      `UPDATE settlements
+       SET reconciliation_lease_owner = NULL, reconciliation_lease_until = NULL
+       WHERE id = $1 AND reconciliation_lease_owner = $2`,
+      [id, owner],
+    );
+  }
+
+  async processOnce(notificationId, operation) {
+    const process = async (database) => {
+      const existing = await database.query(
+        'SELECT notification_id, processed_at, outcome FROM circle_notifications WHERE notification_id = $1',
+        [notificationId],
+      );
+      if (existing.rows[0]) {
+        const row = existing.rows[0];
+        return {
+          receipt: {
+            notificationId: row.notification_id,
+            processedAt: new Date(row.processed_at).toISOString(),
+            outcome: clone(typeof row.outcome === 'string' ? JSON.parse(row.outcome) : row.outcome),
+          },
+          replayed: true,
+        };
+      }
+      const outcome = await operation();
+      const processedAt = new Date().toISOString();
+      await database.query(
+        `INSERT INTO circle_notifications (notification_id, processed_at, outcome)
+         VALUES ($1, $2::timestamptz, $3::jsonb)`,
+        [notificationId, processedAt, JSON.stringify(outcome)],
+      );
+      return { receipt: { notificationId, processedAt, outcome }, replayed: false };
+    };
+
+    if (this.database.supportsAdvisoryLocks) {
+      return this.database.transaction(async (transaction) => {
+        await transaction.query('SELECT pg_advisory_xact_lock(hashtext($1))', [notificationId]);
+        return process(transaction);
+      });
+    }
+    const pending = this.notificationQueue.then(() => process(this.database));
+    this.notificationQueue = pending.catch(() => undefined);
+    return pending;
+  }
+
+  async health() {
+    const result = await this.database.query('SELECT 1 AS ready');
+    return result.rows[0]?.ready === 1;
+  }
+
   close() {
     return this.database.close?.();
   }
@@ -279,5 +436,9 @@ export function createPostgresSettlementStore(config) {
     chmodSync(config.pgliteDataDir, 0o700);
     database = new PGlite(config.pgliteDataDir);
   }
-  return new PostgresSettlementStore({ database, legacyDataFile: config.dataFile });
+  return new PostgresSettlementStore({
+    database,
+    legacyDataFile: config.dataFile,
+    legacyNotificationFile: config.circleNotificationDataFile,
+  });
 }

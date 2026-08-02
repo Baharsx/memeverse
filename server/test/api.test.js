@@ -7,6 +7,8 @@ import { MemorySettlementStore } from '../repositories/settlement-store.js';
 
 let server;
 let baseUrl;
+let capturedAgentDecision;
+let capturedSwapEstimate;
 
 before(async () => {
   const config = {
@@ -30,7 +32,42 @@ before(async () => {
     },
   };
   const logger = { info() {}, error() {} };
-  const app = createApp({ config, settlementService, arcRpc, logger });
+  const agentDecisionService = {
+    async decide(input, idempotencyKey) {
+      capturedAgentDecision = { input, idempotencyKey };
+      return {
+        record: { id: 'agent-api-1', state: 'DENIED', policy: { approved: false, reasons: [] } },
+        replayed: false,
+      };
+    },
+  };
+  const appKitGateway = {
+    configuration() {
+      return {
+        provider: 'CIRCLE_STABLECOIN_KITS_API',
+        network: 'Arc_Testnet',
+        kitKeyConfigured: true,
+        runtimeEnabled: true,
+        dependencyStatus: 'AVAILABLE_AUDIT_CLEAN',
+      };
+    },
+    async estimateSwap(input) {
+      capturedSwapEstimate = input;
+      return {
+        provider: 'CIRCLE_STABLECOIN_KITS',
+        chain: 'Arc_Testnet',
+        estimatedOutput: { token: input.tokenOut, amount: '0.99' },
+      };
+    },
+  };
+  const app = createApp({
+    config,
+    settlementService,
+    arcRpc,
+    agentDecisionService,
+    appKitGateway,
+    logger,
+  });
   server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -109,4 +146,50 @@ test('API exposes stable validation errors', async () => {
   assert.equal(response.status, 400);
   assert.equal(payload.error.code, 'VALIDATION_ERROR');
   assert.ok(response.headers.get('x-request-id'));
+});
+
+test('agent endpoint validates structured signal evidence and forwards idempotency', async () => {
+  const response = await fetch(`${baseUrl}/api/v1/agent/decisions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'idempotency-key': 'agent-api-key-0001' },
+    body: JSON.stringify({
+      recipient: '0x2222222222222222222222222222222222222222',
+      requestedAmount: '1.00',
+      reference: 'AGENT-API-EVIDENCE',
+      signals: {
+        engagementVelocity: 90,
+        holderRetention: 85,
+        liquidityDepth: 88,
+        fraudRisk: 5,
+        confidence: 95,
+        observedAt: '2026-08-02T13:00:00.000Z',
+        source: 'ANALYTICS_PIPELINE',
+        sourceReference: 'batch-100',
+      },
+    }),
+  });
+  const payload = await response.json();
+
+  assert.equal(response.status, 201);
+  assert.equal(payload.data.id, 'agent-api-1');
+  assert.equal(capturedAgentDecision.idempotencyKey, 'agent-api-key-0001');
+  assert.equal(capturedAgentDecision.input.signals.source, 'ANALYTICS_PIPELINE');
+});
+
+test('App Kit routes expose runtime status and a server-side swap estimate', async () => {
+  const capabilitiesResponse = await fetch(`${baseUrl}/api/v1/app-kit/capabilities`);
+  const capabilities = await capabilitiesResponse.json();
+  const estimateResponse = await fetch(`${baseUrl}/api/v1/app-kit/swap/estimate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tokenIn: 'USDC', tokenOut: 'EURC', amountIn: '1.00' }),
+  });
+  const estimate = await estimateResponse.json();
+
+  assert.equal(capabilitiesResponse.status, 200);
+  assert.equal(capabilities.data.runtimeEnabled, true);
+  assert.equal(JSON.stringify(capabilities).includes('KIT_KEY:'), false);
+  assert.equal(estimateResponse.status, 200);
+  assert.equal(estimate.data.estimatedOutput.amount, '0.99');
+  assert.deepEqual(capturedSwapEstimate, { tokenIn: 'USDC', tokenOut: 'EURC', amountIn: '1.00' });
 });

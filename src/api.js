@@ -52,6 +52,18 @@ export async function createSettlementQuote(input, idempotencyKey) {
   });
 }
 
+export async function createAgentDecision(input, idempotencyKey) {
+  return request('/api/v1/agent/decisions', {
+    method: 'POST',
+    headers: { 'idempotency-key': idempotencyKey },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getAppKitCapabilities() {
+  return request('/api/v1/app-kit/capabilities');
+}
+
 export async function prepareSettlement(settlementId) {
   return request(`/api/v1/settlements/${encodeURIComponent(settlementId)}/prepare`, {
     method: 'POST',

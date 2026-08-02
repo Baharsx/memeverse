@@ -1,9 +1,18 @@
 export class ReconciliationWorker {
-  constructor({ store, settlementService, intervalMs = 5000, logger = console }) {
+  constructor({
+    store,
+    settlementService,
+    intervalMs = 5000,
+    leaseSeconds = 30,
+    owner = `worker-${process.pid}`,
+    logger = console,
+  }) {
     this.store = store;
     this.settlementService = settlementService;
     this.intervalMs = intervalMs;
     this.logger = logger;
+    this.leaseSeconds = leaseSeconds;
+    this.owner = owner;
     this.timer = null;
     this.running = null;
   }
@@ -21,7 +30,13 @@ export class ReconciliationWorker {
   }
 
   async runOnce() {
-    const records = await this.store.listReconciliationCandidates();
+    const records = this.store.claimReconciliationCandidates
+      ? await this.store.claimReconciliationCandidates({
+        owner: this.owner,
+        leaseSeconds: this.leaseSeconds,
+        limit: 100,
+      })
+      : await this.store.listReconciliationCandidates();
     for (const record of records) {
       try {
         await this.settlementService.reconcile(record.id);
@@ -32,6 +47,8 @@ export class ReconciliationWorker {
           code: error?.code ?? 'RECONCILIATION_FAILED',
           message: error?.message ?? String(error),
         }));
+      } finally {
+        await this.store.releaseReconciliationLease?.(record.id, this.owner);
       }
     }
   }

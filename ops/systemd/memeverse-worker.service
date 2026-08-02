@@ -1,0 +1,21 @@
+[Unit]
+Description=MemeVerse Arc reconciliation worker
+After=network-online.target memeverse-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/memeverse
+EnvironmentFile=/etc/memeverse/memeverse.env
+ExecStart=/usr/bin/npm run start:worker
+Restart=on-failure
+RestartSec=5
+User=memeverse
+Group=memeverse
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

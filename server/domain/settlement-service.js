@@ -44,9 +44,16 @@ export class SettlementService {
     };
   }
 
-  async quote(input, idempotencyKey) {
+  async quote(input, idempotencyKey, context = {}) {
     const normalized = this.normalizeRequest(input);
-    const requestFingerprint = fingerprint(normalized);
+    const agentSignals = context.agentDecision?.signals
+      ? Object.fromEntries(
+        Object.entries(context.agentDecision.signals).filter(([key]) => key !== 'ageSeconds'),
+      )
+      : null;
+    const requestFingerprint = fingerprint(
+      agentSignals ? { ...normalized, agentSignals } : normalized,
+    );
     const existing = await this.store.getByIdempotencyKey(idempotencyKey);
     if (existing) return this.assertReplay(existing, requestFingerprint);
 
@@ -54,7 +61,10 @@ export class SettlementService {
     const nowIso = now.toISOString();
     const settlementId = this.id();
     const decision = evaluateSettlementPolicy(normalized, this.policy);
-    const state = decision.approved ? settlementStates.PREPARED : settlementStates.DENIED;
+    const agentReasons = context.agentDecision?.reasons ?? [];
+    const approved = decision.approved && agentReasons.length === 0;
+    const reasons = [...decision.reasons, ...agentReasons];
+    const state = approved ? settlementStates.PREPARED : settlementStates.DENIED;
     const record = {
       id: settlementId,
       idempotencyKey,
@@ -65,6 +75,7 @@ export class SettlementService {
       recipient: normalized.recipient,
       viralityScore: normalized.viralityScore,
       reference: normalized.reference,
+      agentDecision: context.agentDecision ?? null,
       memoId: fingerprint({ settlementId, reference: normalized.reference }),
       amount: {
         requestedUsdc: decision.requestedAmountUsdc,
@@ -75,8 +86,8 @@ export class SettlementService {
         treasuryRetainedUnits: decision.treasuryRetainedUnits,
       },
       policy: {
-        approved: decision.approved,
-        reasons: decision.reasons,
+        approved,
+        reasons,
         maxSpendUsdc: this.policy.maxSpendUsdc,
         minViralityScore: this.policy.minViralityScore,
         creatorShareBps: this.policy.creatorShareBps,
@@ -86,19 +97,22 @@ export class SettlementService {
       transactionHash: null,
       executionPlan: null,
       circle: null,
-      expiresAt: decision.approved
+      expiresAt: approved
         ? new Date(now.getTime() + this.quoteTtlSeconds * 1000).toISOString()
         : null,
       createdAt: nowIso,
       updatedAt: nowIso,
-      history: [{ state, at: nowIso, reason: decision.approved ? 'POLICY_APPROVED' : 'POLICY_DENIED' }],
+      history: [{ state, at: nowIso, reason: approved ? 'POLICY_APPROVED' : 'POLICY_DENIED' }],
     };
 
-    if (decision.approved) await this.releaseExpiredReservations();
-    const treasuryAvailableUnits = decision.approved && this.circleGateway?.treasuryAvailableUnits
+    if (approved) await this.releaseExpiredReservations();
+    const treasuryAvailableUnits = approved && this.circleGateway?.treasuryAvailableUnits
       ? await this.circleGateway.treasuryAvailableUnits()
       : undefined;
-    const result = await this.store.createIfAbsent(record, { treasuryAvailableUnits });
+    const result = await this.store.createIfAbsent(record, {
+      treasuryAvailableUnits,
+      agentDailyCapUnits: approved ? context.agentDailyCapUnits : undefined,
+    });
     if (!result.created) return this.assertReplay(result.record, requestFingerprint);
     return { record: result.record, replayed: false };
   }

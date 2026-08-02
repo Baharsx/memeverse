@@ -1,0 +1,21 @@
+[Unit]
+Description=MemeVerse Arc API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/memeverse
+EnvironmentFile=/etc/memeverse/memeverse.env
+ExecStart=/usr/bin/npm run start:api
+Restart=on-failure
+RestartSec=5
+User=memeverse
+Group=memeverse
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

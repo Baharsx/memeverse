@@ -23,13 +23,22 @@ MemeVerse is currently a public Arc Testnet MVP. Its backend can authorize a Cir
 - Webhooks are at-least-once and potentially out of order; notification IDs must be deduplicated and older states must not regress settlement state.
 - A Circle transaction in `INITIATED`, `CLEARED`, `QUEUED`, or `SENT` is not final. Only independently reconciled completion may close the settlement.
 - Circle `COMPLETE` alone is not application completion. The Arc receipt must succeed and contain the expected Memo, SettlementExecuted, and USDC Transfer events with matching sender, target, recipient, amount, memo ID, and calldata hash.
-- Treasury capacity must be reserved transactionally before an approved quote is returned. Expired and failed reservations must be released; verified settlements must be consumed.
+- Treasury capacity must be reserved transactionally before an approved quote is returned. Expired and pre-broadcast failed reservations must be released; verified settlements must be consumed.
+- A post-broadcast failure or event mismatch must hold its reservation for manual resolution; it must never silently return uncertain funds to available capacity.
+- Agent decisions must enforce evidence freshness, confidence, fraud-risk, treasury capacity, and a UTC daily payout cap in the backend. The agent may quote and prepare but may never execute.
+- `MANUAL_DEMO` signal provenance is Testnet-only and must not be treated as authenticated analytics.
+- Production must use managed PostgreSQL. PGlite is single-process development storage and must not be shared between the API and a continuous worker.
+- Production database migrations must run as a separate one-shot command. API and worker identities should not receive DDL privileges.
+- Reconciliation workers must claim records through expiring database leases; Circle webhook IDs must be deduplicated in PostgreSQL.
+- Kit Keys are server-only secrets. The active Stablecoin Kits path may prepare estimates only, must verify echoed request parameters, and must never return prepared transaction data; all execution capabilities remain disabled pending separate review.
 - The MemeVerseSettlement allowance must remain bounded. Never grant an unlimited allowance merely for convenience.
 - Contract source, compiler version, optimizer settings, constructor arguments, deployed bytecode, and operator address must remain independently reproducible.
 - Production services must validate chain ID, contract address, recipient, amount, fee assumptions, and transaction status server-side.
 - Webhooks must be authenticated and deduplicated by notification ID because delivery can be at least once.
 - Retry logic must distinguish pre-broadcast failures from submitted transactions and persist the latest transaction hash before retrying.
 - Transaction Memo and Multicall3From flows must use a directly signing EOA until Arc documentation states otherwise; smart contract wallets are not supported as direct callers.
+
+The Phase 4 threat model, residual risks, and onchain read-only checks are documented in [`docs/PHASE-4-SECURITY-REVIEW.md`](./docs/PHASE-4-SECURITY-REVIEW.md).
 
 ## Reporting a vulnerability
 

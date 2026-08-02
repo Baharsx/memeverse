@@ -12,6 +12,27 @@ export const ARC_NATIVE_USDC_EMITTER = getAddress('0xfffffffffffffffffffffffffff
 export const settlementAbi = [
   {
     type: 'function',
+    name: 'operator',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'usdc',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'settled',
+    stateMutability: 'view',
+    inputs: [{ name: 'settlementId', type: 'bytes32' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
+    type: 'function',
     name: 'settle',
     stateMutability: 'nonpayable',
     inputs: [

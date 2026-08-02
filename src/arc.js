@@ -55,10 +55,12 @@ export const memoAbi = [
 ];
 
 export const arcCapabilities = Object.freeze({
-  phase: 'PUBLIC TESTNET',
+  phase: 'PHASE 4 / PUBLIC TESTNET',
   realAssets: false,
   confirmationsRequired: 1,
   transactionMemos: 'LIVE IN MEMEVERSE / EOA ONLY',
   batchedTransactions: 'TESTNET READY / EOA ONLY',
   postQuantum: 'ROADMAP / NOT YET AVAILABLE',
+  appKit: 'SWAP ESTIMATE LIVE / SERVER-ONLY',
+  agentExecution: 'HUMAN APPROVAL REQUIRED',
 });

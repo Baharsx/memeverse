@@ -12,6 +12,30 @@ const quoteSchema = z.object({
   reference: z.string().trim().min(3).max(120),
 }).strict();
 
+const agentDecisionSchema = z.object({
+  recipient: z.string().trim().min(1).max(64),
+  requestedAmount: z.string().trim().regex(/^\d+(?:\.\d{1,6})?$/),
+  reference: z.string().trim().min(3).max(120),
+  signals: z.object({
+    engagementVelocity: z.number().int().min(0).max(100),
+    holderRetention: z.number().int().min(0).max(100),
+    liquidityDepth: z.number().int().min(0).max(100),
+    fraudRisk: z.number().int().min(0).max(100),
+    confidence: z.number().int().min(0).max(100),
+    observedAt: z.string().datetime({ offset: true }),
+    source: z.enum(['MANUAL_DEMO', 'ANALYTICS_PIPELINE', 'ONCHAIN_INDEXER']),
+    sourceReference: z.string().trim().min(3).max(200),
+  }).strict(),
+}).strict();
+
+const swapEstimateSchema = z.object({
+  tokenIn: z.enum(['USDC', 'EURC', 'cirBTC']),
+  tokenOut: z.enum(['USDC', 'EURC', 'cirBTC']),
+  amountIn: z.string().trim().regex(/^\d+(?:\.\d{1,6})?$/),
+}).strict().refine((input) => input.tokenIn !== input.tokenOut, {
+  message: 'Swap input and output tokens must differ.',
+});
+
 function responseData(record, metadata = {}) {
   return { data: record, meta: metadata };
 }
@@ -23,6 +47,9 @@ export function createApp({
   circleGateway,
   circleWebhookService,
   arcIndexer,
+  store,
+  agentDecisionService,
+  appKitGateway,
   logger = console,
 }) {
   const app = express();
@@ -69,13 +96,19 @@ export function createApp({
   });
 
   app.get('/api/health', async (_request, response) => {
-    const arc = await arcRpc.health();
-    response.status(arc.status === 'verified' ? 200 : 503).json({
-      status: arc.status === 'verified' ? 'ok' : 'degraded',
+    const [arc, persistenceReady] = await Promise.all([
+      arcRpc.health(),
+      store?.health?.() ?? Promise.resolve(true),
+    ]);
+    const healthy = arc.status === 'verified' && persistenceReady;
+    response.status(healthy ? 200 : 503).json({
+      status: healthy ? 'ok' : 'degraded',
       service: 'memeverse-settlement-api',
       arc,
       circle: circleGateway?.configuration() ?? { configured: false, missing: ['CIRCLE_GATEWAY'] },
       settlementContract: arcIndexer?.configuration() ?? { configured: false },
+      persistence: { ready: persistenceReady },
+      appKit: appKitGateway?.configuration() ?? { runtimeEnabled: false },
       checkedAt: new Date().toISOString(),
     });
   });
@@ -94,6 +127,15 @@ export function createApp({
         },
         circle: circleGateway?.configuration() ?? { configured: false },
         settlementContract: arcIndexer?.configuration() ?? { configured: false },
+        agent: {
+          dailySpendUsdc: config.agentDailySpendUsdc,
+          maxFraudRisk: config.agentMaxFraudRisk,
+          minConfidence: config.agentMinConfidence,
+          signalMaxAgeSeconds: config.agentSignalMaxAgeSeconds,
+          allowManualDemo: config.agentAllowManualDemo,
+          humanApprovalRequired: true,
+        },
+        appKit: appKitGateway?.configuration() ?? { runtimeEnabled: false },
       },
     });
   });
@@ -111,6 +153,39 @@ export function createApp({
     response
       .status(result.replayed ? 200 : 201)
       .json(responseData(result.record, { replayed: result.replayed }));
+  });
+
+  app.post('/api/v1/agent/decisions', async (request, response) => {
+    if (!agentDecisionService) {
+      throw new DomainError('AGENT_NOT_CONFIGURED', 'Agent decision service is unavailable.', {
+        status: 503,
+      });
+    }
+    const idempotencyKey = request.get('idempotency-key');
+    if (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 128) {
+      throw new DomainError(
+        'INVALID_IDEMPOTENCY_KEY',
+        'Idempotency-Key header must contain between 8 and 128 characters.',
+      );
+    }
+    const input = agentDecisionSchema.parse(request.body);
+    const result = await agentDecisionService.decide(input, idempotencyKey);
+    response.status(result.replayed ? 200 : 201).json(
+      responseData(result.record, { replayed: result.replayed }),
+    );
+  });
+
+  app.get('/api/v1/app-kit/capabilities', (_request, response) => {
+    response.json({ data: appKitGateway?.configuration() ?? { runtimeEnabled: false } });
+  });
+
+  app.post('/api/v1/app-kit/swap/estimate', async (request, response) => {
+    if (!appKitGateway) {
+      throw new DomainError('APP_KIT_NOT_CONFIGURED', 'App Kit gateway is unavailable.', {
+        status: 503,
+      });
+    }
+    response.json({ data: await appKitGateway.estimateSwap(swapEstimateSchema.parse(request.body)) });
   });
 
   app.post('/api/v1/settlements/:id/prepare', async (request, response) => {

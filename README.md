@@ -2,7 +2,7 @@
 
 **MemeVerse is a meme asset terminal built on Arc Network for launching, trading, minting, and autonomously preparing creator settlement in USDC.**
 
-The current release is a public Arc Testnet MVP. Launch, trade, and NFT screens remain simulations. The Agent screen enforces policy in a real backend, reserves treasury capacity transactionally, and can submit an explicitly approved creator payout through Arc Memo and the verified MemeVerseSettlement contract using a Circle Developer-Controlled EOA. The default unconfigured environment cannot sign or broadcast.
+The current release is a public Arc Testnet MVP. Launch, trade, and NFT screens remain simulations. Agent Policy V2 derives a confidence-adjusted score from fresh engagement, retention, liquidity, fraud-risk, and confidence signals; combines it with live Arc and Circle treasury evidence; reserves capacity transactionally; and may prepare—but never autonomously execute—a creator payout. Explicit human approval submits the payout through Arc Memo and the verified MemeVerseSettlement contract using a Circle Developer-Controlled EOA.
 
 ## Built on Arc
 
@@ -31,6 +31,11 @@ The product explores two Arc ecosystem tracks:
 - Independent Memo, SettlementExecuted, and USDC Transfer event reconciliation
 - Transactional treasury reservations that prevent concurrent overspend
 - Durable reconciliation worker for submitted Circle transactions
+- Multi-signal Agent Policy V2 with evidence freshness and provenance
+- Transactional autonomous daily payout cap
+- Separately supervised reconciliation worker with expiring PostgreSQL leases
+- PostgreSQL webhook replay protection
+- Fail-closed Arc App Kit integration boundary and capability discovery
 - USDC-native gas and settlement presentation
 - Meme-token launch, bonding-curve trade, NFT archive, vault, and agent simulations
 - Reconciliation reference and deterministic `bytes32` Memo ID generation
@@ -76,7 +81,7 @@ MemeVerse owns and operates this application contract; it is not an Arc or Circl
 
 Addresses must be rechecked against the [official Arc contract registry](https://docs.arc.io/arc/references/contract-addresses) before deployment.
 
-## Phase 3 architecture
+## Phase 4 architecture
 
 ```text
 Agent form → Settlement API → Policy + treasury reservation
@@ -87,10 +92,10 @@ Agent form → Settlement API → Policy + treasury reservation
                     ↑                     ↓
         Poll / signed webhook   Memo + settlement + USDC events
                     ↑                     ↓
-              Durable reconciliation worker / Arc indexer
+        Separately supervised leased worker / Arc indexer
 ```
 
-The backend remains the authority for policy, recipient, amount, chain, expiry, and allowed state transitions. Circle credentials and the entity secret never enter the Vite bundle. The Circle SDK produces a unique entity-secret ciphertext for each authorized request and Circle receives the settlement UUID as its idempotency key.
+The backend remains the authority for signal weighting, policy, recipient, amount, chain, expiry, daily cap, and allowed state transitions. Circle credentials, the entity secret, and any future Kit Key never enter the Vite bundle. The Circle SDK produces a unique entity-secret ciphertext for each authorized request and Circle receives the settlement UUID as its idempotency key.
 
 ### Settlement API
 
@@ -99,12 +104,15 @@ The backend remains the authority for policy, recipient, amount, chain, expiry, 
 | `GET` | `/api/health` | Verify API availability, Arc Chain ID, and current block |
 | `GET` | `/api/v1/config` | Return public network and policy settings |
 | `POST` | `/api/v1/settlements/quote` | Enforce policy and persist an approved or denied decision |
+| `POST` | `/api/v1/agent/decisions` | Weight fresh signals, capture operational evidence, quote, and conditionally prepare |
 | `POST` | `/api/v1/settlements/:id/prepare` | Move an approved live quote to `AWAITING_SIGNATURE` |
 | `POST` | `/api/v1/settlements/:id/execute` | Explicitly authorize and submit the Arc Memo contract call to Circle |
 | `POST` | `/api/v1/settlements/:id/reconcile` | Compare Circle state with the final Arc receipt and expected events |
 | `GET` | `/api/v1/settlements/:id` | Read one settlement and lazily apply expiry |
 | `GET` | `/api/v1/settlements` | List persisted settlements |
 | `GET` | `/api/v1/circle/wallet` | Check configured EOA state and Arc Testnet USDC balance |
+| `GET` | `/api/v1/app-kit/capabilities` | Report Arc Testnet App Kit capabilities and runtime audit status |
+| `POST` | `/api/v1/app-kit/swap/estimate` | Fail closed unless an audited App Kit provider and server Kit Key are available |
 | `POST` | `/api/webhooks/circle` | Verify and consume signed `transactions.outbound` notifications |
 
 `POST /quote` requires an `Idempotency-Key` header between 8 and 128 characters. Reusing the same key and body returns the original record; reusing it with a different body returns HTTP `409`.
@@ -158,7 +166,34 @@ Implemented safeguards:
 
 The default local database is PGlite, a durable embedded PostgreSQL engine stored under `.data/postgres`. Production can use managed PostgreSQL by setting `DATABASE_URL`. Settlement records, idempotency keys, Circle transaction IDs, and reservation status are committed transactionally.
 
-Before an approved quote is persisted, active reservations are summed under a serialized PostgreSQL transaction. A quote fails with `TREASURY_CAPACITY_EXCEEDED` when its payout would exceed the current Circle USDC balance after active reservations. Expiry, cancellation, or failure releases capacity; independently verified completion consumes it.
+Before an approved quote is persisted, active reservations are summed under a serialized PostgreSQL transaction. A quote fails with `TREASURY_CAPACITY_EXCEEDED` when its payout would exceed the current Circle USDC balance after active reservations. Agent decisions also sum the current UTC day's active, held, and consumed autonomous payouts and fail with `AGENT_DAILY_CAP_EXCEEDED` above the configured cap. Expiry, denial, cancellation, or a pre-broadcast failure releases capacity; independently verified completion consumes it. A failed or mismatched post-broadcast transaction becomes `HELD` and continues consuming capacity until manual resolution.
+
+Circle webhook receipts are deduplicated in PostgreSQL. The old JSON notification file is imported once when the database is empty. Continuous reconciliation runs in `server/worker.js`, not inside the HTTP process. Workers atomically claim records with `FOR UPDATE SKIP LOCKED` and an expiring lease, so multiple supervised instances do not process the same record concurrently.
+
+## Agent Policy V2
+
+The current weighted score is deterministic:
+
+```text
+raw score = 45% engagement velocity + 25% holder retention + 30% liquidity depth
+adjusted score = floor(raw score × confidence / 100)
+```
+
+Evidence older than five minutes, confidence below 80, fraud risk above 20, an unverified Arc RPC, or a non-live Circle EOA fails closed. Each record persists the input provenance, evidence age, weighted score, live Arc block, Circle wallet state, treasury balance, applied thresholds, and denial reasons. `MANUAL_DEMO` is available for testnet demonstrations but is not a trusted production analytics source.
+
+The authority boundary is explicit: the agent may quote and prepare; it may not sign, execute, retry blindly, raise limits, change recipients, or bypass human approval.
+
+## Arc App Kit boundary
+
+Official Arc documentation lists Send, Bridge, Swap, and Unified Balance support on Arc Testnet. MemeVerse exposes a truthful server-only capability boundary: authenticated **Swap Estimate** is live, while Send, Bridge, swap execution, and Unified Balance remain disabled until each has a separately reviewed implementation.
+
+The latest official `@circle-fin/app-kit` and Circle Wallets adapter graph was re-evaluated on 2026-08-02 and still introduced 25 low/moderate runtime audit findings through unused Solana and legacy ethers paths. Those packages are not shipped. Instead, the backend uses Node's native `fetch` against Circle's documented Stablecoin Kits service contract, requires the server-only Kit Key and live Arc Testnet Circle wallet, validates that Circle echoes the exact wallet/tokens/amount, and discards prepared transaction data before returning an estimate. Runtime status is `AVAILABLE_AUDIT_CLEAN`; `npm audit` remains zero.
+
+Run a non-transactional authenticated verification with:
+
+```bash
+npm run app-kit:verify
+```
 
 ## Security posture
 
@@ -204,6 +239,12 @@ The combined development command starts:
 - the API at `http://127.0.0.1:8787`
 
 Vite proxies `/api` in development. The backend writes records under `.data/`, which is intentionally ignored by Git. Copy `.env.example` to `.env.local` to override public and server-only configuration without tracking secrets.
+
+PGlite is single-process development storage. Continuous separate workers require `DATABASE_URL`; run a one-shot local reconciliation only while the API is stopped:
+
+```bash
+WORKER_ONCE=true npm run start:worker
+```
 
 ### Configure the Circle Arc Testnet wallet
 
@@ -264,18 +305,37 @@ npm run build
 npm run preview
 ```
 
+Production refuses to start without managed PostgreSQL. Run the API and worker as separately supervised services:
+
+```bash
+NODE_ENV=production npm run db:migrate
+NODE_ENV=production npm run start:api
+NODE_ENV=production npm run start:worker
+```
+
+Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration identity. The API and worker use the lower-privilege `DATABASE_URL`; production runtime migration is forcibly disabled. Hardened service templates are under `ops/systemd/`. Credentials must come from a secret manager rather than Git.
+
 ## Phase 3 verification evidence
 
 - Deployment transaction: [`0x0125af5971f2f16d810174c5694b173dd779b8fdce6da3d73c9a77b490e43933`](https://testnet.arcscan.app/tx/0x0125af5971f2f16d810174c5694b173dd779b8fdce6da3d73c9a77b490e43933)
 - End-to-end Memo settlement: [`0xbdd7b3edaf3a10bb8b81a8ef6eea1644fc04ccfd94ff938e3f528fdac4effac6`](https://testnet.arcscan.app/tx/0xbdd7b3edaf3a10bb8b81a8ef6eea1644fc04ccfd94ff938e3f528fdac4effac6)
 - Indexed result: Circle `COMPLETE`, Arc event reconciliation `VERIFIED`, reservation `CONSUMED`
 
-## Next implementation milestone — Phase 4
+## Phase 4 verification
 
-- Integrate Circle App Kits where they materially improve Send, Bridge, Swap, or Unified Balance UX
-- Extend the agent with documented signal inputs and bounded autonomous decision rules
-- Deploy managed PostgreSQL and a separately supervised worker for the public environment
-- Add a professional smart-contract security review before any mainnet consideration
+- Agent Policy V2 may only quote and prepare; execution remains human-only.
+- PostgreSQL daily-cap concurrency, webhook replay, and worker leasing are covered by automated tests.
+- `npm run contracts:audit:onchain` performs read-only rejection tests against the deployed Arc contract.
+- The internal review is documented in [`docs/PHASE-4-SECURITY-REVIEW.md`](./docs/PHASE-4-SECURITY-REVIEW.md).
+- Authenticated Arc Testnet `USDC → EURC` estimation is verified through the server-only Stablecoin Kits boundary; no transaction is signed or broadcast.
+- The official full App Kit package graph remains excluded because it still adds 25 audit findings; the active native-fetch boundary keeps `npm audit` at zero.
+
+## Next implementation milestone — Phase 5
+
+- Connect an authenticated analytics/indexing pipeline and disable `MANUAL_DEMO` signals in production.
+- Deploy the API, worker, and managed PostgreSQL to a public testnet environment with backup and restore drills.
+- Add Send, Bridge, swap execution, and Unified Balance only after separate transaction-policy and dependency reviews; capability discovery currently reports them disabled.
+- Obtain an independent professional smart-contract audit before any mainnet consideration.
 
 ## License
 
