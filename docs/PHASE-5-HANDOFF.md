@@ -4,8 +4,8 @@ MemeVerse is ready to present as an independent product **built on Arc**. The fi
 
 ## Three-minute demo path
 
-1. Open `/memeverse/`. Point out the live Arc RPC block, PostgreSQL, Circle Wallet, and App Kit status cells.
-2. Open **App Kit**. Request the default `0.01 USDC → EURC` estimate. Explain that the Kit Key stays server-side, the provider response is validated, transaction data is discarded, and nothing is signed or broadcast.
+1. Open `/memeverse/`. Point out the live Arc RPC block, PostgreSQL, Circle Wallet, and Circle quote status cells.
+2. Open **Quote**. Request the default `0.01 USDC → EURC` estimate. Explain that the Kit Key stays server-side, the provider response is validated, transaction data is discarded, and nothing is signed or broadcast.
 3. Open **Agent**. Submit the default `1.00 USDC` request. Walk through the weighted signal score, enforced limits, PostgreSQL reservation, reconciliation memo, and Circle execution plan.
 4. Select **Review human execution** only to demonstrate the safety gate. Do not type `EXECUTE` unless a deliberate testnet broadcast is intended and every displayed field has been verified.
 5. Open **Proof**. Show the verified MemeVerseSettlement address, official Arc resources, explicit transaction lifecycle, Testnet warning, and brand-language statement.
@@ -16,7 +16,7 @@ MemeVerse is ready to present as an independent product **built on Arc**. The fi
 - The Agent may evaluate, quote, reserve, and prepare; a human is required to execute.
 - Circle Developer-Controlled Wallet infrastructure is configured for an Arc Testnet EOA.
 - The MemeVerseSettlement source is verified on ArcScan.
-- The App Kit experience performs a real authenticated estimate and does not broadcast.
+- The Circle Stablecoin Kits experience performs a real authenticated estimate and does not broadcast.
 - Market launch, NFT, and vault experiences are simulations.
 
 Do not claim Arc or Circle endorsement, partnership, mainnet readiness, autonomous signing, production analytics, real asset value, or current post-quantum protection.
@@ -42,8 +42,8 @@ npm audit --audit-level=low
 
 Expected presentation state:
 
-- API reports `status: ok`, Arc `verified`, persistence `ready`, Circle configured, and App Kit runtime enabled.
-- App Kit verification returns an estimate without a transaction broadcast.
+- API reports `status: ok`, Arc `verified`, persistence `ready`, Circle configured, and the server-side Circle quote runtime enabled.
+- Circle quote verification returns an estimate without a transaction broadcast.
 - Automated test, build, dependency audit, and read-only onchain audit complete successfully.
 
 ## Recovery notes

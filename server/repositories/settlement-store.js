@@ -45,7 +45,7 @@ function withInitialReservation(
     && agentDailyUsedUnits + requestedUnits > BigInt(agentDailyCapUnits)) {
     throw new DomainError(
       'AGENT_DAILY_CAP_EXCEEDED',
-      'The autonomous settlement daily payout cap has been reached.',
+      'The agent daily payout cap has been reached.',
       { status: 409 },
     );
   }

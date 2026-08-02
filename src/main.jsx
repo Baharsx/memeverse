@@ -112,9 +112,9 @@ const nfts = [
   ['TERMINAL FROG #808', '210 USDC'],
 ];
 
-function ExternalLink({ href, children, className = '' }) {
+function ExternalLink({ href, children, className = '', ...props }) {
   return (
-    <a className={className} href={href} target="_blank" rel="noreferrer">
+    <a className={className} href={href} target="_blank" rel="noreferrer" {...props}>
       {children}
     </a>
   );
@@ -205,7 +205,7 @@ function BackendStatus() {
 function Shell() {
   const navItems = [
     ['01', 'AGENT', '/agent'],
-    ['02', 'APP KIT', '/trade'],
+    ['02', 'QUOTE', '/trade'],
     ['03', 'LABS', '/launch'],
     ['04', 'PROOF', '/safety'],
   ];
@@ -257,6 +257,7 @@ function Shell() {
       <footer>
         <span>MEMEVERSE © 2026</span>
         <span>{network.chain.name.toUpperCase()} // CHAIN {network.chain.id}</span>
+        <ExternalLink className="social-link" href="https://x.com/memeversebiz" aria-label="MemeVerse on X">X / @MEMEVERSEBIZ ↗</ExternalLink>
         <ExternalLink href={arcLinks.docs}>BUILT ON ARC // OFFICIAL DOCS ↗</ExternalLink>
       </footer>
     </>
@@ -275,7 +276,7 @@ function Home() {
     ['ARC RPC', health.data?.arc?.status === 'verified', health.data?.arc?.blockNumber ? `BLOCK ${health.data.arc.blockNumber}` : 'VERIFYING'],
     ['POSTGRES', health.data?.persistence?.ready === true, 'RESERVATIONS READY'],
     ['CIRCLE WALLET', health.data?.circle?.configured === true, 'DEV-CONTROLLED'],
-    ['APP KIT', health.data?.appKit?.runtimeEnabled === true, 'LIVE SWAP ESTIMATES'],
+    ['CIRCLE QUOTE', health.data?.appKit?.runtimeEnabled === true, 'LIVE SWAP ESTIMATES'],
   ];
 
   return (
@@ -337,7 +338,7 @@ function Home() {
         <Title n="LAB" t="EXPLORE THE PRODUCT SURFACES" as="h2" />
         <div>
           <NavLink to="/agent"><small>REAL BACKEND</small><strong>AGENT SETTLEMENT</strong><span>Policy-backed USDC quote →</span></NavLink>
-          <NavLink to="/trade"><small>REAL CIRCLE QUOTE</small><strong>APP KIT ESTIMATE</strong><span>USDC / EURC on Arc →</span></NavLink>
+          <NavLink to="/trade"><small>REAL CIRCLE QUOTE</small><strong>STABLECOIN ESTIMATE</strong><span>USDC / EURC on Arc →</span></NavLink>
           <NavLink to="/launch"><small>SAFE SIMULATION</small><strong>MARKET LAB</strong><span>Launch without broadcast →</span></NavLink>
           <NavLink to="/safety"><small>OFFICIAL SOURCES</small><strong>PROOF &amp; SAFETY</strong><span>Contracts and lifecycle →</span></NavLink>
         </div>
@@ -491,10 +492,10 @@ function Trade() {
 
   return (
     <section className="page app-kit-page">
-      <Title n="02" t="CIRCLE APP KIT QUOTE" />
+      <Title n="02" t="CIRCLE STABLECOIN QUOTE" />
       <p className="lede">
-        Request a live, authenticated Stablecoin Kits estimate for Arc Testnet. The Kit Key stays
-        on the server, transaction data is discarded, and this screen never signs or broadcasts.
+        Request a live, authenticated Circle Stablecoin Kits estimate for Arc Testnet. The Kit Key
+        stays on the server, transaction data is discarded, and this screen never signs or broadcasts.
       </p>
       <div className="app-kit-grid">
         <form className="quote-form" onSubmit={requestQuote}>
@@ -557,7 +558,7 @@ function Trade() {
   );
 }
 
-function NFTCard({ n, p, i }) {
+function NFTCard({ n, p, i, onPreview }) {
   return (
     <article className="nft-card">
       <div className={`art art${i}`}><Mascot /></div>
@@ -565,7 +566,7 @@ function NFTCard({ n, p, i }) {
         <small>MEMEVERSE DEMO ARCHIVE</small>
         <h3>{n}</h3>
         <b>{p}</b>
-        <span className="card-action">PREVIEW</span>
+        {onPreview ? <button className="card-action" type="button" onClick={onPreview}>PREVIEW</button> : null}
       </div>
     </article>
   );
@@ -573,6 +574,8 @@ function NFTCard({ n, p, i }) {
 
 function NFT() {
   const [modal, setModal] = useState(false);
+  const [listingPreview, setListingPreview] = useState(false);
+  const [price, setPrice] = useState('');
   const closeButton = useRef(null);
   const opener = useRef(null);
   const items = [
@@ -597,6 +600,8 @@ function NFT() {
 
   function openPreview(event) {
     opener.current = event.currentTarget;
+    setListingPreview(false);
+    setPrice('');
     setModal(true);
   }
 
@@ -610,9 +615,7 @@ function NFT() {
       <Title n="LAB A" t="NFT ARCHIVE / DEMO" />
       <div className="nft-grid">
         {items.map((item, index) => (
-          <button className="nft-trigger" type="button" key={item[0]} onClick={openPreview}>
-            <NFTCard n={item[0]} p={item[1]} i={index % 3} />
-          </button>
+          <NFTCard key={item[0]} n={item[0]} p={item[1]} i={index % 3} onPreview={openPreview} />
         ))}
       </div>
       {modal ? (
@@ -622,10 +625,11 @@ function NFT() {
             <div id="preview-dialog-title"><Title n="DEMO" t="PREVIEW ASK PRICE" as="h2" /></div>
             <label>
               PRICE
-              <input placeholder="0.00" inputMode="decimal" />
+              <input value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00" inputMode="decimal" />
               <small>USDC</small>
             </label>
-            <button className="btn primary full" type="button">PREVIEW LISTING →</button>
+            <button className="btn primary full" type="button" onClick={() => setListingPreview(true)}>PREVIEW LISTING →</button>
+            {listingPreview ? <div className="receipt simulation-receipt" role="status"><b>SIMULATION READY // NO BROADCAST</b><span>{price ? `ASK PREVIEW: ${price} USDC` : 'ASK PREVIEW: NOT SET'}</span><span>NFT listings are not live in this Testnet MVP.</span></div> : null}
           </div>
         </div>
       ) : null}
@@ -783,7 +787,7 @@ function Agent() {
 
   return (
     <section className="page agent-page">
-      <Title n="01" t="AUTONOMOUS SETTLEMENT" />
+      <Title n="01" t="AGENT-GUIDED SETTLEMENT" />
       <p className="lede">
         The backend weights fresh engagement, retention, liquidity, fraud-risk, and confidence
         signals against live Arc and Circle treasury evidence. The agent may quote and prepare,
@@ -901,7 +905,7 @@ function Agent() {
         <span>NO BLIND RETRIES</span>
         <span>CONDITIONAL SETTLEMENT</span>
         <span>CIRCLE DEV-CONTROLLED EOA</span>
-        <span>APP KIT QUOTES LIVE / FAIL-CLOSED</span>
+        <span>CIRCLE KIT QUOTES LIVE / FAIL-CLOSED</span>
         <span>SEPARATE LEASED WORKER</span>
       </div>
     </section>

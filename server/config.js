@@ -4,7 +4,7 @@ import { z } from 'zod';
 const environmentSchema = z.object({
   API_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   APP_ORIGIN: z.string().url().default('http://127.0.0.1:5173'),
-  ARC_RPC_URL: z.string().url().default('https://rpc.testnet.arc.io'),
+  ARC_RPC_URL: z.string().url().default('https://rpc.testnet.arc.network'),
   SETTLEMENT_DATA_FILE: z.string().min(1).default('.data/settlements.json'),
   CIRCLE_NOTIFICATION_DATA_FILE: z.string().min(1).default('.data/circle-notifications.json'),
   DATABASE_URL: z.string().url().optional(),

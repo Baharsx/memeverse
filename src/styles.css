@@ -28,3 +28,4 @@ footer{font-size:10px;min-height:52px;height:auto;align-items:center}.resource-c
 @media(max-width:500px){.hero>div,.hero aside{min-width:0}.hero h1{font-size:clamp(36px,10vw,47px);max-width:100%;letter-spacing:-.065em;overflow-wrap:break-word}.hero h1 mark{box-decoration-break:clone;-webkit-box-decoration-break:clone}.title{align-items:flex-start}.title h1,.title h2{font-size:30px;line-height:1}.runtime-proof>div{padding:18px}.runtime-proof strong{font-size:16px}.pair-display span{font-size:17px;padding:16px 12px}.agent-rules,.agent-log{padding:18px}.signal-fields{grid-template-columns:1fr 1fr}.agent-log>div{font-size:10px}.risk-banner span{font-size:11px}.resource-card{padding:20px}}
 .product-flow,.demo-surfaces{content-visibility:visible;contain-intrinsic-size:none}
 @media(max-width:800px){.safety-grid>section{min-width:0}.state-pipeline span{min-width:0}}
+footer a{white-space:nowrap}footer .social-link:hover{color:var(--acid)}

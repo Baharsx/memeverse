@@ -13,7 +13,7 @@ This is an internal engineering review, not an independent professional audit. M
 4. A failed USDC `transferFrom` reverts the `settled` write.
 5. Circle `COMPLETE` is insufficient; Memo, SettlementExecuted, and ERC-20 USDC Transfer events must all match.
 6. Agent Policy V2 may quote and prepare but cannot execute a financial transaction.
-7. Treasury balance, active/held reservations, and the autonomous daily cap are checked in one serialized database transaction. Post-broadcast ambiguity remains held.
+7. Treasury balance, active/held reservations, and the agent daily cap are checked in one serialized database transaction. Post-broadcast ambiguity remains held.
 8. Webhook notification IDs are deduplicated in PostgreSQL.
 9. Multiple workers claim reconciliation records through expiring database leases.
 10. Production refuses to start without `DATABASE_URL`.
@@ -32,11 +32,11 @@ This is an internal engineering review, not an independent professional audit. M
 | Webhook replay | PostgreSQL primary key and advisory lock | Authentic notifications can arrive out of order; state transition rules still apply |
 | Supply-chain compromise | Runtime dependency audit and minimal native-fetch Stablecoin Kits boundary | Full official App Kit packages remain excluded; the active quote-only path has no added runtime dependencies |
 
-## App Kit decision
+## Circle Stablecoin Kits decision
 
-Arc App Kit capabilities are exposed through a narrow backend boundary. The latest official `@circle-fin/app-kit@1.11.0` and `@circle-fin/adapter-circle-wallets@1.5.0` packages were re-evaluated on 2026-08-02 but are not shipped because their dependency graph still introduced 25 low/moderate runtime findings, including legacy elliptic and UUID paths.
+Arc's official App Kit documentation describes an SDK suite. MemeVerse does not ship `@circle-fin/app-kit` or `@circle-fin/adapter-circle-wallets` in its runtime bundle. Those packages were re-evaluated on 2026-08-02 but are not shipped because their dependency graph still introduced 25 low/moderate runtime findings, including legacy elliptic and UUID paths.
 
-MemeVerse enables only authenticated Swap Estimate through Circle's Stablecoin Kits HTTPS service contract using Node's native `fetch`. The Kit Key remains server-only, the request requires a live Circle wallet on Arc Testnet, echoed wallet/token/amount fields are verified, provider errors are redacted, timeouts fail closed, and prepared transaction data is discarded. Send, Bridge, swap execution, and Unified Balance are reported as disabled. This keeps the application dependency audit at zero while providing a real, non-transactional Arc Testnet quote path.
+MemeVerse enables only authenticated Swap Estimate through Circle's Stablecoin Kits HTTPS service contract using Node's native `fetch`. The Kit Key remains server-only, the request requires a live Circle wallet on Arc Testnet, echoed wallet/token/amount fields are verified, provider errors are redacted, timeouts fail closed, and prepared transaction data is discarded. Send, Bridge, swap execution, and Unified Balance are reported as disabled. This keeps the application dependency audit at zero while providing a real, non-transactional Arc Testnet quote path without claiming to ship the App Kit SDK.
 
 ## Verification commands
 
