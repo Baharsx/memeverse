@@ -6,9 +6,59 @@ function clone(value) {
   return value == null ? value : structuredClone(value);
 }
 
+const reservationTerminalStates = new Set(['COMPLETE', 'DENIED', 'EXPIRED', 'CANCELLED', 'FAILED']);
+
+function withInitialReservation(record, records, treasuryAvailableUnits) {
+  if (!record.policy?.approved) return { ...record, reservation: null };
+  const requestedUnits = BigInt(record.amount.creatorPayoutUnits);
+  const reservedUnits = [...records]
+    .filter((candidate) => candidate.reservation?.status === 'ACTIVE')
+    .reduce((sum, candidate) => sum + BigInt(candidate.reservation.units), 0n);
+  if (treasuryAvailableUnits !== undefined
+    && reservedUnits + requestedUnits > BigInt(treasuryAvailableUnits)) {
+    throw new DomainError(
+      'TREASURY_CAPACITY_EXCEEDED',
+      'Available Arc USDC is already reserved by active settlements.',
+      {
+        status: 409,
+        details: {
+          availableUnits: BigInt(treasuryAvailableUnits).toString(),
+          reservedUnits: reservedUnits.toString(),
+          requestedUnits: requestedUnits.toString(),
+        },
+      },
+    );
+  }
+  return {
+    ...record,
+    reservation: {
+      units: requestedUnits.toString(),
+      status: 'ACTIVE',
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    },
+  };
+}
+
+function withUpdatedReservation(record) {
+  if (!record.reservation) return record;
+  let status = record.reservation.status;
+  if (record.state === 'COMPLETE') status = 'CONSUMED';
+  else if (reservationTerminalStates.has(record.state)) status = 'RELEASED';
+  return {
+    ...record,
+    reservation: {
+      ...record.reservation,
+      status,
+      updatedAt: record.updatedAt,
+    },
+  };
+}
+
 export class MemorySettlementStore {
   constructor(seed = []) {
     this.records = new Map(seed.map((record) => [record.id, clone(record)]));
+    this.writeQueue = Promise.resolve();
   }
 
   async initialize() {}
@@ -31,22 +81,38 @@ export class MemorySettlementStore {
     return clone([...this.records.values()].find((record) => record.circle?.transactionId === id));
   }
 
-  async createIfAbsent(record) {
-    const existing = [...this.records.values()].find(
-      (candidate) => candidate.idempotencyKey === record.idempotencyKey,
-    );
-    if (existing) return { record: clone(existing), created: false };
+  async createIfAbsent(record, { treasuryAvailableUnits } = {}) {
+    return this.mutate(async () => {
+      const existing = [...this.records.values()].find(
+        (candidate) => candidate.idempotencyKey === record.idempotencyKey,
+      );
+      if (existing) return { record: clone(existing), created: false };
 
-    this.records.set(record.id, clone(record));
-    return { record: clone(record), created: true };
+      const stored = withInitialReservation(record, this.records.values(), treasuryAvailableUnits);
+      this.records.set(stored.id, clone(stored));
+      return { record: clone(stored), created: true };
+    });
   }
 
   async update(record) {
     if (!this.records.has(record.id)) {
       throw new DomainError('SETTLEMENT_NOT_FOUND', 'Settlement was not found.', { status: 404 });
     }
-    this.records.set(record.id, clone(record));
-    return clone(record);
+    const stored = withUpdatedReservation(record);
+    this.records.set(stored.id, clone(stored));
+    return clone(stored);
+  }
+
+  async listReconciliationCandidates() {
+    return [...this.records.values()]
+      .filter((record) => record.circle?.transactionId && !['COMPLETE', 'FAILED', 'DENIED', 'CANCELLED'].includes(record.state))
+      .map(clone);
+  }
+
+  mutate(operation) {
+    const result = this.writeQueue.then(operation);
+    this.writeQueue = result.then(() => undefined, () => undefined);
+    return result;
   }
 }
 
@@ -93,16 +159,17 @@ export class JsonSettlementStore {
     return clone([...this.records.values()].find((record) => record.circle?.transactionId === id));
   }
 
-  async createIfAbsent(record) {
+  async createIfAbsent(record, { treasuryAvailableUnits } = {}) {
     return this.mutate(async () => {
       const existing = [...this.records.values()].find(
         (candidate) => candidate.idempotencyKey === record.idempotencyKey,
       );
       if (existing) return { record: clone(existing), created: false };
 
-      this.records.set(record.id, clone(record));
+      const stored = withInitialReservation(record, this.records.values(), treasuryAvailableUnits);
+      this.records.set(stored.id, clone(stored));
       await this.persist();
-      return { record: clone(record), created: true };
+      return { record: clone(stored), created: true };
     });
   }
 
@@ -111,10 +178,18 @@ export class JsonSettlementStore {
       if (!this.records.has(record.id)) {
         throw new DomainError('SETTLEMENT_NOT_FOUND', 'Settlement was not found.', { status: 404 });
       }
-      this.records.set(record.id, clone(record));
+      const stored = withUpdatedReservation(record);
+      this.records.set(stored.id, clone(stored));
       await this.persist();
-      return clone(record);
+      return clone(stored);
     });
+  }
+
+  async listReconciliationCandidates() {
+    await this.writeQueue;
+    return [...this.records.values()]
+      .filter((record) => record.circle?.transactionId && !['COMPLETE', 'FAILED', 'DENIED', 'CANCELLED'].includes(record.state))
+      .map(clone);
   }
 
   mutate(operation) {

@@ -1,11 +1,14 @@
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
 import { DomainError } from '../domain/errors.js';
+import { parseUnits } from 'viem';
+import { createArcSettlementExecutionPlan } from './arc-contracts.js';
 
 export function circleConfigurationStatus(config) {
   const missing = [];
   if (!config.circleApiKey) missing.push('CIRCLE_API_KEY');
   if (!config.circleEntitySecret) missing.push('CIRCLE_ENTITY_SECRET');
   if (!config.circleWalletId) missing.push('CIRCLE_WALLET_ID');
+  if (!config.circleSettlementContractAddress) missing.push('CIRCLE_SETTLEMENT_CONTRACT_ADDRESS');
   return { configured: missing.length === 0, missing };
 }
 
@@ -47,6 +50,17 @@ export class CircleWalletGateway {
     }
   }
 
+  createExecutionPlan(record) {
+    if (!this.config.circleSettlementContractAddress) {
+      throw new DomainError(
+        'ARC_SETTLEMENT_CONTRACT_NOT_CONFIGURED',
+        'The Arc settlement contract address is not configured.',
+        { status: 503 },
+      );
+    }
+    return createArcSettlementExecutionPlan(record, this.config.circleSettlementContractAddress);
+  }
+
   async readiness() {
     const configuration = this.configuration();
     if (!configuration.configured) {
@@ -80,16 +94,25 @@ export class CircleWalletGateway {
     }
   }
 
-  async executeTransfer(record) {
+  async treasuryAvailableUnits() {
+    const readiness = await this.readiness();
+    if (!readiness.configured) {
+      throw new DomainError('CIRCLE_NOT_CONFIGURED', 'Circle wallet is not configured.', {
+        status: 503,
+      });
+    }
+    return parseUnits(readiness.usdcBalance, 6);
+  }
+
+  async executeSettlement(record) {
     this.requireConfigured();
     try {
-      const response = await this.client.createTransaction({
+      const plan = record.executionPlan ?? this.createExecutionPlan(record);
+      const response = await this.client.createContractExecutionTransaction({
         idempotencyKey: record.id,
         walletId: this.config.circleWalletId,
-        destinationAddress: record.recipient,
-        amount: [record.amount.creatorPayoutUsdc],
-        tokenAddress: this.config.arcUsdcAddress,
-        blockchain: 'ARC-TESTNET',
+        contractAddress: plan.memoContract,
+        callData: plan.memoCallData,
         refId: record.id,
         fee: {
           type: 'level',

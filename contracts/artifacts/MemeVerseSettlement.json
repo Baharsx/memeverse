@@ -1,0 +1,405 @@
+{
+  "contractName": "MemeVerseSettlement",
+  "sourceName": "MemeVerseSettlement.sol",
+  "compiler": "0.8.30+commit.73712a01.Emscripten.clang",
+  "evmVersion": "cancun",
+  "optimizer": {
+    "enabled": true,
+    "runs": 200
+  },
+  "standardJsonInput": {
+    "language": "Solidity",
+    "sources": {
+      "MemeVerseSettlement.sol": {
+        "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\n\ninterface IERC20 {\n    function transferFrom(address from, address to, uint256 amount) external returns (bool);\n}\n\n/// @title MemeVerseSettlement\n/// @notice Executes idempotent, operator-authorized creator payouts in Arc USDC.\n/// @dev Calls are intended to be forwarded through Arc's Memo contract. Arc's\n///      CallFrom extension preserves the signing EOA as msg.sender here.\ncontract MemeVerseSettlement {\n    error AlreadySettled(bytes32 settlementId);\n    error InvalidAmount();\n    error InvalidConfiguration();\n    error InvalidRecipient();\n    error TransferFailed();\n    error Unauthorized(address caller);\n\n    IERC20 public immutable usdc;\n    address public immutable operator;\n\n    mapping(bytes32 settlementId => bool completed) public settled;\n\n    event SettlementExecuted(\n        bytes32 indexed settlementId,\n        address indexed operator,\n        address indexed recipient,\n        uint256 amount\n    );\n\n    constructor(address operator_, address usdc_) {\n        if (operator_ == address(0) || usdc_ == address(0)) revert InvalidConfiguration();\n        operator = operator_;\n        usdc = IERC20(usdc_);\n    }\n\n    function settle(bytes32 settlementId, address recipient, uint256 amount) external {\n        if (msg.sender != operator) revert Unauthorized(msg.sender);\n        if (settlementId == bytes32(0)) revert InvalidConfiguration();\n        if (recipient == address(0)) revert InvalidRecipient();\n        if (amount == 0) revert InvalidAmount();\n        if (settled[settlementId]) revert AlreadySettled(settlementId);\n\n        // Mark before the external call. A failed transfer reverts this write.\n        settled[settlementId] = true;\n        _safeTransferFrom(operator, recipient, amount);\n\n        emit SettlementExecuted(settlementId, operator, recipient, amount);\n    }\n\n    function _safeTransferFrom(address from, address to, uint256 amount) private {\n        (bool success, bytes memory result) = address(usdc).call(\n            abi.encodeCall(IERC20.transferFrom, (from, to, amount))\n        );\n        if (!success || (result.length != 0 && !abi.decode(result, (bool)))) {\n            revert TransferFailed();\n        }\n    }\n}\n"
+      }
+    },
+    "settings": {
+      "evmVersion": "cancun",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "outputSelection": {
+        "*": {
+          "*": [
+            "abi",
+            "evm.bytecode.object",
+            "evm.deployedBytecode.object",
+            "metadata"
+          ]
+        }
+      }
+    }
+  },
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "operator_",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "usdc_",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "settlementId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "AlreadySettled",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidAmount",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidConfiguration",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidRecipient",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "TransferFailed",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "caller",
+          "type": "address"
+        }
+      ],
+      "name": "Unauthorized",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "settlementId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "operator",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "SettlementExecuted",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "operator",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "settlementId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "settle",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "settlementId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "settled",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "completed",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "usdc",
+      "outputs": [
+        {
+          "internalType": "contract IERC20",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x60c060405234801561000f575f5ffd5b5060405161057f38038061057f83398101604081905261002e9161009b565b6001600160a01b038216158061004b57506001600160a01b038116155b156100695760405163c52a9bd360e01b815260040160405180910390fd5b6001600160a01b0391821660a052166080526100cc565b80516001600160a01b0381168114610096575f5ffd5b919050565b5f5f604083850312156100ac575f5ffd5b6100b583610080565b91506100c360208401610080565b90509250929050565b60805160a0516104786101075f395f818160970152818161010b01528181610204015261023601525f8181605301526102c501526104785ff3fe608060405234801561000f575f5ffd5b506004361061004a575f3560e01c80633e413bee1461004e578063570ca73514610092578063acd28cc5146100b9578063d945af1d146100ce575b5f5ffd5b6100757f000000000000000000000000000000000000000000000000000000000000000081565b6040516001600160a01b0390911681526020015b60405180910390f35b6100757f000000000000000000000000000000000000000000000000000000000000000081565b6100cc6100c73660046103af565b610100565b005b6100f06100dc3660046103ef565b5f6020819052908152604090205460ff1681565b6040519015158152602001610089565b336001600160a01b037f000000000000000000000000000000000000000000000000000000000000000016146101505760405163472511eb60e11b81523360048201526024015b60405180910390fd5b8261016e5760405163c52a9bd360e01b815260040160405180910390fd5b6001600160a01b03821661019557604051634e46966960e11b815260040160405180910390fd5b805f036101b55760405163162908e360e11b815260040160405180910390fd5b5f8381526020819052604090205460ff16156101e7576040516358cb522560e11b815260048101849052602401610147565b5f838152602081905260409020805460ff1916600117905561022a7f0000000000000000000000000000000000000000000000000000000000000000838361029d565b816001600160a01b03167f00000000000000000000000000000000000000000000000000000000000000006001600160a01b0316847f3edc564b8d6ef49023026da8c6207cda57ae0f987e6640fe3b362c98dc98a9cf8460405161029091815260200190565b60405180910390a4505050565b6040516001600160a01b0384811660248301528381166044830152606482018390525f9182917f0000000000000000000000000000000000000000000000000000000000000000169060840160408051601f198184030181529181526020820180516001600160e01b03166323b872dd60e01b1790525161031e9190610406565b5f604051808303815f865af19150503d805f8114610357576040519150601f19603f3d011682016040523d82523d5f602084013e61035c565b606091505b509150915081158061038a575080511580159061038a575080806020019051810190610388919061041c565b155b156103a8576040516312171d8360e31b815260040160405180910390fd5b5050505050565b5f5f5f606084860312156103c1575f5ffd5b8335925060208401356001600160a01b03811681146103de575f5ffd5b929592945050506040919091013590565b5f602082840312156103ff575f5ffd5b5035919050565b5f82518060208501845e5f920191825250919050565b5f6020828403121561042c575f5ffd5b8151801515811461043b575f5ffd5b939250505056fea2646970667358221220b73cf90e4d31216aa157214161568cc13d665fe21cbbe89e14a8bb0e9bd5e94264736f6c634300081e0033",
+  "deployedBytecode": "0x608060405234801561000f575f5ffd5b506004361061004a575f3560e01c80633e413bee1461004e578063570ca73514610092578063acd28cc5146100b9578063d945af1d146100ce575b5f5ffd5b6100757f000000000000000000000000000000000000000000000000000000000000000081565b6040516001600160a01b0390911681526020015b60405180910390f35b6100757f000000000000000000000000000000000000000000000000000000000000000081565b6100cc6100c73660046103af565b610100565b005b6100f06100dc3660046103ef565b5f6020819052908152604090205460ff1681565b6040519015158152602001610089565b336001600160a01b037f000000000000000000000000000000000000000000000000000000000000000016146101505760405163472511eb60e11b81523360048201526024015b60405180910390fd5b8261016e5760405163c52a9bd360e01b815260040160405180910390fd5b6001600160a01b03821661019557604051634e46966960e11b815260040160405180910390fd5b805f036101b55760405163162908e360e11b815260040160405180910390fd5b5f8381526020819052604090205460ff16156101e7576040516358cb522560e11b815260048101849052602401610147565b5f838152602081905260409020805460ff1916600117905561022a7f0000000000000000000000000000000000000000000000000000000000000000838361029d565b816001600160a01b03167f00000000000000000000000000000000000000000000000000000000000000006001600160a01b0316847f3edc564b8d6ef49023026da8c6207cda57ae0f987e6640fe3b362c98dc98a9cf8460405161029091815260200190565b60405180910390a4505050565b6040516001600160a01b0384811660248301528381166044830152606482018390525f9182917f0000000000000000000000000000000000000000000000000000000000000000169060840160408051601f198184030181529181526020820180516001600160e01b03166323b872dd60e01b1790525161031e9190610406565b5f604051808303815f865af19150503d805f8114610357576040519150601f19603f3d011682016040523d82523d5f602084013e61035c565b606091505b509150915081158061038a575080511580159061038a575080806020019051810190610388919061041c565b155b156103a8576040516312171d8360e31b815260040160405180910390fd5b5050505050565b5f5f5f606084860312156103c1575f5ffd5b8335925060208401356001600160a01b03811681146103de575f5ffd5b929592945050506040919091013590565b5f602082840312156103ff575f5ffd5b5035919050565b5f82518060208501845e5f920191825250919050565b5f6020828403121561042c575f5ffd5b8151801515811461043b575f5ffd5b939250505056fea2646970667358221220b73cf90e4d31216aa157214161568cc13d665fe21cbbe89e14a8bb0e9bd5e94264736f6c634300081e0033",
+  "metadata": {
+    "compiler": {
+      "version": "0.8.30+commit.73712a01"
+    },
+    "language": "Solidity",
+    "output": {
+      "abi": [
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "operator_",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "usdc_",
+              "type": "address"
+            }
+          ],
+          "stateMutability": "nonpayable",
+          "type": "constructor"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "settlementId",
+              "type": "bytes32"
+            }
+          ],
+          "name": "AlreadySettled",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "InvalidAmount",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "InvalidConfiguration",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "InvalidRecipient",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "TransferFailed",
+          "type": "error"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "caller",
+              "type": "address"
+            }
+          ],
+          "name": "Unauthorized",
+          "type": "error"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {
+              "indexed": true,
+              "internalType": "bytes32",
+              "name": "settlementId",
+              "type": "bytes32"
+            },
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "operator",
+              "type": "address"
+            },
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "recipient",
+              "type": "address"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "name": "SettlementExecuted",
+          "type": "event"
+        },
+        {
+          "inputs": [],
+          "name": "operator",
+          "outputs": [
+            {
+              "internalType": "address",
+              "name": "",
+              "type": "address"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "settlementId",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "address",
+              "name": "recipient",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "name": "settle",
+          "outputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes32",
+              "name": "settlementId",
+              "type": "bytes32"
+            }
+          ],
+          "name": "settled",
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "completed",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "usdc",
+          "outputs": [
+            {
+              "internalType": "contract IERC20",
+              "name": "",
+              "type": "address"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        }
+      ],
+      "devdoc": {
+        "details": "Calls are intended to be forwarded through Arc's Memo contract. Arc's      CallFrom extension preserves the signing EOA as msg.sender here.",
+        "kind": "dev",
+        "methods": {},
+        "title": "MemeVerseSettlement",
+        "version": 1
+      },
+      "userdoc": {
+        "kind": "user",
+        "methods": {},
+        "notice": "Executes idempotent, operator-authorized creator payouts in Arc USDC.",
+        "version": 1
+      }
+    },
+    "settings": {
+      "compilationTarget": {
+        "MemeVerseSettlement.sol": "MemeVerseSettlement"
+      },
+      "evmVersion": "cancun",
+      "libraries": {},
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "remappings": []
+    },
+    "sources": {
+      "MemeVerseSettlement.sol": {
+        "keccak256": "0x06fb0701deaa0734691687ebc74725c69776db64ef33463106d5e44011fcdc70",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://a328406fc24579996d7465a689430eabbc793a89b93e55749d77f9eff05570a9",
+          "dweb:/ipfs/QmPUfpC8ViKsbnhcucxex8ipZxk9fcUd98un8JtT59FCeo"
+        ]
+      }
+    },
+    "version": 1
+  }
+}

@@ -615,7 +615,8 @@ function Agent() {
     ['02', 'CHECK SERVER POLICY', record ? (approved ? 'PASS / CAP OK' : 'DENIED') : 'PENDING'],
     ['03', 'CALCULATE CREATOR SHARE', record ? `${record.amount.creatorPayoutUsdc} USDC` : 'PENDING'],
     ['04', 'PERSIST MEMO REFERENCE', record ? 'MEMO ID READY' : 'PENDING'],
-    ['05', 'CIRCLE EXECUTION', record?.circle?.state ?? (record?.executionPlan ? 'AWAITING SIGNATURE' : record ? 'NOT PREPARED' : 'PENDING')],
+    ['05', 'CIRCLE MEMO EXECUTION', record?.circle?.state ?? (record?.executionPlan ? 'AWAITING SIGNATURE' : record ? 'NOT PREPARED' : 'PENDING')],
+    ['06', 'VERIFY ARC EVENTS', record?.reconciliation?.status ?? (record?.transactionHash ? 'INDEXING' : 'PENDING')],
   ];
 
   function updateForm(event) {
@@ -686,8 +687,8 @@ function Agent() {
       <Title n="05" t="AUTONOMOUS SETTLEMENT" />
       <p className="lede">
         The curator submits a signal to the MemeVerse backend, where an enforced policy
-        creates an expiring quote and persistent execution plan in {network.money}.
-        Phase 1 never signs or broadcasts a transaction.
+        creates an expiring treasury reservation and a persisted execution plan in {network.money}.
+        Explicit approval sends the call through Arc Memo to the verified MemeVerseSettlement contract.
       </p>
       <div className="agent-grid">
         <form className="agent-rules" onSubmit={runPolicy}>
@@ -732,10 +733,13 @@ function Agent() {
           <span>CREATOR // {record.amount.creatorPayoutUsdc} USDC</span>
           <span>TREASURY // {record.amount.treasuryRetainedUsdc} USDC</span>
           <span>MEMO // {record.memoId}</span>
+          {record.reservation ? <span>RESERVATION // {Number(record.reservation.units) / 1e6} USDC / {record.reservation.status}</span> : null}
+          {record.executionPlan?.targetContract ? <span>SETTLEMENT CONTRACT // {record.executionPlan.targetContract}</span> : null}
           {record.expiresAt ? <span>QUOTE EXPIRY // {record.expiresAt}</span> : null}
           {record.policy.reasons.map((reason) => <span key={reason.code}>{reason.code} // {reason.message}</span>)}
           <span>BROADCAST // {String(record.broadcast).toUpperCase()}</span>
           {record.circle ? <span>CIRCLE TX // {record.circle.transactionId} / {record.circle.state}</span> : null}
+          {record.reconciliation ? <span>ARC INDEX // {record.reconciliation.status}{record.reconciliation.blockNumber ? ` / BLOCK ${record.reconciliation.blockNumber}` : ''}</span> : null}
           {record.transactionHash ? (
             <ExternalLink href={`${arcLinks.explorer}/tx/${record.transactionHash}`}>VERIFY ON ARCSCAN ↗</ExternalLink>
           ) : null}
@@ -746,7 +750,7 @@ function Agent() {
               disabled={!circleConfigured || requestState.status === 'loading'}
               onClick={executeWithCircle}
             >
-              {circleConfigured ? 'SEND ARC TESTNET USDC VIA CIRCLE →' : 'CIRCLE SERVER CREDENTIALS REQUIRED'}
+              {circleConfigured ? 'EXECUTE ARC MEMO SETTLEMENT VIA CIRCLE →' : 'CIRCLE + SETTLEMENT CONTRACT REQUIRED'}
             </button>
           ) : null}
           {record.circle && !['COMPLETE', 'FAILED', 'DENIED', 'CANCELLED'].includes(record.state) ? (
@@ -756,7 +760,7 @@ function Agent() {
               disabled={requestState.status === 'loading'}
               onClick={reconcileWithCircle}
             >
-              RECONCILE CIRCLE STATUS ↻
+              RECONCILE CIRCLE + ARC EVENTS ↻
             </button>
           ) : null}
         </div>
@@ -764,7 +768,9 @@ function Agent() {
       <div className="stack-strip">
         <span>BUILT ON ARC</span>
         <span>USDC GAS</span>
-        <span>MEMO READY</span>
+        <span>ARC MEMO LIVE</span>
+        <span>VERIFIED SETTLEMENT CONTRACT</span>
+        <span>POSTGRES TREASURY RESERVATIONS</span>
         <span>EXPLICIT TX STATES</span>
         <span>NO BLIND RETRIES</span>
         <span>CONDITIONAL SETTLEMENT</span>
@@ -816,6 +822,7 @@ function Safety() {
           <dl>
             <dt>USDC</dt><dd>{arcContracts.usdc.slice(0, 10)}…{arcContracts.usdc.slice(-6)}</dd>
             <dt>MEMO</dt><dd>{arcContracts.memo.slice(0, 10)}…{arcContracts.memo.slice(-6)}</dd>
+            <dt>MEMEVERSE</dt><dd><ExternalLink href={`${arcLinks.explorer}/address/${arcContracts.memeVerseSettlement}`}>{arcContracts.memeVerseSettlement.slice(0, 10)}…{arcContracts.memeVerseSettlement.slice(-6)}</ExternalLink></dd>
             <dt>BATCH</dt><dd>{arcContracts.multicall3From.slice(0, 10)}…{arcContracts.multicall3From.slice(-6)}</dd>
           </dl>
           <ExternalLink href={arcLinks.contracts}>VERIFY ALL ADDRESSES ↗</ExternalLink>

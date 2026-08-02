@@ -4,6 +4,10 @@
   "version": "1.2.0",
   "type": "module",
   "scripts": {
+    "contracts:compile": "node scripts/compile-contracts.js",
+    "circle:deploy:settlement": "npm run contracts:compile && node scripts/circle-deploy-settlement.js",
+    "contracts:verify": "npm run contracts:compile && node scripts/verify-settlement-contract.js",
+    "circle:approve:settlement": "node scripts/circle-approve-settlement.js",
     "dev": "concurrently -k -n api,web -c magenta,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "node --watch server/index.js",
     "dev:web": "vite",
@@ -18,11 +22,14 @@
   },
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.8.0",
+    "@circle-fin/smart-contract-platform": "^10.8.0",
+    "@electric-sql/pglite": "^0.3.14",
     "@tanstack/react-query": "^5.90.21",
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
     "framer-motion": "^12.23.26",
     "helmet": "^8.1.0",
+    "pg": "^8.16.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "viem": "^2.45.2",
@@ -32,6 +39,10 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.4",
     "concurrently": "^9.2.1",
+    "solc": "^0.8.30",
     "vite": "^7.3.1"
+  },
+  "overrides": {
+    "tmp": "^0.2.7"
   }
 }

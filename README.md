@@ -2,7 +2,7 @@
 
 **MemeVerse is a meme asset terminal built on Arc Network for launching, trading, minting, and autonomously preparing creator settlement in USDC.**
 
-The current release is a public Arc Testnet MVP. Launch, trade, and NFT screens remain simulations. The Agent screen enforces policy in a real backend and can submit an explicitly approved creator payout through a Circle Developer-Controlled EOA when server credentials are configured. The default unconfigured environment cannot sign or broadcast.
+The current release is a public Arc Testnet MVP. Launch, trade, and NFT screens remain simulations. The Agent screen enforces policy in a real backend, reserves treasury capacity transactionally, and can submit an explicitly approved creator payout through Arc Memo and the verified MemeVerseSettlement contract using a Circle Developer-Controlled EOA. The default unconfigured environment cannot sign or broadcast.
 
 ## Built on Arc
 
@@ -19,13 +19,18 @@ The product explores two Arc ecosystem tracks:
 - Centralized Arc RPC, explorer, official links, and contract registry
 - Express settlement API with Arc RPC chain verification and structured errors
 - Server-enforced USDC spend/virality policy using exact six-decimal integer math
-- Durable JSON settlement records written atomically with `0600` permissions
+- Durable transactional PostgreSQL/PGlite settlement records
 - Idempotent quote creation, five-minute expiry, and explicit transaction state transitions
 - Browser Agent flow connected to `quote → prepare → persisted record`
 - Official Circle Developer-Controlled Wallets SDK integration for Arc Testnet USDC
 - Explicit `prepare → execute → reconcile` flow; no automatic or hidden signing
 - Signed Circle webhook verification with durable `notificationId` deduplication
 - Circle wallet readiness and USDC balance endpoint without secret exposure
+- Verified MemeVerseSettlement contract deployed on Arc Testnet
+- Direct EOA Arc Memo execution with persisted calldata and calldata hash
+- Independent Memo, SettlementExecuted, and USDC Transfer event reconciliation
+- Transactional treasury reservations that prevent concurrent overspend
+- Durable reconciliation worker for submitted Circle transactions
 - USDC-native gas and settlement presentation
 - Meme-token launch, bonding-curve trade, NFT archive, vault, and agent simulations
 - Reconciliation reference and deterministic `bytes32` Memo ID generation
@@ -63,18 +68,26 @@ Only public browser configuration may use a `VITE_*` variable. Never place priva
 | Memo | `0x5294E9927c3306DcBaDb03fe70b92e01cCede505` | Reconciliation metadata around a contract call |
 | Multicall3From | `0x522fAf9A91c41c443c66765030741e4AaCe147D0` | Batched calls with original EOA sender preservation |
 
+MemeVerse owns and operates this application contract; it is not an Arc or Circle system contract:
+
+| Contract | Address | Verification |
+|---|---|---|
+| MemeVerseSettlement | [`0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7`](https://testnet.arcscan.app/address/0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7) | Fully verified source on ArcScan; Solidity 0.8.30, Cancun, optimizer 200 |
+
 Addresses must be rechecked against the [official Arc contract registry](https://docs.arc.io/arc/references/contract-addresses) before deployment.
 
-## Phase 2 architecture
+## Phase 3 architecture
 
 ```text
-Agent form → Settlement API → Policy engine → Circle Wallet gateway
-                    ↓                    ↓
-               State machine ← Poll / signed Circle webhook
-                    ↓
-       Atomic settlement + notification stores
-                    ↓
-             Arc RPC / ArcScan verification
+Agent form → Settlement API → Policy + treasury reservation
+                    ↓                     ↓
+       PostgreSQL transaction       Circle EOA signer
+                    ↓                     ↓
+             State machine ← Arc Memo → MemeVerseSettlement
+                    ↑                     ↓
+        Poll / signed webhook   Memo + settlement + USDC events
+                    ↑                     ↓
+              Durable reconciliation worker / Arc indexer
 ```
 
 The backend remains the authority for policy, recipient, amount, chain, expiry, and allowed state transitions. Circle credentials and the entity secret never enter the Vite bundle. The Circle SDK produces a unique entity-secret ciphertext for each authorized request and Circle receives the settlement UUID as its idempotency key.
@@ -87,8 +100,8 @@ The backend remains the authority for policy, recipient, amount, chain, expiry, 
 | `GET` | `/api/v1/config` | Return public network and policy settings |
 | `POST` | `/api/v1/settlements/quote` | Enforce policy and persist an approved or denied decision |
 | `POST` | `/api/v1/settlements/:id/prepare` | Move an approved live quote to `AWAITING_SIGNATURE` |
-| `POST` | `/api/v1/settlements/:id/execute` | Explicitly authorize and submit the Arc Testnet USDC transfer to Circle |
-| `POST` | `/api/v1/settlements/:id/reconcile` | Fetch the latest asynchronous Circle transaction state |
+| `POST` | `/api/v1/settlements/:id/execute` | Explicitly authorize and submit the Arc Memo contract call to Circle |
+| `POST` | `/api/v1/settlements/:id/reconcile` | Compare Circle state with the final Arc receipt and expected events |
 | `GET` | `/api/v1/settlements/:id` | Read one settlement and lazily apply expiry |
 | `GET` | `/api/v1/settlements` | List persisted settlements |
 | `GET` | `/api/v1/circle/wallet` | Check configured EOA state and Arc Testnet USDC balance |
@@ -106,13 +119,13 @@ The settlement backend recognizes these application states:
 4. `CONFIRMED`, then `COMPLETE`
 5. Terminal recovery states: `EXPIRED`, `CANCELLED`, `FAILED`
 
-The application must persist the client reference, Memo ID, latest transaction hash, chain ID, expected contract and failure class. A hash alone is not proof of success; settlement requires a successful receipt and expected events.
+The application persists the client reference, Memo ID, exact inner calldata, calldata hash, latest transaction hash, chain ID, expected contract, and failure class. A hash alone is not proof of success. Circle `COMPLETE` maps only to application `CONFIRMED`; application `COMPLETE` requires a successful Arc receipt plus the expected Memo, SettlementExecuted, and USDC Transfer events.
 
 Blind retries are forbidden. A pre-broadcast rejection may be safely retried after user action. An unknown or post-broadcast failure must first be reconciled by transaction hash and reference to avoid duplicate execution.
 
 ### Transaction Memo guardrails
 
-- Memo is Testnet infrastructure, not a claim that current MemeVerse simulations are onchain.
+- Memo is Testnet infrastructure. Only the Agent settlement flow is currently onchain; the launch, trade, and NFT screens remain simulations.
 - The direct caller must be an externally owned account (EOA).
 - Smart contract accounts, ERC-4337 wallets, Safe, and intermediary contracts are not supported as direct callers.
 - Memo events are indexed by `memoId`, sender, and target; the original calldata should be retained when exact call reconstruction is required.
@@ -132,12 +145,20 @@ MemeVerse uses `@circle-fin/developer-controlled-wallets` with an Arc Testnet EO
 Implemented safeguards:
 
 - Circle calls are unavailable unless API key, entity secret, and wallet ID are all present server-side.
-- Every transfer is fixed to `ARC-TESTNET` and the verified Arc USDC address.
+- Every execution is fixed to `ARC-TESTNET`, the official Memo contract, the verified MemeVerseSettlement contract, and the Arc USDC address.
+- The inner `settle(bytes32,address,uint256)` calldata and its hash are persisted before signing.
+- The onchain contract accepts only the configured Circle EOA and rejects duplicate settlement IDs.
 - A repeated execute call reconciles the existing Circle transaction instead of creating a second transfer.
 - Submitted, broadcast, confirmed, and complete remain distinct states.
 - Webhook signatures are checked against Circle's rotating `X-Circle-Key-Id` public key.
 - Notification IDs are persisted before another notification with the same ID can be applied.
 - Older, out-of-order success notifications cannot regress an advanced settlement state.
+
+## Transactional persistence and reservations
+
+The default local database is PGlite, a durable embedded PostgreSQL engine stored under `.data/postgres`. Production can use managed PostgreSQL by setting `DATABASE_URL`. Settlement records, idempotency keys, Circle transaction IDs, and reservation status are committed transactionally.
+
+Before an approved quote is persisted, active reservations are summed under a serialized PostgreSQL transaction. A quote fails with `TREASURY_CAPACITY_EXCEEDED` when its payout would exceed the current Circle USDC balance after active reservations. Expiry, cancellation, or failure releases capacity; independently verified completion consumes it.
 
 ## Security posture
 
@@ -163,6 +184,9 @@ Arc roles and points are external community programs and do not establish endors
 - wagmi + viem
 - TanStack Query
 - Circle Developer-Controlled Wallets SDK
+- Circle Smart Contract Platform SDK
+- PostgreSQL / PGlite
+- Solidity 0.8.30
 - MetaMask-compatible injected connector
 - Arc Testnet
 
@@ -201,13 +225,22 @@ npm run circle:setup
 ```
 
 5. Add the returned non-secret `CIRCLE_WALLET_SET_ID` and `CIRCLE_WALLET_ID` to `.env.local`.
-6. Request Arc Testnet USDC from Circle's official faucet integration:
+6. Request Arc Testnet USDC from the [official Circle Faucet](https://faucet.circle.com/) and select Arc Testnet. The API command below is available only to Circle accounts upgraded for mainnet API access:
 
 ```bash
 npm run circle:fund
 ```
 
-7. Start MemeVerse, verify `/api/v1/circle/wallet`, then use the explicit Circle send button on the Agent receipt.
+7. Compile, deploy, source-verify, and approve the bounded settlement allowance:
+
+```bash
+npm run circle:deploy:settlement
+npm run contracts:verify
+npm run circle:approve:settlement
+```
+
+8. Save the non-secret contract and transaction IDs printed by those scripts in `.env.local`.
+9. Start MemeVerse, verify `/api/v1/circle/wallet`, then use the explicit Memo settlement button on the Agent receipt.
 
 For asynchronous updates, expose `/api/webhooks/circle` through public HTTPS, set `CIRCLE_WEBHOOK_URL`, and run:
 
@@ -231,13 +264,18 @@ npm run build
 npm run preview
 ```
 
-## Next implementation milestone — Phase 3
+## Phase 3 verification evidence
 
-- Deploy and verify the MemeVerse settlement or escrow contract on Arc Testnet
-- Attach settlement references through Arc Memo for direct EOA contract calls
-- Index expected contract events and independently compare them with Circle transaction state
-- Add treasury balance reservation to prevent concurrent quotes from overspending funds
-- Replace JSON persistence with transactional Postgres and a durable reconciliation worker
+- Deployment transaction: [`0x0125af5971f2f16d810174c5694b173dd779b8fdce6da3d73c9a77b490e43933`](https://testnet.arcscan.app/tx/0x0125af5971f2f16d810174c5694b173dd779b8fdce6da3d73c9a77b490e43933)
+- End-to-end Memo settlement: [`0xbdd7b3edaf3a10bb8b81a8ef6eea1644fc04ccfd94ff938e3f528fdac4effac6`](https://testnet.arcscan.app/tx/0xbdd7b3edaf3a10bb8b81a8ef6eea1644fc04ccfd94ff938e3f528fdac4effac6)
+- Indexed result: Circle `COMPLETE`, Arc event reconciliation `VERIFIED`, reservation `CONSUMED`
+
+## Next implementation milestone — Phase 4
+
+- Integrate Circle App Kits where they materially improve Send, Bridge, Swap, or Unified Balance UX
+- Extend the agent with documented signal inputs and bounded autonomous decision rules
+- Deploy managed PostgreSQL and a separately supervised worker for the public environment
+- Add a professional smart-contract security review before any mainnet consideration
 
 ## License
 

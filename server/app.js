@@ -22,6 +22,7 @@ export function createApp({
   arcRpc,
   circleGateway,
   circleWebhookService,
+  arcIndexer,
   logger = console,
 }) {
   const app = express();
@@ -74,6 +75,7 @@ export function createApp({
       service: 'memeverse-settlement-api',
       arc,
       circle: circleGateway?.configuration() ?? { configured: false, missing: ['CIRCLE_GATEWAY'] },
+      settlementContract: arcIndexer?.configuration() ?? { configured: false },
       checkedAt: new Date().toISOString(),
     });
   });
@@ -91,6 +93,7 @@ export function createApp({
           creatorShareBps: config.creatorShareBps,
         },
         circle: circleGateway?.configuration() ?? { configured: false },
+        settlementContract: arcIndexer?.configuration() ?? { configured: false },
       },
     });
   });

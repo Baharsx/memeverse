@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { decodeFunctionData } from 'viem';
 import { CircleWalletGateway } from '../infrastructure/circle-wallet-gateway.js';
+import { ARC_MEMO_ADDRESS, memoAbi } from '../infrastructure/arc-contracts.js';
 
 const config = {
   circleApiKey: 'TEST_API_KEY',
@@ -8,36 +10,37 @@ const config = {
   circleWalletId: 'wallet-id',
   circleFeeLevel: 'MEDIUM',
   arcUsdcAddress: '0x3600000000000000000000000000000000000000',
+  circleSettlementContractAddress: '0x2222222222222222222222222222222222222222',
 };
 
-test('Circle gateway builds an Arc Testnet USDC transfer without exposing secrets', async () => {
+test('Circle gateway builds a direct EOA Arc Memo contract execution without exposing secrets', async () => {
   let transferInput;
   const gateway = new CircleWalletGateway({
     config,
     client: {
-      async createTransaction(input) {
+      async createContractExecutionTransaction(input) {
         transferInput = input;
         return { data: { id: 'circle-tx-1', state: 'INITIATED' } };
       },
     },
   });
-  const transaction = await gateway.executeTransfer({
+  const record = {
     id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
     recipient: '0x1111111111111111111111111111111111111111',
-    amount: { creatorPayoutUsdc: '15' },
-  });
+    memoId: `0x${'ab'.repeat(32)}`,
+    amount: { creatorPayoutUsdc: '15', creatorPayoutUnits: '15000000' },
+  };
+  record.executionPlan = gateway.createExecutionPlan(record);
+  const transaction = await gateway.executeSettlement(record);
 
   assert.equal(transaction.id, 'circle-tx-1');
-  assert.deepEqual(transferInput, {
-    idempotencyKey: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-    walletId: 'wallet-id',
-    destinationAddress: '0x1111111111111111111111111111111111111111',
-    amount: ['15'],
-    tokenAddress: config.arcUsdcAddress,
-    blockchain: 'ARC-TESTNET',
-    refId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-    fee: { type: 'level', config: { feeLevel: 'MEDIUM' } },
-  });
+  assert.equal(transferInput.contractAddress, ARC_MEMO_ADDRESS);
+  assert.equal(transferInput.walletId, 'wallet-id');
+  assert.equal(transferInput.idempotencyKey, record.id);
+  const decoded = decodeFunctionData({ abi: memoAbi, data: transferInput.callData });
+  assert.equal(decoded.functionName, 'memo');
+  assert.equal(decoded.args[0], config.circleSettlementContractAddress);
+  assert.equal(decoded.args[2], record.memoId);
   assert.equal('circleEntitySecret' in transferInput, false);
 });
 
@@ -48,8 +51,9 @@ test('Circle gateway reports missing server configuration and fails closed', asy
     'CIRCLE_API_KEY',
     'CIRCLE_ENTITY_SECRET',
     'CIRCLE_WALLET_ID',
+    'CIRCLE_SETTLEMENT_CONTRACT_ADDRESS',
   ]);
-  await assert.rejects(gateway.executeTransfer({}), {
+  await assert.rejects(gateway.executeSettlement({}), {
     code: 'CIRCLE_NOT_CONFIGURED',
     status: 503,
   });

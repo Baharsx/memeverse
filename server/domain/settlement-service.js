@@ -4,19 +4,28 @@ import { DomainError } from './errors.js';
 import { evaluateSettlementPolicy } from './policy.js';
 import { settlementStates, transitionSettlement } from './settlement-state.js';
 import { circleStateIndicatesBroadcast, shouldApplyCircleState } from './circle-state.js';
-import { parseUsdc } from './money.js';
 
 function fingerprint(value) {
   return keccak256(stringToHex(JSON.stringify(value)));
 }
 
 export class SettlementService {
-  constructor({ store, policy, chainId, quoteTtlSeconds, circleGateway, now = () => new Date(), id = randomUUID }) {
+  constructor({
+    store,
+    policy,
+    chainId,
+    quoteTtlSeconds,
+    circleGateway,
+    arcIndexer,
+    now = () => new Date(),
+    id = randomUUID,
+  }) {
     this.store = store;
     this.policy = policy;
     this.chainId = chainId;
     this.quoteTtlSeconds = quoteTtlSeconds;
     this.circleGateway = circleGateway;
+    this.arcIndexer = arcIndexer;
     this.now = now;
     this.id = id;
   }
@@ -85,7 +94,11 @@ export class SettlementService {
       history: [{ state, at: nowIso, reason: decision.approved ? 'POLICY_APPROVED' : 'POLICY_DENIED' }],
     };
 
-    const result = await this.store.createIfAbsent(record);
+    if (decision.approved) await this.releaseExpiredReservations();
+    const treasuryAvailableUnits = decision.approved && this.circleGateway?.treasuryAvailableUnits
+      ? await this.circleGateway.treasuryAvailableUnits()
+      : undefined;
+    const result = await this.store.createIfAbsent(record, { treasuryAvailableUnits });
     if (!result.created) return this.assertReplay(result.record, requestFingerprint);
     return { record: result.record, replayed: false };
   }
@@ -118,16 +131,18 @@ export class SettlementService {
     const transitioned = transitionSettlement(record, settlementStates.AWAITING_SIGNATURE, nowIso, {
       reason: 'EXECUTION_PLAN_CREATED',
     });
-    transitioned.executionPlan = {
-      provider: 'CIRCLE_DEVELOPER_CONTROLLED_WALLET',
-      chain: 'ARC-TESTNET',
-      asset: 'USDC',
-      recipient: record.recipient,
-      amountUsdc: record.amount.creatorPayoutUsdc,
-      memoId: record.memoId,
-      requiresSigning: true,
-      broadcast: false,
-    };
+    transitioned.executionPlan = this.circleGateway?.createExecutionPlan
+      ? this.circleGateway.createExecutionPlan(record)
+      : {
+        provider: 'CIRCLE_DEVELOPER_CONTROLLED_WALLET',
+        chain: 'ARC-TESTNET',
+        asset: 'USDC',
+        recipient: record.recipient,
+        amountUsdc: record.amount.creatorPayoutUsdc,
+        memoId: record.memoId,
+        requiresSigning: true,
+        broadcast: false,
+      };
     return this.store.update(transitioned);
   }
 
@@ -148,7 +163,7 @@ export class SettlementService {
       });
     }
 
-    const transaction = await this.circleGateway.executeTransfer(record);
+    const transaction = await this.circleGateway.executeSettlement(record);
     return this.applyCircleTransaction(record, transaction, 'CIRCLE_TRANSFER_CREATED');
   }
 
@@ -183,32 +198,24 @@ export class SettlementService {
         status: 502,
       });
     }
-    if (transaction.destinationAddress
-      && transaction.destinationAddress.toLowerCase() !== record.recipient.toLowerCase()) {
-      throw new DomainError('CIRCLE_DESTINATION_MISMATCH', 'Circle transaction recipient mismatch.', {
+    const providerTarget = transaction.contractAddress ?? transaction.destinationAddress;
+    if (providerTarget && record.executionPlan?.memoContract
+      && providerTarget.toLowerCase() !== record.executionPlan.memoContract.toLowerCase()) {
+      throw new DomainError('CIRCLE_DESTINATION_MISMATCH', 'Circle transaction Memo target mismatch.', {
         status: 502,
       });
     }
-    if (transaction.amounts?.[0]) {
-      let amountMatches = false;
-      try {
-        amountMatches = parseUsdc(transaction.amounts[0], 'circleAmount')
-          === BigInt(record.amount.creatorPayoutUnits);
-      } catch {
-        amountMatches = false;
-      }
-      if (!amountMatches) {
-        throw new DomainError('CIRCLE_AMOUNT_MISMATCH', 'Circle transaction amount mismatch.', {
-          status: 502,
-        });
-      }
-    }
 
     const nowIso = this.now().toISOString();
-    const shouldTransition = transaction.state !== record.state
-      && shouldApplyCircleState(record.state, transaction.state);
+    // Circle COMPLETE means provider processing is complete. The application only
+    // becomes COMPLETE after the Arc receipt and all expected events are verified.
+    const applicationState = transaction.state === settlementStates.COMPLETE
+      ? settlementStates.CONFIRMED
+      : transaction.state;
+    const shouldTransition = applicationState !== record.state
+      && shouldApplyCircleState(record.state, applicationState);
     let updated = shouldTransition
-      ? transitionSettlement(record, transaction.state, nowIso, { reason })
+      ? transitionSettlement(record, applicationState, nowIso, { reason })
       : { ...record, updatedAt: nowIso };
     const transactionHash = transaction.txHash ?? record.transactionHash ?? null;
     const broadcast = circleStateIndicatesBroadcast(transaction.state, transactionHash)
@@ -224,15 +231,42 @@ export class SettlementService {
       } : null,
       circle: {
         transactionId: transaction.id,
-        state: shouldTransition || transaction.state === record.state
+        state: shouldTransition || applicationState === record.state
           ? transaction.state
-          : record.circle?.state ?? record.state,
+          : record.circle?.state ?? transaction.state,
         walletId: transaction.walletId ?? record.circle?.walletId ?? null,
+        sourceAddress: transaction.sourceAddress ?? record.circle?.sourceAddress ?? null,
         lastSyncedAt: nowIso,
         errorReason: transaction.errorReason ?? null,
         errorDetails: transaction.errorDetails ?? null,
       },
     };
+    updated = await this.store.update(updated);
+    return this.verifyOnchainIfReady(updated);
+  }
+
+  async verifyOnchainIfReady(record) {
+    if (!this.arcIndexer || !record.transactionHash
+      || !['CONFIRMED', 'COMPLETE'].includes(record.circle?.state)) return record;
+
+    const reconciliation = await this.arcIndexer.verify(record);
+    let updated = {
+      ...record,
+      reconciliation,
+      updatedAt: this.now().toISOString(),
+    };
+    if (reconciliation.status === 'VERIFIED' && updated.state === settlementStates.CONFIRMED) {
+      updated = transitionSettlement(updated, settlementStates.COMPLETE, updated.updatedAt, {
+        reason: 'ARC_EVENTS_VERIFIED',
+        blockNumber: reconciliation.blockNumber,
+      });
+    } else if (reconciliation.status === 'MISMATCH'
+      && ![settlementStates.FAILED, settlementStates.COMPLETE].includes(updated.state)) {
+      updated = transitionSettlement(updated, settlementStates.FAILED, updated.updatedAt, {
+        reason: 'ARC_EVENT_MISMATCH',
+        failures: reconciliation.failures,
+      });
+    }
     return this.store.update(updated);
   }
 
@@ -243,6 +277,11 @@ export class SettlementService {
   async list() {
     const records = await this.store.list();
     return Promise.all(records.map((record) => this.expireIfNeeded(record)));
+  }
+
+  async releaseExpiredReservations() {
+    const records = await this.store.list();
+    for (const record of records) await this.expireIfNeeded(record);
   }
 
   async requireRecord(id) {

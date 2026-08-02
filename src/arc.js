@@ -36,6 +36,7 @@ export const arcContracts = Object.freeze({
   usdc: '0x3600000000000000000000000000000000000000',
   memo: '0x5294E9927c3306DcBaDb03fe70b92e01cCede505',
   multicall3From: '0x522fAf9A91c41c443c66765030741e4AaCe147D0',
+  memeVerseSettlement: '0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7',
 });
 
 export const memoAbi = [
@@ -57,7 +58,7 @@ export const arcCapabilities = Object.freeze({
   phase: 'PUBLIC TESTNET',
   realAssets: false,
   confirmationsRequired: 1,
-  transactionMemos: 'TESTNET READY / EOA ONLY',
+  transactionMemos: 'LIVE IN MEMEVERSE / EOA ONLY',
   batchedTransactions: 'TESTNET READY / EOA ONLY',
   postQuantum: 'ROADMAP / NOT YET AVAILABLE',
 });

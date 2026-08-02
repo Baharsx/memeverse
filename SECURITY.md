@@ -1,6 +1,6 @@
 # Security Policy
 
-MemeVerse is currently a public Arc Testnet MVP. Its backend can authorize a Circle Developer-Controlled EOA transfer only after server credentials are configured and the user explicitly executes a prepared settlement. It does not accept mainnet assets, provide financial advice, or offer support through unsolicited direct messages.
+MemeVerse is currently a public Arc Testnet MVP. Its backend can authorize a Circle Developer-Controlled EOA call through Arc Memo only after server credentials and the verified settlement contract are configured and the user explicitly executes a prepared settlement. It does not accept mainnet assets, provide financial advice, or offer support through unsolicited direct messages.
 
 ## User safety
 
@@ -16,12 +16,16 @@ MemeVerse is currently a public Arc Testnet MVP. Its backend can authorize a Cir
 - No private key or privileged Circle credential may be bundled into the browser application or committed to Git.
 - The browser may suggest an amount or recipient, but the backend remains authoritative for limits, chain selection, quote expiry, and allowed state transitions.
 - Settlement creation must include an idempotency key. Reusing a key with a changed payload must fail closed.
-- Persistent settlement files must remain outside Git and use owner-only permissions.
+- Persistent PostgreSQL/PGlite settlement data must remain outside Git with owner-only filesystem and database access.
 - Circle API keys and entity secrets belong only in `.env.local` or a production secret manager. They must never use a `VITE_*` prefix.
 - The Circle entity-secret recovery file must be stored separately from the application and source repository.
 - Circle webhook processing requires valid `X-Circle-Signature` and `X-Circle-Key-Id` headers over the exact raw body.
 - Webhooks are at-least-once and potentially out of order; notification IDs must be deduplicated and older states must not regress settlement state.
 - A Circle transaction in `INITIATED`, `CLEARED`, `QUEUED`, or `SENT` is not final. Only independently reconciled completion may close the settlement.
+- Circle `COMPLETE` alone is not application completion. The Arc receipt must succeed and contain the expected Memo, SettlementExecuted, and USDC Transfer events with matching sender, target, recipient, amount, memo ID, and calldata hash.
+- Treasury capacity must be reserved transactionally before an approved quote is returned. Expired and failed reservations must be released; verified settlements must be consumed.
+- The MemeVerseSettlement allowance must remain bounded. Never grant an unlimited allowance merely for convenience.
+- Contract source, compiler version, optimizer settings, constructor arguments, deployed bytecode, and operator address must remain independently reproducible.
 - Production services must validate chain ID, contract address, recipient, amount, fee assumptions, and transaction status server-side.
 - Webhooks must be authenticated and deduplicated by notification ID because delivery can be at least once.
 - Retry logic must distinguish pre-broadcast failures from submitted transactions and persist the latest transaction hash before retrying.

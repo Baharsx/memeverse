@@ -4,7 +4,7 @@ import { createSettlementPolicy } from '../domain/policy.js';
 import { SettlementService } from '../domain/settlement-service.js';
 import { MemorySettlementStore } from '../repositories/settlement-store.js';
 
-function fixture(circleGateway) {
+function fixture(circleGateway, arcIndexer) {
   let currentTime = new Date('2026-08-02T10:00:00.000Z');
   const store = new MemorySettlementStore();
   const policy = createSettlementPolicy({
@@ -18,6 +18,7 @@ function fixture(circleGateway) {
     chainId: 5042002,
     quoteTtlSeconds: 300,
     circleGateway,
+    arcIndexer,
     now: () => currentTime,
     id: () => 'settlement-1',
   });
@@ -107,7 +108,7 @@ test('Circle execution and reconciliation persist asynchronous provider states',
   const transactionHash = `0x${'ab'.repeat(32)}`;
   const calls = [];
   const circleGateway = {
-    async executeTransfer(record) {
+    async executeSettlement(record) {
       calls.push(['execute', record.id]);
       return { id: 'circle-transaction-1', state: 'INITIATED', walletId: 'wallet-1' };
     },
@@ -143,7 +144,7 @@ test('Circle execution and reconciliation persist asynchronous provider states',
 
 test('Circle webhook ignores stale success states after confirmation', async () => {
   const circleGateway = {
-    async executeTransfer() {
+    async executeSettlement() {
       return { id: 'circle-transaction-2', state: 'CONFIRMED' };
     },
   };
@@ -160,4 +161,34 @@ test('Circle webhook ignores stale success states after confirmation', async () 
   assert.equal(outcome.matched, true);
   assert.equal(current.state, 'CONFIRMED');
   assert.equal(current.circle.state, 'CONFIRMED');
+});
+
+test('Circle COMPLETE remains CONFIRMED until Arc events are independently verified', async () => {
+  const transactionHash = `0x${'cd'.repeat(32)}`;
+  const circleGateway = {
+    async executeSettlement() {
+      return {
+        id: 'circle-transaction-3',
+        state: 'COMPLETE',
+        txHash: transactionHash,
+        sourceAddress: '0x9999999999999999999999999999999999999999',
+      };
+    },
+  };
+  const arcIndexer = {
+    async verify() {
+      return { status: 'VERIFIED', blockNumber: 500, transactionHash };
+    },
+  };
+  const { service } = fixture(circleGateway, arcIndexer);
+  const quote = await service.quote(validRequest, 'request-key-008');
+  await service.prepare(quote.record.id);
+  const complete = await service.execute(quote.record.id);
+
+  assert.equal(complete.state, 'COMPLETE');
+  assert.equal(complete.circle.state, 'COMPLETE');
+  assert.equal(complete.reconciliation.status, 'VERIFIED');
+  assert.equal(complete.reservation.status, 'CONSUMED');
+  assert.equal(complete.history.at(-2).state, 'CONFIRMED');
+  assert.equal(complete.history.at(-1).state, 'COMPLETE');
 });
