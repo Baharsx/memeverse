@@ -47,6 +47,7 @@ test('health verifies the Arc RPC chain', async () => {
   assert.equal(response.status, 200);
   assert.equal(payload.status, 'ok');
   assert.equal(payload.arc.chainId, 5042002);
+  assert.equal(payload.circle.configured, false);
 });
 
 test('quote and prepare form an idempotent API path', async () => {
@@ -66,12 +67,35 @@ test('quote and prepare form an idempotent API path', async () => {
     { method: 'POST' },
   );
   const preparedPayload = await prepared.json();
+  const execute = await fetch(
+    `${baseUrl}/api/v1/settlements/${firstPayload.data.id}/execute`,
+    { method: 'POST' },
+  );
+  const executePayload = await execute.json();
 
   assert.equal(first.status, 201);
   assert.equal(replay.status, 200);
   assert.equal(replayPayload.meta.replayed, true);
   assert.equal(replayPayload.data.id, firstPayload.data.id);
   assert.equal(preparedPayload.data.state, 'AWAITING_SIGNATURE');
+  assert.equal(execute.status, 503);
+  assert.equal(executePayload.error.code, 'CIRCLE_NOT_CONFIGURED');
+});
+
+test('Circle wallet and webhook routes fail closed when integration is absent', async () => {
+  const walletResponse = await fetch(`${baseUrl}/api/v1/circle/wallet`);
+  const walletPayload = await walletResponse.json();
+  const webhookResponse = await fetch(`${baseUrl}/api/webhooks/circle`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+  const webhookPayload = await webhookResponse.json();
+
+  assert.equal(walletResponse.status, 503);
+  assert.equal(walletPayload.error.code, 'CIRCLE_NOT_CONFIGURED');
+  assert.equal(webhookResponse.status, 503);
+  assert.equal(webhookPayload.error.code, 'CIRCLE_WEBHOOK_NOT_CONFIGURED');
 });
 
 test('API exposes stable validation errors', async () => {

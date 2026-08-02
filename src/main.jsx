@@ -27,8 +27,10 @@ import {
 import {
   createIdempotencyKey,
   createSettlementQuote,
+  executeSettlement,
   getApiHealth,
   prepareSettlement,
+  reconcileSettlement,
 } from './api';
 import './styles.css';
 
@@ -600,13 +602,20 @@ function Agent() {
   });
   const [requestState, setRequestState] = useState({ status: 'idle', error: null, replayed: false });
   const lastAttempt = useRef(null);
+  const health = useQuery({
+    queryKey: ['api-health'],
+    queryFn: getApiHealth,
+    retry: 1,
+    staleTime: 15_000,
+  });
+  const circleConfigured = health.data?.circle?.configured === true;
   const approved = record?.policy?.approved === true;
   const trace = [
     ['01', 'INGEST SIGNAL', record ? `SCORE ${record.viralityScore}` : 'PENDING'],
     ['02', 'CHECK SERVER POLICY', record ? (approved ? 'PASS / CAP OK' : 'DENIED') : 'PENDING'],
     ['03', 'CALCULATE CREATOR SHARE', record ? `${record.amount.creatorPayoutUsdc} USDC` : 'PENDING'],
     ['04', 'PERSIST MEMO REFERENCE', record ? 'MEMO ID READY' : 'PENDING'],
-    ['05', 'CREATE EXECUTION PLAN', record?.executionPlan ? 'AWAITING SIGNATURE' : record ? 'NOT PREPARED' : 'PENDING'],
+    ['05', 'CIRCLE EXECUTION', record?.circle?.state ?? (record?.executionPlan ? 'AWAITING SIGNATURE' : record ? 'NOT PREPARED' : 'PENDING')],
   ];
 
   function updateForm(event) {
@@ -637,6 +646,36 @@ function Agent() {
       setRequestState({
         status: 'error',
         error: `${error.code ?? 'REQUEST_FAILED'}: ${error.message}${error.requestId ? ` // ${error.requestId}` : ''}`,
+        replayed: false,
+      });
+    }
+  }
+
+  async function executeWithCircle() {
+    setRequestState({ status: 'loading', error: null, replayed: false });
+    try {
+      const response = await executeSettlement(record.id);
+      setRecord(response.data);
+      setRequestState({ status: 'submitted', error: null, replayed: false });
+    } catch (error) {
+      setRequestState({
+        status: 'error',
+        error: `${error.code ?? 'CIRCLE_EXECUTION_FAILED'}: ${error.message}${error.requestId ? ` // ${error.requestId}` : ''}`,
+        replayed: false,
+      });
+    }
+  }
+
+  async function reconcileWithCircle() {
+    setRequestState({ status: 'loading', error: null, replayed: false });
+    try {
+      const response = await reconcileSettlement(record.id);
+      setRecord(response.data);
+      setRequestState({ status: 'submitted', error: null, replayed: false });
+    } catch (error) {
+      setRequestState({
+        status: 'error',
+        error: `${error.code ?? 'CIRCLE_RECONCILIATION_FAILED'}: ${error.message}${error.requestId ? ` // ${error.requestId}` : ''}`,
         replayed: false,
       });
     }
@@ -696,6 +735,30 @@ function Agent() {
           {record.expiresAt ? <span>QUOTE EXPIRY // {record.expiresAt}</span> : null}
           {record.policy.reasons.map((reason) => <span key={reason.code}>{reason.code} // {reason.message}</span>)}
           <span>BROADCAST // {String(record.broadcast).toUpperCase()}</span>
+          {record.circle ? <span>CIRCLE TX // {record.circle.transactionId} / {record.circle.state}</span> : null}
+          {record.transactionHash ? (
+            <ExternalLink href={`${arcLinks.explorer}/tx/${record.transactionHash}`}>VERIFY ON ARCSCAN ↗</ExternalLink>
+          ) : null}
+          {approved && record.state === 'AWAITING_SIGNATURE' ? (
+            <button
+              className="btn circle-action"
+              type="button"
+              disabled={!circleConfigured || requestState.status === 'loading'}
+              onClick={executeWithCircle}
+            >
+              {circleConfigured ? 'SEND ARC TESTNET USDC VIA CIRCLE →' : 'CIRCLE SERVER CREDENTIALS REQUIRED'}
+            </button>
+          ) : null}
+          {record.circle && !['COMPLETE', 'FAILED', 'DENIED', 'CANCELLED'].includes(record.state) ? (
+            <button
+              className="btn circle-action"
+              type="button"
+              disabled={requestState.status === 'loading'}
+              onClick={reconcileWithCircle}
+            >
+              RECONCILE CIRCLE STATUS ↻
+            </button>
+          ) : null}
         </div>
       ) : null}
       <div className="stack-strip">
@@ -705,6 +768,7 @@ function Agent() {
         <span>EXPLICIT TX STATES</span>
         <span>NO BLIND RETRIES</span>
         <span>CONDITIONAL SETTLEMENT</span>
+        <span>CIRCLE DEV-CONTROLLED EOA</span>
       </div>
     </section>
   );

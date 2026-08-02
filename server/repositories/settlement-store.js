@@ -27,6 +27,10 @@ export class MemorySettlementStore {
     return clone([...this.records.values()].find((record) => record.idempotencyKey === key));
   }
 
+  async getByCircleTransactionId(id) {
+    return clone([...this.records.values()].find((record) => record.circle?.transactionId === id));
+  }
+
   async createIfAbsent(record) {
     const existing = [...this.records.values()].find(
       (candidate) => candidate.idempotencyKey === record.idempotencyKey,
@@ -82,6 +86,11 @@ export class JsonSettlementStore {
   async getByIdempotencyKey(key) {
     await this.writeQueue;
     return clone([...this.records.values()].find((record) => record.idempotencyKey === key));
+  }
+
+  async getByCircleTransactionId(id) {
+    await this.writeQueue;
+    return clone([...this.records.values()].find((record) => record.circle?.transactionId === id));
   }
 
   async createIfAbsent(record) {

@@ -4,7 +4,7 @@ import { createSettlementPolicy } from '../domain/policy.js';
 import { SettlementService } from '../domain/settlement-service.js';
 import { MemorySettlementStore } from '../repositories/settlement-store.js';
 
-function fixture() {
+function fixture(circleGateway) {
   let currentTime = new Date('2026-08-02T10:00:00.000Z');
   const store = new MemorySettlementStore();
   const policy = createSettlementPolicy({
@@ -17,6 +17,7 @@ function fixture() {
     policy,
     chainId: 5042002,
     quoteTtlSeconds: 300,
+    circleGateway,
     now: () => currentTime,
     id: () => 'settlement-1',
   });
@@ -69,7 +70,7 @@ test('approved quote prepares a non-broadcast Circle adapter plan idempotently',
   const replay = await service.prepare(quote.record.id);
 
   assert.equal(prepared.state, 'AWAITING_SIGNATURE');
-  assert.equal(prepared.executionPlan.provider, 'CIRCLE_AGENT_WALLET_PHASE_2');
+  assert.equal(prepared.executionPlan.provider, 'CIRCLE_DEVELOPER_CONTROLLED_WALLET');
   assert.equal(prepared.executionPlan.amountUsdc, '15');
   assert.equal(prepared.executionPlan.broadcast, false);
   assert.deepEqual(replay, prepared);
@@ -100,4 +101,63 @@ test('denied quote is stored with reasons and cannot be prepared', async () => {
   await assert.rejects(service.prepare(denied.record.id), {
     code: 'SETTLEMENT_NOT_PREPARABLE',
   });
+});
+
+test('Circle execution and reconciliation persist asynchronous provider states', async () => {
+  const transactionHash = `0x${'ab'.repeat(32)}`;
+  const calls = [];
+  const circleGateway = {
+    async executeTransfer(record) {
+      calls.push(['execute', record.id]);
+      return { id: 'circle-transaction-1', state: 'INITIATED', walletId: 'wallet-1' };
+    },
+    async getTransaction(id) {
+      calls.push(['reconcile', id]);
+      return {
+        id,
+        state: 'SENT',
+        blockchain: 'ARC-TESTNET',
+        destinationAddress: validRequest.recipient,
+        txHash: transactionHash,
+        walletId: 'wallet-1',
+      };
+    },
+  };
+  const { service } = fixture(circleGateway);
+  const quote = await service.quote(validRequest, 'request-key-006');
+  await service.prepare(quote.record.id);
+  const initiated = await service.execute(quote.record.id);
+  const sent = await service.execute(quote.record.id);
+
+  assert.equal(initiated.state, 'INITIATED');
+  assert.equal(initiated.broadcast, false);
+  assert.equal(initiated.circle.transactionId, 'circle-transaction-1');
+  assert.equal(sent.state, 'SENT');
+  assert.equal(sent.broadcast, true);
+  assert.equal(sent.transactionHash, transactionHash);
+  assert.deepEqual(calls, [
+    ['execute', quote.record.id],
+    ['reconcile', 'circle-transaction-1'],
+  ]);
+});
+
+test('Circle webhook ignores stale success states after confirmation', async () => {
+  const circleGateway = {
+    async executeTransfer() {
+      return { id: 'circle-transaction-2', state: 'CONFIRMED' };
+    },
+  };
+  const { service } = fixture(circleGateway);
+  const quote = await service.quote(validRequest, 'request-key-007');
+  await service.prepare(quote.record.id);
+  await service.execute(quote.record.id);
+  const outcome = await service.applyCircleNotification({
+    id: 'circle-transaction-2',
+    state: 'QUEUED',
+  });
+  const current = await service.get(quote.record.id);
+
+  assert.equal(outcome.matched, true);
+  assert.equal(current.state, 'CONFIRMED');
+  assert.equal(current.circle.state, 'CONFIRMED');
 });

@@ -58,6 +58,22 @@ export async function prepareSettlement(settlementId) {
   });
 }
 
+export async function executeSettlement(settlementId) {
+  return request(`/api/v1/settlements/${encodeURIComponent(settlementId)}/execute`, {
+    method: 'POST',
+  });
+}
+
+export async function reconcileSettlement(settlementId) {
+  return request(`/api/v1/settlements/${encodeURIComponent(settlementId)}/reconcile`, {
+    method: 'POST',
+  });
+}
+
+export async function getCircleWallet() {
+  return request('/api/v1/circle/wallet');
+}
+
 export function createIdempotencyKey() {
   return `memeverse-${crypto.randomUUID()}`;
 }

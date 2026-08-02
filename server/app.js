@@ -16,11 +16,23 @@ function responseData(record, metadata = {}) {
   return { data: record, meta: metadata };
 }
 
-export function createApp({ config, settlementService, arcRpc, logger = console }) {
+export function createApp({
+  config,
+  settlementService,
+  arcRpc,
+  circleGateway,
+  circleWebhookService,
+  logger = console,
+}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet({ contentSecurityPolicy: false }));
-  app.use(express.json({ limit: '32kb' }));
+  app.use(express.json({
+    limit: '32kb',
+    verify(request, _response, buffer) {
+      request.rawBody = Buffer.from(buffer);
+    },
+  }));
   app.use(rateLimit({
     windowMs: 60_000,
     limit: config.nodeEnv === 'test' ? 10_000 : 120,
@@ -61,6 +73,7 @@ export function createApp({ config, settlementService, arcRpc, logger = console 
       status: arc.status === 'verified' ? 'ok' : 'degraded',
       service: 'memeverse-settlement-api',
       arc,
+      circle: circleGateway?.configuration() ?? { configured: false, missing: ['CIRCLE_GATEWAY'] },
       checkedAt: new Date().toISOString(),
     });
   });
@@ -77,6 +90,7 @@ export function createApp({ config, settlementService, arcRpc, logger = console 
           minViralityScore: config.minViralityScore,
           creatorShareBps: config.creatorShareBps,
         },
+        circle: circleGateway?.configuration() ?? { configured: false },
       },
     });
   });
@@ -99,6 +113,45 @@ export function createApp({ config, settlementService, arcRpc, logger = console 
   app.post('/api/v1/settlements/:id/prepare', async (request, response) => {
     const record = await settlementService.prepare(request.params.id);
     response.json(responseData(record));
+  });
+
+  app.post('/api/v1/settlements/:id/execute', async (request, response) => {
+    const record = await settlementService.execute(request.params.id);
+    response.status(202).json(responseData(record));
+  });
+
+  app.post('/api/v1/settlements/:id/reconcile', async (request, response) => {
+    const record = await settlementService.reconcile(request.params.id);
+    response.json(responseData(record));
+  });
+
+  app.get('/api/v1/circle/wallet', async (_request, response) => {
+    if (!circleGateway) {
+      throw new DomainError('CIRCLE_NOT_CONFIGURED', 'Circle wallet gateway is unavailable.', {
+        status: 503,
+      });
+    }
+    const readiness = await circleGateway.readiness();
+    response.status(readiness.configured ? 200 : 503).json({ data: readiness });
+  });
+
+  app.post('/api/webhooks/circle', async (request, response) => {
+    if (!circleWebhookService) {
+      throw new DomainError('CIRCLE_WEBHOOK_NOT_CONFIGURED', 'Circle webhook is unavailable.', {
+        status: 503,
+      });
+    }
+    const result = await circleWebhookService.handle({
+      rawBody: request.rawBody,
+      signature: request.get('x-circle-signature'),
+      keyId: request.get('x-circle-key-id'),
+      payload: request.body,
+    });
+    response.json({
+      received: true,
+      replayed: result.replayed,
+      outcome: result.receipt.outcome,
+    });
   });
 
   app.get('/api/v1/settlements/:id', async (request, response) => {
