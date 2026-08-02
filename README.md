@@ -2,7 +2,7 @@
 
 **MemeVerse is a meme asset terminal built on Arc Network for launching, trading, minting, and autonomously preparing creator settlement in USDC.**
 
-The current release is a public Testnet simulation. It does not broadcast launch, trade, NFT, or agent transactions and it never represents simulated market data as real activity.
+The current release is a public Testnet MVP. Launch, trade, and NFT screens remain simulations. The Agent screen now uses a real local backend to enforce policy, create expiring settlement quotes, persist records, and prepare a non-broadcast execution plan. No flow signs or broadcasts a transaction yet.
 
 ## Built on Arc
 
@@ -17,6 +17,11 @@ The product explores two Arc ecosystem tracks:
 
 - Arc Testnet wallet connection and network switching through wagmi
 - Centralized Arc RPC, explorer, official links, and contract registry
+- Express settlement API with Arc RPC chain verification and structured errors
+- Server-enforced USDC spend/virality policy using exact six-decimal integer math
+- Durable JSON settlement records written atomically with `0600` permissions
+- Idempotent quote creation, five-minute expiry, and explicit transaction state transitions
+- Browser Agent flow connected to `quote → prepare → persisted record`
 - USDC-native gas and settlement presentation
 - Meme-token launch, bonding-curve trade, NFT archive, vault, and agent simulations
 - Reconciliation reference and deterministic `bytes32` Memo ID generation
@@ -56,15 +61,38 @@ Only public browser configuration may use a `VITE_*` variable. Never place priva
 
 Addresses must be rechecked against the [official Arc contract registry](https://docs.arc.io/arc/references/contract-addresses) before deployment.
 
+## Phase 1 architecture
+
+```text
+Agent form → Settlement API → Policy engine → State machine → JSON store
+                    ↓
+             Arc RPC chain health
+```
+
+The backend is the authority for policy and quote state. Browser inputs never define policy limits. The execution plan names a `CIRCLE_AGENT_WALLET_PHASE_2` provider boundary but contains no Circle credential, private key, signing call, or broadcast path.
+
+### Settlement API
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/health` | Verify API availability, Arc Chain ID, and current block |
+| `GET` | `/api/v1/config` | Return public network and policy settings |
+| `POST` | `/api/v1/settlements/quote` | Enforce policy and persist an approved or denied decision |
+| `POST` | `/api/v1/settlements/:id/prepare` | Move an approved live quote to `AWAITING_SIGNATURE` |
+| `GET` | `/api/v1/settlements/:id` | Read one settlement and lazily apply expiry |
+| `GET` | `/api/v1/settlements` | List persisted settlements |
+
+`POST /quote` requires an `Idempotency-Key` header between 8 and 128 characters. Reusing the same key and body returns the original record; reusing it with a different body returns HTTP `409`.
+
 ## Transaction and reconciliation model
 
-Every future write flow follows these application states:
+The settlement backend recognizes these application states:
 
-1. `PREPARED`
+1. `PREPARED` or `DENIED`
 2. `AWAITING_SIGNATURE`
-3. `BROADCAST`
-4. `CONFIRMING`
-5. `SETTLED`
+3. Circle-compatible asynchronous states: `INITIATED`, `QUEUED`, `CLEARED`, `SENT`, `STUCK`
+4. `CONFIRMED`, then `COMPLETE`
+5. Terminal recovery states: `EXPIRED`, `CANCELLED`, `FAILED`
 
 The application must persist the client reference, Memo ID, latest transaction hash, chain ID, expected contract and failure class. A hash alone is not proof of success; settlement requires a successful receipt and expected events.
 
@@ -87,7 +115,7 @@ Blind retries are forbidden. A pre-broadcast rejection may be safely retried aft
 
 ## Circle integration boundary
 
-Circle Stablecoin Kits, Gateway, Unified Balance, Agent Wallets, and webhooks are roadmap dependencies, not installed capabilities in this repository.
+Circle Stablecoin Kits, Gateway, Unified Balance, Agent Wallets, and webhooks are roadmap dependencies, not installed capabilities in this repository. Phase 1 deliberately enforces its own server policy because Circle Agent Wallet spending policies are not currently available on Testnet.
 
 Before adding them:
 
@@ -128,7 +156,22 @@ Arc roles and points are external community programs and do not establish endors
 
 ```bash
 npm install
+npm run check
 npm run dev
+```
+
+The combined development command starts:
+
+- Vite at `http://127.0.0.1:5173/memeverse/`
+- the API at `http://127.0.0.1:8787`
+
+Vite proxies `/api` in development. The backend writes records to `.data/settlements.json`, which is intentionally ignored by Git. Copy `.env.example` to `.env` to override public and server-only configuration.
+
+Run each process separately when needed:
+
+```bash
+npm run dev:api
+npm run dev:web
 ```
 
 ## Production build
@@ -138,14 +181,14 @@ npm run build
 npm run preview
 ```
 
-## Next implementation milestones
+## Next implementation milestone — Phase 2
 
-- Deploy and verify launch, bonding-curve, treasury, NFT, and settlement contracts on Arc Testnet
-- Replace simulated receipts with wallet-signed writes and verified event indexing
-- Integrate Memo references for EOA flows and an application-layer metadata fallback for smart accounts
-- Add durable transaction state, idempotency keys, reconciliation workers, and authenticated webhook ingestion
-- Add contract allowlists, amount/recipient confirmation, monitoring, and recovery tooling
-- Evaluate Circle Kits only where they reduce product complexity without hiding route or failure state
+- Add Circle Developer-Controlled or Agent Wallet credentials only to the backend
+- Create and fund an Arc Testnet wallet through the official Circle integration
+- Replace the Phase 1 adapter plan with a signed Testnet USDC execution
+- Persist Circle transaction IDs and asynchronous state changes
+- Authenticate and deduplicate Circle webhook notifications
+- Reconcile confirmed receipts and expected events before marking `COMPLETE`
 
 ## License
 

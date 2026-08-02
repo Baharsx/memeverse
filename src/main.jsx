@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom';
 import {
   WagmiProvider,
   createConfig,
@@ -12,7 +11,7 @@ import {
   useSwitchChain,
 } from 'wagmi';
 import { injected } from 'wagmi/connectors';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import {
   ARC_RPC_URL,
   arc,
@@ -25,6 +24,12 @@ import {
   createSimulationRecord,
   transactionPhases,
 } from './transaction-lifecycle';
+import {
+  createIdempotencyKey,
+  createSettlementQuote,
+  getApiHealth,
+  prepareSettlement,
+} from './api';
 import './styles.css';
 
 const config = createConfig({
@@ -37,6 +42,56 @@ const routerBase =
   import.meta.env.BASE_URL === '/'
     ? undefined
     : import.meta.env.BASE_URL.replace(/\/$/, '');
+const RouterContext = React.createContext(null);
+
+function BrowserRouter({ basename = '', children }) {
+  const routePath = React.useCallback(() => {
+    const withoutBase = basename && window.location.pathname.startsWith(basename)
+      ? window.location.pathname.slice(basename.length)
+      : window.location.pathname;
+    return withoutBase || '/';
+  }, [basename]);
+  const [pathname, setPathname] = useState(routePath);
+
+  React.useEffect(() => {
+    const onPopState = () => setPathname(routePath());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [routePath]);
+
+  function navigate(to) {
+    const href = `${basename}${to === '/' ? '/' : to}`;
+    window.history.pushState({}, '', href);
+    setPathname(to);
+  }
+
+  return <RouterContext.Provider value={{ basename, pathname, navigate }}>{children}</RouterContext.Provider>;
+}
+
+function NavLink({ to, className = '', children }) {
+  const router = React.useContext(RouterContext);
+  const active = router.pathname === to;
+  const href = `${router.basename}${to === '/' ? '/' : to}`;
+
+  function onClick(event) {
+    if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      router.navigate(to);
+    }
+  }
+
+  return <a href={href} className={`${className}${active ? ' active' : ''}`.trim()} onClick={onClick}>{children}</a>;
+}
+
+function Route() {
+  return null;
+}
+
+function Routes({ children }) {
+  const { pathname } = React.useContext(RouterContext);
+  const route = React.Children.toArray(children).find((child) => child.props.path === pathname);
+  return route?.props.element ?? null;
+}
 
 const network = {
   chain: arc,
@@ -130,6 +185,23 @@ function NetworkStatus() {
   );
 }
 
+function BackendStatus() {
+  const health = useQuery({
+    queryKey: ['api-health'],
+    queryFn: getApiHealth,
+    retry: 1,
+    refetchInterval: 30_000,
+  });
+  const verified = health.data?.status === 'ok' && health.data?.arc?.status === 'verified';
+  const label = health.isPending ? 'API CHECK' : verified ? 'API + RPC VERIFIED' : 'API DEGRADED';
+
+  return (
+    <span className={`backend-status ${verified ? 'verified' : 'degraded'}`}>
+      <i />{label}
+    </span>
+  );
+}
+
 function Shell() {
   const navItems = [
     ['01', 'LAUNCH', '/launch'],
@@ -145,7 +217,10 @@ function Shell() {
       <Marquee />
       <div className="network-bar">
         <span>PUBLIC TESTNET // NO REAL ASSETS</span>
-        <NetworkStatus />
+        <div className="network-center">
+          <BackendStatus />
+          <NetworkStatus />
+        </div>
         <ExternalLink href={arcLinks.status}>NETWORK STATUS ↗</ExternalLink>
       </div>
       <div className="testnet-banner">
@@ -517,57 +592,112 @@ function Vault() {
 
 function Agent() {
   const [record, setRecord] = useState(null);
+  const [form, setForm] = useState({
+    recipient: '0x1111111111111111111111111111111111111111',
+    requestedAmount: '25.00',
+    viralityScore: '84',
+    reference: 'MEME-CREATOR-PAYOUT',
+  });
+  const [requestState, setRequestState] = useState({ status: 'idle', error: null, replayed: false });
+  const lastAttempt = useRef(null);
+  const approved = record?.policy?.approved === true;
   const trace = [
-    ['01', 'INGEST SIGNAL', 'PEPX / SCORE 84'],
-    ['02', 'CHECK POLICY', 'PASS / CAP OK'],
-    ['03', 'PREPARE ALLOCATION', '25.00 USDC'],
-    ['04', 'ATTACH REFERENCE', 'MEMO ID READY'],
-    ['05', 'REQUEST SIGNATURE', 'NOT BROADCAST'],
+    ['01', 'INGEST SIGNAL', record ? `SCORE ${record.viralityScore}` : 'PENDING'],
+    ['02', 'CHECK SERVER POLICY', record ? (approved ? 'PASS / CAP OK' : 'DENIED') : 'PENDING'],
+    ['03', 'CALCULATE CREATOR SHARE', record ? `${record.amount.creatorPayoutUsdc} USDC` : 'PENDING'],
+    ['04', 'PERSIST MEMO REFERENCE', record ? 'MEMO ID READY' : 'PENDING'],
+    ['05', 'CREATE EXECUTION PLAN', record?.executionPlan ? 'AWAITING SIGNATURE' : record ? 'NOT PREPARED' : 'PENDING'],
   ];
 
-  function runSimulation() {
-    const reference = createReferenceId('AGENT-PAYOUT');
-    setRecord(createSimulationRecord('AGENT_PAYOUT', reference));
+  function updateForm(event) {
+    setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+  }
+
+  async function runPolicy(event) {
+    event.preventDefault();
+    const input = { ...form, viralityScore: Number(form.viralityScore) };
+    const requestFingerprint = JSON.stringify(input);
+    if (lastAttempt.current?.fingerprint !== requestFingerprint) {
+      lastAttempt.current = { fingerprint: requestFingerprint, key: createIdempotencyKey() };
+    }
+
+    setRequestState({ status: 'loading', error: null, replayed: false });
+    setRecord(null);
+    try {
+      const quote = await createSettlementQuote(input, lastAttempt.current.key);
+      setRecord(quote.data);
+      if (!quote.data.policy.approved) {
+        setRequestState({ status: 'denied', error: null, replayed: quote.meta.replayed });
+        return;
+      }
+      const prepared = await prepareSettlement(quote.data.id);
+      setRecord(prepared.data);
+      setRequestState({ status: 'success', error: null, replayed: quote.meta.replayed });
+    } catch (error) {
+      setRequestState({
+        status: 'error',
+        error: `${error.code ?? 'REQUEST_FAILED'}: ${error.message}${error.requestId ? ` // ${error.requestId}` : ''}`,
+        replayed: false,
+      });
+    }
   }
 
   return (
     <section className="page agent-page">
       <Title n="05" t="AUTONOMOUS SETTLEMENT" />
       <p className="lede">
-        An onchain curator agent scores meme traction, allocates a capped treasury,
-        and prepares creator settlement in {network.money}. This page models policy
-        and reconciliation only; it never signs or broadcasts a transaction.
+        The curator submits a signal to the MemeVerse backend, where an enforced policy
+        creates an expiring quote and persistent execution plan in {network.money}.
+        Phase 1 never signs or broadcasts a transaction.
       </p>
       <div className="agent-grid">
-        <div className="agent-rules">
-          <span>DECISION POLICY / V1.1</span>
-          <label>MAX SPEND / RUN<input defaultValue="25.00" /><small>{network.money}</small></label>
-          <label>MIN. VIRALITY SCORE<input defaultValue="78" /><small>/100</small></label>
-          <label>CREATOR SETTLEMENT<input defaultValue="60" /><small>%</small></label>
+        <form className="agent-rules" onSubmit={runPolicy}>
+          <span>SERVER-ENFORCED POLICY / V1.1</span>
+          <label>RECIPIENT<input name="recipient" value={form.recipient} onChange={updateForm} required /></label>
+          <label>REQUESTED SPEND<input name="requestedAmount" inputMode="decimal" value={form.requestedAmount} onChange={updateForm} required /><small>{network.money}</small></label>
+          <label>VIRALITY SCORE<input name="viralityScore" type="number" min="0" max="100" value={form.viralityScore} onChange={updateForm} required /><small>/100</small></label>
+          <label>RECONCILIATION REFERENCE<input name="reference" value={form.reference} onChange={updateForm} minLength="3" maxLength="120" required /></label>
           <dl>
-            <dt>SIGNAL</dt><dd>VOLUME + HOLDERS</dd>
-            <dt>RISK LIMIT</dt><dd>2.5% TREASURY</dd>
-            <dt>EXECUTION</dt><dd>NON-CUSTODIAL</dd>
+            <dt>MAX SPEND</dt><dd>25.00 USDC</dd>
+            <dt>MIN. SCORE</dt><dd>78 / 100</dd>
+            <dt>CREATOR SHARE</dt><dd>60%</dd>
             <dt>NETWORK</dt><dd>{network.chain.name}</dd>
             <dt>RETRY POLICY</dt><dd>NO BLIND RETRIES</dd>
           </dl>
-          <button className="btn primary full" onClick={runSimulation}>RUN AGENT SIMULATION →</button>
-        </div>
+          <button className="btn primary full" type="submit" disabled={requestState.status === 'loading'}>
+            {requestState.status === 'loading' ? 'ENFORCING POLICY…' : 'REQUEST SETTLEMENT QUOTE →'}
+          </button>
+          {requestState.error ? <p className="agent-error" role="alert">{requestState.error}</p> : null}
+        </form>
         <div className="agent-log">
-          <span>EXECUTION TRACE</span>
+          <span>BACKEND EXECUTION TRACE</span>
           {trace.map((item) => (
-            <div className={record ? 'done' : ''} key={item[0]}>
+            <div className={record ? (approved ? 'done' : 'denied') : ''} key={item[0]}>
               <b>{item[0]}</b>
               <span>{item[1]}</span>
-              <strong>{record ? item[2] : 'PENDING'}</strong>
+              <strong>{item[2]}</strong>
             </div>
           ))}
           <div className="agent-status">
-            {record ? `SIMULATION COMPLETE // ${record.reference}` : 'AWAITING SIGNAL // SIMULATION MODE'}
+            {record
+              ? `${record.state} // ${record.reference}${requestState.replayed ? ' // IDEMPOTENT REPLAY' : ''}`
+              : 'AWAITING SIGNAL // BACKEND POLICY MODE'}
           </div>
         </div>
       </div>
-      {record ? <SimulationReceipt record={record} /> : null}
+      {record ? (
+        <div className={`settlement-receipt ${approved ? '' : 'denied'}`}>
+          <b>{approved ? 'PERSISTED SETTLEMENT PLAN' : 'POLICY DENIED'}</b>
+          <span>ID // {record.id}</span>
+          <span>STATE // {record.state}</span>
+          <span>CREATOR // {record.amount.creatorPayoutUsdc} USDC</span>
+          <span>TREASURY // {record.amount.treasuryRetainedUsdc} USDC</span>
+          <span>MEMO // {record.memoId}</span>
+          {record.expiresAt ? <span>QUOTE EXPIRY // {record.expiresAt}</span> : null}
+          {record.policy.reasons.map((reason) => <span key={reason.code}>{reason.code} // {reason.message}</span>)}
+          <span>BROADCAST // {String(record.broadcast).toUpperCase()}</span>
+        </div>
+      ) : null}
       <div className="stack-strip">
         <span>BUILT ON ARC</span>
         <span>USDC GAS</span>

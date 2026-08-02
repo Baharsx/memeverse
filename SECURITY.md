@@ -1,6 +1,6 @@
 # Security Policy
 
-MemeVerse is currently a public Arc Testnet simulation. It does not accept real assets, provide financial advice, or offer support through unsolicited direct messages.
+MemeVerse is currently a public Arc Testnet MVP. Its backend persists policy decisions and non-broadcast execution plans, but it does not sign transactions, accept real assets, provide financial advice, or offer support through unsolicited direct messages.
 
 ## User safety
 
@@ -14,6 +14,9 @@ MemeVerse is currently a public Arc Testnet simulation. It does not accept real 
 ## Application security requirements
 
 - No private key or privileged Circle credential may be bundled into the browser application or committed to Git.
+- The browser may suggest an amount or recipient, but the backend remains authoritative for limits, chain selection, quote expiry, and allowed state transitions.
+- Settlement creation must include an idempotency key. Reusing a key with a changed payload must fail closed.
+- Persistent settlement files must remain outside Git and use owner-only permissions.
 - Production services must validate chain ID, contract address, recipient, amount, fee assumptions, and transaction status server-side.
 - Webhooks must be authenticated and deduplicated by notification ID because delivery can be at least once.
 - Retry logic must distinguish pre-broadcast failures from submitted transactions and persist the latest transaction hash before retrying.

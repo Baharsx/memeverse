@@ -1,6 +1,33 @@
 {
-  "name":"memeverse","private":true,"version":"1.0.0","type":"module",
-  "scripts":{"dev":"vite","build":"vite build","preview":"vite preview"},
-  "dependencies":{"@tanstack/react-query":"^5.90.21","framer-motion":"^12.23.26","react":"^19.2.4","react-dom":"^19.2.4","react-router-dom":"^7.13.1","viem":"^2.45.2","wagmi":"^3.6.0"},
-  "devDependencies":{"@vitejs/plugin-react":"^5.1.4","vite":"^7.3.1"}
+  "name": "memeverse",
+  "private": true,
+  "version": "1.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c magenta,cyan \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "node --watch server/index.js",
+    "dev:web": "vite",
+    "start:api": "node server/index.js",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test",
+    "check": "npm test && npm run build"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.21",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "framer-motion": "^12.23.26",
+    "helmet": "^8.1.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "viem": "^2.45.2",
+    "wagmi": "^3.6.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.4",
+    "concurrently": "^9.2.1",
+    "vite": "^7.3.1"
+  }
 }
