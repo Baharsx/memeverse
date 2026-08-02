@@ -5,9 +5,14 @@
   "type": "module",
   "scripts": {
     "contracts:compile": "node scripts/compile-contracts.js",
+    "contracts:test": "hardhat test nodejs",
     "circle:deploy:settlement": "npm run contracts:compile && node scripts/circle-deploy-settlement.js",
+    "circle:deploy:markets": "npm run contracts:compile && node scripts/circle-deploy-market-factory.js",
     "contracts:verify": "npm run contracts:compile && node scripts/verify-settlement-contract.js",
     "contracts:audit:onchain": "node scripts/audit-settlement-onchain.js",
+    "markets:audit:onchain": "node scripts/audit-market-factory-onchain.js",
+    "markets:verify": "npm run contracts:compile && node scripts/verify-market-factory.js",
+    "markets:e2e:testnet": "node scripts/market-e2e-testnet.js",
     "app-kit:verify": "node scripts/verify-app-kit-runtime.js",
     "circle:approve:settlement": "node scripts/circle-approve-settlement.js",
     "dev": "concurrently -k -n api,web -c magenta,cyan \"npm:dev:api\" \"npm:dev:web\"",
@@ -22,7 +27,7 @@
     "circle:webhook:setup": "node scripts/circle-webhook-setup.js",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test",
+    "test": "node --test server/test/*.test.js && npm run contracts:test",
     "check": "npm test && npm run build"
   },
   "dependencies": {
@@ -42,8 +47,12 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-node-test-runner": "^3.1.0",
+    "@nomicfoundation/hardhat-viem": "^3.0.9",
+    "@nomicfoundation/hardhat-viem-assertions": "^3.1.2",
     "@vitejs/plugin-react": "^5.1.4",
     "concurrently": "^9.2.1",
+    "hardhat": "^3.12.0",
     "solc": "^0.8.30",
     "vite": "^7.3.1"
   },

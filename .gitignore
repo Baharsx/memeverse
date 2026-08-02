@@ -4,3 +4,5 @@ dist
 .data
 .DS_Store
 *.local
+/artifacts
+/cache

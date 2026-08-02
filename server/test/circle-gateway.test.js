@@ -71,7 +71,7 @@ test('Circle readiness returns only operational wallet and USDC information', as
       },
       async getWalletTokenBalance() {
         return { data: { tokenBalances: [{
-          amount: '20',
+          amount: '20.123456789012345678',
           token: { blockchain: 'ARC-TESTNET', symbol: 'USDC' },
         }] } };
       },
@@ -81,6 +81,7 @@ test('Circle readiness returns only operational wallet and USDC information', as
   const readiness = await gateway.readiness();
   assert.equal(readiness.configured, true);
   assert.equal(readiness.wallet.accountType, 'EOA');
-  assert.equal(readiness.usdcBalance, '20');
+  assert.equal(readiness.usdcBalance, '20.123456789012345678');
+  assert.equal(await gateway.treasuryAvailableUnits(), 20_123_456n);
   assert.equal(JSON.stringify(readiness).includes(config.circleEntitySecret), false);
 });

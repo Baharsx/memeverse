@@ -2,7 +2,7 @@
 
 **MemeVerse is a meme asset terminal built on Arc for launching, trading, minting, and agent-guided creator settlement in USDC.**
 
-The current release is a presentation-ready public Arc Testnet MVP. Market launch, NFT, and vault screens remain clearly labelled simulations. The Circle Stablecoin Kits screen requests a real authenticated USDC/EURC estimate without signing or broadcasting. Agent Policy V2 derives a confidence-adjusted score from fresh engagement, retention, liquidity, fraud-risk, and confidence signals; combines it with live Arc and Circle treasury evidence; reserves capacity transactionally; and may prepare—but never autonomously execute—a creator payout. Explicit human approval submits the payout through Arc Memo and the verified MemeVerseSettlement contract using a Circle Developer-Controlled EOA.
+The current release is a real Arc Public Testnet product for wallet-signed meme market launch and USDC trading. Markets, balances, quotes, positions, fees, and receipts come from deployed contracts and the Arc RPC; no market financial data is fabricated. NFT and legacy Vault presentation surfaces remain clearly labelled simulations for Phase 6B. The Circle Stablecoin Kits screen still provides a real authenticated USDC/EURC estimate without signing or broadcasting, and Agent Policy V2 preserves its separate human-approved settlement path.
 
 ## Built on Arc
 
@@ -16,6 +16,12 @@ The product explores two Arc ecosystem tracks:
 ## Current MVP
 
 - Arc Testnet wallet connection and network switching through wagmi
+- Connected-wallet balance through the official six-decimal Arc USDC ERC-20 interface
+- Real wallet-signed meme token and market deployment through `MemeVerseFactory`
+- Factory-discovered markets with onchain supply, price, reserve, position, and allocation state
+- Real USDC approval, buy, and sell transactions with minimum-output slippage protection
+- Immediate 1% creator and 1% MemeVerse treasury allocation on every trade
+- ArcScan transaction/contract links shown only after a real hash or final receipt exists
 - Centralized Arc RPC, explorer, official links, and contract registry
 - Express settlement API with Arc RPC chain verification and structured errors
 - Server-enforced USDC spend/virality policy using exact six-decimal integer math
@@ -38,9 +44,8 @@ The product explores two Arc ecosystem tracks:
 - Fail-closed Circle Stablecoin Kits quote boundary and capability discovery
 - Presentation UI for live server-authenticated Circle Stablecoin Kits estimates
 - USDC-native gas and settlement presentation
-- Clearly labelled market-launch, NFT archive, and vault simulations
+- Clearly labelled NFT archive and legacy Vault simulations for Phase 6B
 - Reconciliation reference and deterministic `bytes32` Memo ID generation
-- Explicit simulation receipts that distinguish preparation from broadcast and settlement
 - Safety center with verified Arc resources, contract links, and transaction lifecycle
 - Responsive tactile-brutalist interface
 
@@ -53,6 +58,7 @@ MemeVerse uses only parameters currently published in the official Arc documenta
 | Chain ID | `5042002` |
 | Native gas | USDC |
 | RPC | `https://rpc.testnet.arc.io` |
+| Documented fallback RPC | `https://rpc.drpc.testnet.arc.io` |
 | WebSocket | `wss://rpc.testnet.arc.io` |
 | Explorer | `https://testnet.arcscan.app` |
 | Faucet | `https://faucet.circle.com/` |
@@ -79,10 +85,36 @@ MemeVerse owns and operates this application contract; it is not an Arc or Circl
 | Contract | Address | Verification |
 |---|---|---|
 | MemeVerseSettlement | [`0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7`](https://testnet.arcscan.app/address/0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7) | Fully verified source on ArcScan; Solidity 0.8.30, Cancun, optimizer 200 |
+| MemeVerseFactory | [`0x765E2Eaaba8eaEF4437B15CF42C1F268D3c8c08F`](https://testnet.arcscan.app/address/0x765E2Eaaba8eaEF4437B15CF42C1F268D3c8c08F) | Fully verified immutable registry/factory; Solidity 0.8.30, Cancun, via-IR, optimizer 200 |
+| MMV6A MemeMarket | [`0x5CcB34ec32e5ea12CdD7119157De9b8207b8880D`](https://testnet.arcscan.app/address/0x5CcB34ec32e5ea12CdD7119157De9b8207b8880D) | Fully verified seed market and ERC-20 asset |
 
 Addresses must be rechecked against the [official Arc contract registry](https://docs.arc.io/arc/references/contract-addresses) before deployment.
 
-## Phase 5 architecture
+## Architecture
+
+```text
+Connected wallet → MemeVerseFactory → MemeMarket / ERC-20 asset
+                                          ↕
+                              Arc Testnet USDC ERC-20
+                                          ↓
+                               Creator + treasury fees
+```
+
+The factory has immutable USDC, treasury, and fee configuration and no admin mutation surface. A market holds its unsold fixed supply, tracks whole-token circulating supply, retains the exact curve reserve, and transfers fees immediately. The chain is authoritative; the current scale does not require a financial-state database indexer.
+
+### Pricing and rounding
+
+For total whole-token supply `T`, base price `b`, curve increment `m`, and sold token count `q`, cumulative cost in six-decimal USDC units is:
+
+```text
+C(q) = bq + floor(mq(q - 1) / (2(T - 1)))
+```
+
+A buy uses binary search to return the largest whole-token output whose curve cost fits the post-fee USDC input. A sell returns `C(q) - C(q - amount)` before the same transparent fees. Fee division and the curve term round down; buy remainder stays in the market as non-withdrawable solvency surplus. Users set exact USDC input plus minimum token output on buys, and exact whole-token input plus minimum USDC output on sells. The UI defaults to 1% slippage.
+
+This deliberately simple Testnet curve is not capital efficient, does not provide external liquidity, trades only whole tokens, and has not received an independent audit. It must not be deployed to mainnet.
+
+### Agent settlement architecture
 
 ```text
 Agent form → Settlement API → Policy + treasury reservation
@@ -134,7 +166,7 @@ Blind retries are forbidden. A pre-broadcast rejection may be safely retried aft
 
 ### Transaction Memo guardrails
 
-- Memo is Testnet infrastructure. Only the Agent settlement flow is currently onchain; market launch, NFT, and vault screens remain simulations. The Circle Stablecoin Kits screen returns a live estimate but never prepares or broadcasts its transaction.
+- Memo is used only by the separate Agent settlement flow. Market launch/trading is directly wallet-signed onchain; NFT and legacy Vault surfaces remain simulations. The Circle Stablecoin Kits screen returns a live estimate but never prepares or broadcasts its transaction.
 - The direct caller must be an externally owned account (EOA).
 - Smart contract accounts, ERC-4337 wallets, Safe, and intermediary contracts are not supported as direct callers.
 - Memo events are indexed by `memoId`, sender, and target; the original calldata should be retained when exact call reconstruction is required.
@@ -284,6 +316,24 @@ npm run circle:approve:settlement
 8. Save the non-secret contract and transaction IDs printed by those scripts in `.env.local`.
 9. Start MemeVerse, verify `/api/v1/circle/wallet`, then use the explicit Memo settlement button on the Agent receipt.
 
+### Market contract operations
+
+Compilation, local EVM tests, and onchain audits do not perform live writes:
+
+```bash
+npm run contracts:compile
+npm run contracts:test
+npm run markets:audit:onchain
+```
+
+The following commands are explicit Arc Testnet write operations and require the securely configured Circle EOA. They are never called by CI:
+
+```bash
+npm run circle:deploy:markets
+npm run markets:verify
+npm run markets:e2e:testnet
+```
+
 For asynchronous updates, expose `/api/webhooks/circle` through public HTTPS, set `CIRCLE_WEBHOOK_URL`, and run:
 
 ```bash
@@ -331,6 +381,21 @@ Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration
 - Authenticated Arc Testnet `USDC → EURC` estimation is verified through the server-only Stablecoin Kits boundary; no transaction is signed or broadcast.
 - The official App Kit SDK package graph remains excluded because it still adds 25 audit findings; the active native-fetch boundary keeps `npm audit` at zero.
 - The presentation flow, responsive layouts, explicit execution gate, and browser-to-API paths are documented in [`docs/PHASE-5-HANDOFF.md`](./docs/PHASE-5-HANDOFF.md).
+
+## Phase 6A verification evidence
+
+- Factory deployment: [`0x1beb6371c9a50cba115044d6002f671fb1895d59fcae5302a46193c836bc8020`](https://testnet.arcscan.app/tx/0x1beb6371c9a50cba115044d6002f671fb1895d59fcae5302a46193c836bc8020)
+- Seed market launch: [`0xcb4020a1708487c4a31bbe25f763b4969de4b735530feec947bff5286c125278`](https://testnet.arcscan.app/tx/0xcb4020a1708487c4a31bbe25f763b4969de4b735530feec947bff5286c125278)
+- Exact 0.01 USDC approval: [`0x7a44e1caa32346b6206bda8ce0896f35a794155abbb4bccdec566657b655a5e2`](https://testnet.arcscan.app/tx/0x7a44e1caa32346b6206bda8ce0896f35a794155abbb4bccdec566657b655a5e2)
+- Buy 0.01 USDC → 97 MMV6A: [`0x62cfc205277c34da50a1763f727b190753445c2947010ba09770b2f3b8bff732`](https://testnet.arcscan.app/tx/0x62cfc205277c34da50a1763f727b190753445c2947010ba09770b2f3b8bff732)
+- Sell 48 MMV6A → 0.004739 USDC: [`0x5af385b082c7b4de0c338717e9923608c0aafa1424a70849cd7bb1ca8a514a07`](https://testnet.arcscan.app/tx/0x5af385b082c7b4de0c338717e9923608c0aafa1424a70849cd7bb1ca8a514a07)
+- Final state: 49 MMV6A held, 0.004911 USDC curve reserve, and 0.000148 USDC each recorded as creator and treasury fees.
+- `npm run markets:audit:onchain` independently matches factory and market runtime bytecode, immutable configuration, registry membership, fixed-supply accounting, and reserve solvency.
+
+## Not yet live
+
+- NFT minting/listing/ownership and the legacy NFT archive are Phase 6B.
+- The legacy Vault presentation is still a labelled simulation; reusable wallet/USDC/market-position reads now exist for its Phase 6B replacement.
 
 ## Post-hackathon hardening
 

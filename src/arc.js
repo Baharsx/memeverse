@@ -2,6 +2,8 @@ import { arcTestnet as viemArcTestnet } from 'viem/chains';
 
 export const ARC_RPC_URL =
   import.meta.env.VITE_ARC_RPC_URL?.trim() || 'https://rpc.testnet.arc.io';
+export const ARC_FALLBACK_RPC_URL =
+  import.meta.env.VITE_ARC_FALLBACK_RPC_URL?.trim() || 'https://rpc.drpc.testnet.arc.io';
 
 export const arc = {
   ...viemArcTestnet,
@@ -9,6 +11,10 @@ export const arc = {
     default: {
       http: [ARC_RPC_URL],
       webSocket: ['wss://rpc.testnet.arc.io'],
+    },
+    public: {
+      http: [ARC_FALLBACK_RPC_URL],
+      webSocket: ['wss://rpc.drpc.testnet.arc.io'],
     },
   },
   blockExplorers: {
@@ -37,6 +43,7 @@ export const arcContracts = Object.freeze({
   memo: '0x5294E9927c3306DcBaDb03fe70b92e01cCede505',
   multicall3From: '0x522fAf9A91c41c443c66765030741e4AaCe147D0',
   memeVerseSettlement: '0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7',
+  memeVerseFactory: '0x765E2Eaaba8eaEF4437B15CF42C1F268D3c8c08F',
 });
 
 export const memoAbi = [
@@ -56,9 +63,9 @@ export const memoAbi = [
 
 export const arcCapabilities = Object.freeze({
   phase: 'FINAL MVP / PUBLIC TESTNET',
-  realAssets: false,
+  realAssets: 'ARC TESTNET USDC + MEME TOKENS',
   confirmationsRequired: 1,
-  transactionMemos: 'LIVE IN MEMEVERSE / EOA ONLY',
+  transactionMemos: 'LIVE FOR AGENT SETTLEMENT / EOA ONLY',
   batchedTransactions: 'TESTNET READY / EOA ONLY',
   postQuantum: 'ROADMAP / NOT YET AVAILABLE',
   appKit: 'SWAP ESTIMATE LIVE / SERVER-ONLY',

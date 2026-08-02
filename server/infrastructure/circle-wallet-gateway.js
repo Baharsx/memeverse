@@ -29,6 +29,11 @@ function circleError(error, operation) {
   );
 }
 
+function parseArcUsdcInterfaceUnits(value) {
+  const [whole, fraction = ''] = String(value).split('.');
+  return parseUnits(`${whole}.${fraction.padEnd(6, '0').slice(0, 6)}`, 6);
+}
+
 export class CircleWalletGateway {
   constructor({ config, client }) {
     this.config = config;
@@ -101,7 +106,9 @@ export class CircleWalletGateway {
         status: 503,
       });
     }
-    return parseUnits(readiness.usdcBalance, 6);
+    // Circle reports Arc's native unified balance with 18-decimal precision. Contract
+    // settlement uses the official six-decimal ERC-20 interface, so gas dust is rounded down.
+    return parseArcUsdcInterfaceUnits(readiness.usdcBalance);
   }
 
   async executeSettlement(record) {

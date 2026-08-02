@@ -1,5 +1,7 @@
 # Phase 5 presentation handoff
 
+> Historical handoff: Phase 6A supersedes the market-launch statements below. Market creation and USDC buy/sell are now live on Arc Public Testnet; NFT and legacy Vault experiences remain simulations.
+
 MemeVerse is ready to present as an independent product **built on Arc**. The final MVP separates live infrastructure from safe simulations and never implies that MemeVerse is an Arc or Circle product.
 
 ## Three-minute demo path
@@ -17,7 +19,7 @@ MemeVerse is ready to present as an independent product **built on Arc**. The fi
 - Circle Developer-Controlled Wallet infrastructure is configured for an Arc Testnet EOA.
 - The MemeVerseSettlement source is verified on ArcScan.
 - The Circle Stablecoin Kits experience performs a real authenticated estimate and does not broadcast.
-- Market launch, NFT, and vault experiences are simulations.
+- NFT and legacy Vault experiences are simulations. Market launch and trading became real wallet-signed Arc Testnet flows in Phase 6A.
 
 Do not claim Arc or Circle endorsement, partnership, mainnet readiness, autonomous signing, production analytics, real asset value, or current post-quantum protection.
 

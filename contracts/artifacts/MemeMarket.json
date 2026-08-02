@@ -1,0 +1,1859 @@
+{
+  "contractName": "MemeMarket",
+  "sourceName": "MemeVerseMarket.sol",
+  "compiler": "0.8.30+commit.73712a01.Emscripten.clang",
+  "evmVersion": "cancun",
+  "viaIR": true,
+  "optimizer": {
+    "enabled": true,
+    "runs": 200
+  },
+  "standardJsonInput": {
+    "language": "Solidity",
+    "sources": {
+      "MemeVerseMarket.sol": {
+        "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\n\ninterface IERC20MarketCurrency {\n    function balanceOf(address account) external view returns (uint256);\n    function transfer(address to, uint256 amount) external returns (bool);\n    function transferFrom(address from, address to, uint256 amount) external returns (bool);\n}\n\n/// @title MemeMarket\n/// @notice A fixed-supply ERC-20 meme asset with an integral linear USDC bonding curve.\n/// @dev Prices and accounting use the six-decimal Arc USDC ERC-20 interface. The MVP curve\n///      trades whole tokens only; ERC-20 transfers can still move fractional token units.\ncontract MemeMarket {\n    error AmountMustBeWholeTokens();\n    error InsufficientAllowance();\n    error InsufficientBalance();\n    error InvalidAmount();\n    error InvalidRecipient();\n    error Reentrancy();\n    error SlippageExceeded(uint256 minimum, uint256 actual);\n    error TransferFailed();\n\n    uint8 public constant decimals = 18;\n    uint256 public constant TOKEN_UNIT = 1e18;\n    uint256 public constant BPS_DENOMINATOR = 10_000;\n\n    string public name;\n    string public symbol;\n    string public description;\n    uint256 public immutable totalSupply;\n    uint256 public immutable totalSupplyTokens;\n    address public immutable creator;\n    address public immutable treasury;\n    IERC20MarketCurrency public immutable usdc;\n    uint16 public immutable creatorFeeBps;\n    uint16 public immutable treasuryFeeBps;\n    uint256 public immutable basePriceUsdc;\n    uint256 public immutable slopePriceUsdc;\n    uint256 public immutable createdAt;\n    uint256 public immutable createdBlock;\n    bool public constant active = true;\n\n    uint256 public soldTokenCount;\n    uint256 public reserveUsdc;\n    uint256 public creatorFeesPaidUsdc;\n    uint256 public treasuryFeesPaidUsdc;\n\n    mapping(address account => uint256 amount) public balanceOf;\n    mapping(address owner => mapping(address spender => uint256 amount)) public allowance;\n\n    uint256 private unlocked = 1;\n\n    event Approval(address indexed owner, address indexed spender, uint256 value);\n    event Transfer(address indexed from, address indexed to, uint256 value);\n    event Bought(\n        address indexed buyer,\n        uint256 usdcIn,\n        uint256 tokenOut,\n        uint256 curveCostUsdc,\n        uint256 creatorFeeUsdc,\n        uint256 treasuryFeeUsdc,\n        uint256 soldTokenCount\n    );\n    event Sold(\n        address indexed seller,\n        uint256 tokenIn,\n        uint256 usdcOut,\n        uint256 grossCurveReturnUsdc,\n        uint256 creatorFeeUsdc,\n        uint256 treasuryFeeUsdc,\n        uint256 soldTokenCount\n    );\n\n    modifier nonReentrant() {\n        if (unlocked != 1) revert Reentrancy();\n        unlocked = 2;\n        _;\n        unlocked = 1;\n    }\n\n    constructor(\n        address creator_,\n        address treasury_,\n        address usdc_,\n        string memory name_,\n        string memory symbol_,\n        string memory description_,\n        uint256 totalSupplyTokens_,\n        uint256 basePriceUsdc_,\n        uint256 slopePriceUsdc_,\n        uint16 creatorFeeBps_,\n        uint16 treasuryFeeBps_\n    ) {\n        creator = creator_;\n        treasury = treasury_;\n        usdc = IERC20MarketCurrency(usdc_);\n        name = name_;\n        symbol = symbol_;\n        description = description_;\n        totalSupplyTokens = totalSupplyTokens_;\n        totalSupply = totalSupplyTokens_ * TOKEN_UNIT;\n        basePriceUsdc = basePriceUsdc_;\n        slopePriceUsdc = slopePriceUsdc_;\n        creatorFeeBps = creatorFeeBps_;\n        treasuryFeeBps = treasuryFeeBps_;\n        createdAt = block.timestamp;\n        createdBlock = block.number;\n        balanceOf[address(this)] = totalSupply;\n        emit Transfer(address(0), address(this), totalSupply);\n    }\n\n    function approve(address spender, uint256 amount) external returns (bool) {\n        allowance[msg.sender][spender] = amount;\n        emit Approval(msg.sender, spender, amount);\n        return true;\n    }\n\n    function transfer(address to, uint256 amount) external returns (bool) {\n        if (to == address(this)) revert InvalidRecipient();\n        _transfer(msg.sender, to, amount);\n        return true;\n    }\n\n    function transferFrom(address from, address to, uint256 amount) external returns (bool) {\n        if (to == address(this)) revert InvalidRecipient();\n        uint256 approved = allowance[from][msg.sender];\n        if (approved != type(uint256).max) {\n            if (approved < amount) revert InsufficientAllowance();\n            allowance[from][msg.sender] = approved - amount;\n            emit Approval(from, msg.sender, approved - amount);\n        }\n        _transfer(from, to, amount);\n        return true;\n    }\n\n    /// @notice Cumulative six-decimal USDC cost for the first `tokenCount` whole tokens.\n    /// @dev C(q) = base*q + slope*q*(q-1)/(2*(T-1)), rounded down.\n    function cumulativeCurveCost(uint256 tokenCount) public view returns (uint256) {\n        if (tokenCount > totalSupplyTokens) revert InvalidAmount();\n        uint256 linear = basePriceUsdc * tokenCount;\n        uint256 curve = (slopePriceUsdc * tokenCount * (tokenCount - (tokenCount == 0 ? 0 : 1)))\n            / (2 * (totalSupplyTokens - 1));\n        return linear + curve;\n    }\n\n    function spotPriceUsdc() external view returns (uint256) {\n        if (soldTokenCount == totalSupplyTokens) return 0;\n        return cumulativeCurveCost(soldTokenCount + 1) - cumulativeCurveCost(soldTokenCount);\n    }\n\n    function quoteBuy(uint256 usdcIn)\n        public\n        view\n        returns (\n            uint256 tokenOut,\n            uint256 curveCostUsdc,\n            uint256 creatorFeeUsdc,\n            uint256 treasuryFeeUsdc\n        )\n    {\n        creatorFeeUsdc = (usdcIn * creatorFeeBps) / BPS_DENOMINATOR;\n        treasuryFeeUsdc = (usdcIn * treasuryFeeBps) / BPS_DENOMINATOR;\n        uint256 curveBudget = usdcIn - creatorFeeUsdc - treasuryFeeUsdc;\n        uint256 available = totalSupplyTokens - soldTokenCount;\n        uint256 low;\n        uint256 high = available;\n        uint256 startCost = cumulativeCurveCost(soldTokenCount);\n\n        while (low < high) {\n            uint256 middle = low + (high - low + 1) / 2;\n            uint256 cost = cumulativeCurveCost(soldTokenCount + middle) - startCost;\n            if (cost <= curveBudget) low = middle;\n            else high = middle - 1;\n        }\n\n        tokenOut = low * TOKEN_UNIT;\n        curveCostUsdc = cumulativeCurveCost(soldTokenCount + low) - startCost;\n    }\n\n    function quoteSell(uint256 tokenIn)\n        public\n        view\n        returns (\n            uint256 usdcOut,\n            uint256 grossCurveReturnUsdc,\n            uint256 creatorFeeUsdc,\n            uint256 treasuryFeeUsdc\n        )\n    {\n        if (tokenIn == 0 || tokenIn % TOKEN_UNIT != 0) return (0, 0, 0, 0);\n        uint256 tokenCount = tokenIn / TOKEN_UNIT;\n        if (tokenCount > soldTokenCount) return (0, 0, 0, 0);\n        grossCurveReturnUsdc = cumulativeCurveCost(soldTokenCount)\n            - cumulativeCurveCost(soldTokenCount - tokenCount);\n        creatorFeeUsdc = (grossCurveReturnUsdc * creatorFeeBps) / BPS_DENOMINATOR;\n        treasuryFeeUsdc = (grossCurveReturnUsdc * treasuryFeeBps) / BPS_DENOMINATOR;\n        usdcOut = grossCurveReturnUsdc - creatorFeeUsdc - treasuryFeeUsdc;\n    }\n\n    function buy(uint256 usdcIn, uint256 minimumTokenOut)\n        external\n        nonReentrant\n        returns (uint256 tokenOut)\n    {\n        if (usdcIn == 0) revert InvalidAmount();\n        uint256 curveCost;\n        uint256 creatorFee;\n        uint256 treasuryFee;\n        (tokenOut, curveCost, creatorFee, treasuryFee) = quoteBuy(usdcIn);\n        if (tokenOut == 0) revert InvalidAmount();\n        if (tokenOut < minimumTokenOut) revert SlippageExceeded(minimumTokenOut, tokenOut);\n\n        _safeTransferFrom(address(usdc), msg.sender, address(this), usdcIn);\n        uint256 tokenCount = tokenOut / TOKEN_UNIT;\n        soldTokenCount += tokenCount;\n        reserveUsdc += curveCost;\n        creatorFeesPaidUsdc += creatorFee;\n        treasuryFeesPaidUsdc += treasuryFee;\n        _transfer(address(this), msg.sender, tokenOut);\n        _distributeFees(creatorFee, treasuryFee);\n\n        emit Bought(\n            msg.sender,\n            usdcIn,\n            tokenOut,\n            curveCost,\n            creatorFee,\n            treasuryFee,\n            soldTokenCount\n        );\n    }\n\n    function sell(uint256 tokenIn, uint256 minimumUsdcOut)\n        external\n        nonReentrant\n        returns (uint256 usdcOut)\n    {\n        if (tokenIn == 0) revert InvalidAmount();\n        if (tokenIn % TOKEN_UNIT != 0) revert AmountMustBeWholeTokens();\n        uint256 grossReturn;\n        uint256 creatorFee;\n        uint256 treasuryFee;\n        (usdcOut, grossReturn, creatorFee, treasuryFee) = quoteSell(tokenIn);\n        if (grossReturn == 0 || grossReturn > reserveUsdc) revert InvalidAmount();\n        if (usdcOut < minimumUsdcOut) revert SlippageExceeded(minimumUsdcOut, usdcOut);\n\n        _transfer(msg.sender, address(this), tokenIn);\n        soldTokenCount -= tokenIn / TOKEN_UNIT;\n        reserveUsdc -= grossReturn;\n        creatorFeesPaidUsdc += creatorFee;\n        treasuryFeesPaidUsdc += treasuryFee;\n        _safeTransfer(address(usdc), msg.sender, usdcOut);\n        _distributeFees(creatorFee, treasuryFee);\n\n        emit Sold(\n            msg.sender,\n            tokenIn,\n            usdcOut,\n            grossReturn,\n            creatorFee,\n            treasuryFee,\n            soldTokenCount\n        );\n    }\n\n    function _distributeFees(uint256 creatorFee, uint256 treasuryFee) private {\n        if (creatorFee != 0) _safeTransfer(address(usdc), creator, creatorFee);\n        if (treasuryFee != 0) _safeTransfer(address(usdc), treasury, treasuryFee);\n    }\n\n    function _transfer(address from, address to, uint256 amount) private {\n        if (to == address(0)) revert InvalidRecipient();\n        uint256 balance = balanceOf[from];\n        if (balance < amount) revert InsufficientBalance();\n        unchecked {\n            balanceOf[from] = balance - amount;\n            balanceOf[to] += amount;\n        }\n        emit Transfer(from, to, amount);\n    }\n\n    function _safeTransfer(address token, address to, uint256 amount) private {\n        (bool success, bytes memory result) = token.call(\n            abi.encodeCall(IERC20MarketCurrency.transfer, (to, amount))\n        );\n        if (!success || (result.length != 0 && !abi.decode(result, (bool)))) revert TransferFailed();\n    }\n\n    function _safeTransferFrom(address token, address from, address to, uint256 amount) private {\n        (bool success, bytes memory result) = token.call(\n            abi.encodeCall(IERC20MarketCurrency.transferFrom, (from, to, amount))\n        );\n        if (!success || (result.length != 0 && !abi.decode(result, (bool)))) revert TransferFailed();\n    }\n}\n\n/// @title MemeVerseFactory\n/// @notice Immutable registry and deployer for Arc Testnet MemeVerse markets.\ncontract MemeVerseFactory {\n    error DuplicateMarket();\n    error InvalidConfiguration();\n    error InvalidMarketParameters();\n\n    uint16 public constant MAX_TOTAL_FEE_BPS = 500;\n    uint256 public constant MIN_SUPPLY_TOKENS = 100;\n    uint256 public constant MAX_SUPPLY_TOKENS = 1_000_000_000;\n    uint256 public constant MAX_PRICE_USDC = 1_000_000_000; // 1,000 USDC at six decimals.\n\n    address public immutable usdc;\n    address public immutable treasury;\n    uint16 public immutable creatorFeeBps;\n    uint16 public immutable treasuryFeeBps;\n    uint256 public immutable deployedAtBlock;\n\n    address[] public markets;\n    mapping(bytes32 creatorSymbolKey => address market) public marketFor;\n    mapping(address market => bool registered) public isMarket;\n\n    event MarketCreated(\n        address indexed market,\n        address indexed token,\n        address indexed creator,\n        string name,\n        string symbol,\n        uint256 totalSupplyTokens,\n        uint256 basePriceUsdc,\n        uint256 slopePriceUsdc,\n        uint256 createdAt,\n        uint256 createdBlock\n    );\n\n    constructor(address usdc_, address treasury_, uint16 creatorFeeBps_, uint16 treasuryFeeBps_) {\n        if (usdc_ == address(0) || treasury_ == address(0)) revert InvalidConfiguration();\n        if (uint256(creatorFeeBps_) + treasuryFeeBps_ > MAX_TOTAL_FEE_BPS) {\n            revert InvalidConfiguration();\n        }\n        usdc = usdc_;\n        treasury = treasury_;\n        creatorFeeBps = creatorFeeBps_;\n        treasuryFeeBps = treasuryFeeBps_;\n        deployedAtBlock = block.number;\n    }\n\n    function marketCount() external view returns (uint256) {\n        return markets.length;\n    }\n\n    function createMarket(\n        string calldata name,\n        string calldata symbol,\n        string calldata description,\n        uint256 totalSupplyTokens,\n        uint256 basePriceUsdc,\n        uint256 slopePriceUsdc\n    ) external returns (address market) {\n        uint256 nameLength = bytes(name).length;\n        uint256 symbolLength = bytes(symbol).length;\n        if (\n            nameLength == 0 || nameLength > 64 || symbolLength == 0 || symbolLength > 10\n                || bytes(description).length > 280 || totalSupplyTokens < MIN_SUPPLY_TOKENS\n                || totalSupplyTokens > MAX_SUPPLY_TOKENS || basePriceUsdc == 0\n                || basePriceUsdc > MAX_PRICE_USDC || slopePriceUsdc > MAX_PRICE_USDC\n        ) revert InvalidMarketParameters();\n\n        bytes32 key = keccak256(abi.encode(msg.sender, keccak256(bytes(symbol))));\n        if (marketFor[key] != address(0)) revert DuplicateMarket();\n\n        MemeMarket deployed = new MemeMarket(\n            msg.sender,\n            treasury,\n            usdc,\n            name,\n            symbol,\n            description,\n            totalSupplyTokens,\n            basePriceUsdc,\n            slopePriceUsdc,\n            creatorFeeBps,\n            treasuryFeeBps\n        );\n        market = address(deployed);\n        marketFor[key] = market;\n        isMarket[market] = true;\n        markets.push(market);\n\n        emit MarketCreated(\n            market,\n            market,\n            msg.sender,\n            name,\n            symbol,\n            totalSupplyTokens,\n            basePriceUsdc,\n            slopePriceUsdc,\n            block.timestamp,\n            block.number\n        );\n    }\n}\n"
+      }
+    },
+    "settings": {
+      "evmVersion": "cancun",
+      "viaIR": true,
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "outputSelection": {
+        "*": {
+          "*": [
+            "abi",
+            "evm.bytecode.object",
+            "evm.deployedBytecode.object",
+            "evm.deployedBytecode.immutableReferences",
+            "metadata"
+          ]
+        }
+      }
+    }
+  },
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "creator_",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "treasury_",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "usdc_",
+          "type": "address"
+        },
+        {
+          "internalType": "string",
+          "name": "name_",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "symbol_",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "description_",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "totalSupplyTokens_",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "basePriceUsdc_",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "slopePriceUsdc_",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint16",
+          "name": "creatorFeeBps_",
+          "type": "uint16"
+        },
+        {
+          "internalType": "uint16",
+          "name": "treasuryFeeBps_",
+          "type": "uint16"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "AmountMustBeWholeTokens",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InsufficientAllowance",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InsufficientBalance",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidAmount",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidRecipient",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "Reentrancy",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "minimum",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "actual",
+          "type": "uint256"
+        }
+      ],
+      "name": "SlippageExceeded",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "TransferFailed",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "spender",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        }
+      ],
+      "name": "Approval",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "buyer",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "usdcIn",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "tokenOut",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "curveCostUsdc",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "creatorFeeUsdc",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "treasuryFeeUsdc",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "soldTokenCount",
+          "type": "uint256"
+        }
+      ],
+      "name": "Bought",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "seller",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "tokenIn",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "usdcOut",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "grossCurveReturnUsdc",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "creatorFeeUsdc",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "treasuryFeeUsdc",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "soldTokenCount",
+          "type": "uint256"
+        }
+      ],
+      "name": "Sold",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "from",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        }
+      ],
+      "name": "Transfer",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "BPS_DENOMINATOR",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "TOKEN_UNIT",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "active",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "spender",
+          "type": "address"
+        }
+      ],
+      "name": "allowance",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "spender",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "approve",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "balanceOf",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "basePriceUsdc",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "usdcIn",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "minimumTokenOut",
+          "type": "uint256"
+        }
+      ],
+      "name": "buy",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenOut",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "createdAt",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "createdBlock",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "creator",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "creatorFeeBps",
+      "outputs": [
+        {
+          "internalType": "uint16",
+          "name": "",
+          "type": "uint16"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "creatorFeesPaidUsdc",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenCount",
+          "type": "uint256"
+        }
+      ],
+      "name": "cumulativeCurveCost",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "decimals",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "description",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "name",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "usdcIn",
+          "type": "uint256"
+        }
+      ],
+      "name": "quoteBuy",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenOut",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "curveCostUsdc",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "creatorFeeUsdc",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "treasuryFeeUsdc",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenIn",
+          "type": "uint256"
+        }
+      ],
+      "name": "quoteSell",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "usdcOut",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "grossCurveReturnUsdc",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "creatorFeeUsdc",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "treasuryFeeUsdc",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "reserveUsdc",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenIn",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "minimumUsdcOut",
+          "type": "uint256"
+        }
+      ],
+      "name": "sell",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "usdcOut",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "slopePriceUsdc",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "soldTokenCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "spotPriceUsdc",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "symbol",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalSupply",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalSupplyTokens",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "transfer",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "from",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "transferFrom",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "treasury",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "treasuryFeeBps",
+      "outputs": [
+        {
+          "internalType": "uint16",
+          "name": "",
+          "type": "uint16"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "treasuryFeesPaidUsdc",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "usdc",
+      "outputs": [
+        {
+          "internalType": "contract IERC20MarketCurrency",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x6101e06040523461066e57611b498038038061001a81610672565b9283398101906101608183031261066e5761003481610697565b9061004160208201610697565b61004d60408301610697565b60608301516001600160401b03811161066e578561006c9185016106ab565b60808401519095906001600160401b03811161066e578161008e9186016106ab565b60a085015190916001600160401b03821161066e576100ae9186016106ab565b9060c08501519660e086015193610100870151956100dc6101406100d56101208b016106fc565b99016106fc565b600160095560c09990995260e0526001600160a01b0316610100528051906001600160401b03821161048c575f5490600182811c92168015610664575b602083101461046e5781601f8493116105f7575b50602090601f8311600114610594575f92610589575b50508160011b915f199060031b1c1916175f555b8051906001600160401b03821161048c5760015490600182811c9216801561057f575b602083101461046e5781601f849311610511575b50602090601f83116001146104ab575f926104a0575b50508160011b915f199060031b1c1916176001555b8051906001600160401b03821161048c5760025490600182811c92168015610482575b602083101461046e5781601f849311610400575b50602090601f831160011461039a575f9261038f575b50508160011b915f199060031b1c1916176002555b8460a052670de0b6b3a7640000850294808604670de0b6b3a7640000149015171561037b578460805261016052610180526101205261014052426101a052436101c052305f5260076020528060405f20556040519081525f7fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef60203093a360405161143d908161070c823960805181610b88015260a051818181610a6701528181610ee001528181610fbf015261118f015260c051818181610d47015261132c015260e05181818161091201526112d601526101005181818161030a0152818161044e01528181610a06015281816112f7015261134d015261012051818181610bc501528181610e6901526110f60152610140518181816101a101528181610ea1015261112801526101605181818161055e0152610fef0152610180518181816107e7015261101d01526101a051816105ba01526101c051816109ce0152f35b634e487b7160e01b5f52601160045260245ffd5b015190505f80610206565b60025f9081528281209350601f198516905b8181106103e857509084600195949392106103d0575b505050811b0160025561021b565b01515f1960f88460031b161c191690555f80806103c2565b929360206001819287860151815501950193016103ac565b60025f529091507f405787fa12a823e0f2b7631cc41b3ba8828b3321ca811111fa75cd3aa3bb5ace601f840160051c81019160208510610464575b90601f859493920160051c01905b81811061045657506101f0565b5f8155849350600101610449565b909150819061043b565b634e487b7160e01b5f52602260045260245ffd5b91607f16916101dc565b634e487b7160e01b5f52604160045260245ffd5b015190505f806101a4565b60015f9081528281209350601f198516905b8181106104f957509084600195949392106104e1575b505050811b016001556101b9565b01515f1960f88460031b161c191690555f80806104d3565b929360206001819287860151815501950193016104bd565b60015f529091507fb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6601f840160051c81019160208510610575575b90601f859493920160051c01905b818110610567575061018e565b5f815584935060010161055a565b909150819061054c565b91607f169161017a565b015190505f80610143565b5f8080528281209350601f198516905b8181106105df57509084600195949392106105c7575b505050811b015f55610157565b01515f1960f88460031b161c191690555f80806105ba565b929360206001819287860151815501950193016105a4565b5f80529091507f290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563601f840160051c8101916020851061065a575b90601f859493920160051c01905b81811061064c575061012d565b5f815584935060010161063f565b9091508190610631565b91607f1691610119565b5f80fd5b6040519190601f01601f191682016001600160401b0381118382101761048c57604052565b51906001600160a01b038216820361066e57565b81601f8201121561066e578051906001600160401b03821161048c576106da601f8301601f1916602001610672565b928284526020838301011161066e57815f9260208093018386015e8301015290565b519061ffff8216820361066e5756fe6080806040526004361015610012575f80fd5b5f3560e01c90816302d05d3f14610d355750806302fb0c5e14610d1a57806306fdde0314610c62578063095ea7b314610be957806317773ebb14610bab57806318160ddd14610b7157806323b872dd14610a8a5780632e187a6814610a50578063313ce56714610a355780633e413bee146109f15780634593144c146109b75780634beb394c146109985780634f7d674b1461097b5780635b866bf01461095e5780635eb94d2a1461094157806361d027b3146108fd57806370a08231146108c55780637284e4161461080a5780638b9859af146107d057806395d89b41146106d05780639bdf6f62146106b35780639eed627f14610695578063a5c9cd8214610673578063a64190c41461062e578063a9059cbb146105dd578063cf09e0d0146105a3578063cf80c88e14610581578063d425fba714610547578063d6febde8146103d6578063d79875eb14610235578063dd62ed3e146101e5578063e1a45218146101c95763e80cfa5e14610187575f80fd5b346101c5575f3660031901126101c557602060405161ffff7f0000000000000000000000000000000000000000000000000000000000000000168152f35b5f80fd5b346101c5575f3660031901126101c55760206040516127108152f35b346101c55760403660031901126101c5576101fe610dd6565b610206610dec565b6001600160a01b039182165f908152600860209081526040808320949093168252928352819020549051908152f35b346101c55761024336610e02565b6001600954036103c7576002600955811561039e57670de0b6b3a764000082066103b857610270826110aa565b90949293821580156103ad575b61039e578085106103875750937fb7cfccdb200d3b32433aeb5d2b829c5191534e3602213c2fbb1d2de273a91f20916103776020966102bd8630336111da565b6102d3670de0b6b3a76400008704600354610e18565b6003556102e283600454610e18565b6004556102f184600554610e4c565b60055561030081600654610e4c565b60065561033787337f00000000000000000000000000000000000000000000000000000000000000006001600160a01b0316611380565b61034181856112c1565b60035490604051948594893399879260a094919796959260c0850198855260208501526040840152606083015260808201520152565b0390a26001600955604051908152f35b84906371c4efed60e01b5f5260045260245260445ffd5b63162908e360e11b5f5260045ffd5b50600454831161027d565b6373728b4b60e01b5f5260045ffd5b63558a1e0360e11b5f5260045ffd5b346101c5576103e436610e02565b6001600954036103c7576002600955811561039e5761040282610e59565b91949293841561039e5780851061038757505f8060405160208101906323b872dd60e01b825233602482015230604482015286606482015260648152610449608482610d76565b5190827f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03165af161048061126a565b9015908115610517575b50610508576020946103777f15053609d51f61ee8a7b1c2250290b901d8ef6cb2afec5d8987f3d8cafa06c4f936104cd670de0b6b3a76400008804600354610e4c565b6003556104dc83600454610e4c565b6004556104eb84600554610e4c565b6005556104fa81600654610e4c565b6006556103378733306111da565b6312171d8360e31b5f5260045ffd5b805180151592508261052c575b50508661048a565b61053f92506020809183010191016112a9565b158680610524565b346101c5575f3660031901126101c55760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346101c5575f3660031901126101c557602061059b61118a565b604051908152f35b346101c5575f3660031901126101c55760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346101c55760403660031901126101c5576105f6610dd6565b6001600160a01b038116301461061f576106149060243590336111da565b602060405160018152f35b634e46966960e11b5f5260045ffd5b346101c55760203660031901126101c55761066f61064d6004356110aa565b6040805194855260208501939093529183015260608201529081906080820190565b0390f35b346101c5575f3660031901126101c5576020604051670de0b6b3a76400008152f35b346101c55760203660031901126101c557602061059b600435610fbd565b346101c5575f3660031901126101c5576020600354604051908152f35b346101c5575f3660031901126101c5576040515f6001548060011c906001811680156107c6575b6020831081146107b25782855290811561078e5750600114610730575b61066f8361072481850382610d76565b60405191829182610dac565b60015f9081527fb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6939250905b80821061077457509091508101602001610724610714565b91926001816020925483858801015201910190929161075c565b60ff191660208086019190915291151560051b840190910191506107249050610714565b634e487b7160e01b5f52602260045260245ffd5b91607f16916106f7565b346101c5575f3660031901126101c55760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346101c5575f3660031901126101c5576040515f6002548060011c906001811680156108bb575b6020831081146107b25782855290811561078e575060011461085d5761066f8361072481850382610d76565b60025f9081527f405787fa12a823e0f2b7631cc41b3ba8828b3321ca811111fa75cd3aa3bb5ace939250905b8082106108a157509091508101602001610724610714565b919260018160209254838588010152019101909291610889565b91607f1691610831565b346101c55760203660031901126101c5576001600160a01b036108e6610dd6565b165f526007602052602060405f2054604051908152f35b346101c5575f3660031901126101c5576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b346101c5575f3660031901126101c5576020600454604051908152f35b346101c5575f3660031901126101c5576020600654604051908152f35b346101c5575f3660031901126101c5576020600554604051908152f35b346101c55760203660031901126101c55761066f61064d600435610e59565b346101c5575f3660031901126101c55760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346101c5575f3660031901126101c5576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b346101c5575f3660031901126101c557602060405160128152f35b346101c5575f3660031901126101c55760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346101c55760603660031901126101c557610aa3610dd6565b610aab610dec565b604435906001600160a01b038116301461061f576001600160a01b0383165f818152600860209081526040808320338452909152902054939060018501610af8575b5061061493506111da565b838510610b6257610b2f8486610b118261061499610e18565b5f858152600860209081526040808320338452909152902055610e18565b906040519182527f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b92560203393a384610aed565b6313be252b60e01b5f5260045ffd5b346101c5575f3660031901126101c55760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346101c5575f3660031901126101c557602060405161ffff7f0000000000000000000000000000000000000000000000000000000000000000168152f35b346101c55760403660031901126101c557610c02610dd6565b335f8181526008602090815260408083206001600160a01b03909516808452948252918290206024359081905591519182527f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b92591a3602060405160018152f35b346101c5575f3660031901126101c5576040515f5f548060011c90600181168015610d10575b6020831081146107b25782855290811561078e5750600114610cb45761066f8361072481850382610d76565b5f8080527f290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563939250905b808210610cf657509091508101602001610724610714565b919260018160209254838588010152019101909291610cde565b91607f1691610c88565b346101c5575f3660031901126101c557602060405160018152f35b346101c5575f3660031901126101c5577f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b90601f8019910116810190811067ffffffffffffffff821117610d9857604052565b634e487b7160e01b5f52604160045260245ffd5b602060409281835280519182918282860152018484015e5f828201840152601f01601f1916010190565b600435906001600160a01b03821682036101c557565b602435906001600160a01b03821682036101c557565b60409060031901126101c5576004359060243590565b91908203918211610e2557565b634e487b7160e01b5f52601160045260245ffd5b81810292918115918404141715610e2557565b91908201809211610e2557565b90610ed591612710610e8f61ffff7f00000000000000000000000000000000000000000000000000000000000000001683610e39565b04928391610ed0612710610ec761ffff7f00000000000000000000000000000000000000000000000000000000000000001684610e39565b04958692610e18565b610e18565b9260035493610f04857f0000000000000000000000000000000000000000000000000000000000000000610e18565b905f91610f1087610fbd565b915b818410610f55575050670de0b6b3a7640000820291808304670de0b6b3a76400001481151715610e2557610f4d610ed091610f529498610e4c565b610fbd565b92565b9092610f618185610e18565b9060018201809211610e255782610f8d85610ed0610f4d610f868e9760011c87610e4c565b8097610e4c565b11610f9b5750925b90610f12565b93505f19810190811115610f9557634e487b7160e01b5f52601160045260245ffd5b7f00000000000000000000000000000000000000000000000000000000000000009081811161039e57611058611013827f0000000000000000000000000000000000000000000000000000000000000000610e39565b91611052611041827f0000000000000000000000000000000000000000000000000000000000000000610e39565b91806110a15760ff5f5b1690610e18565b90610e39565b915f198101908111610e2557600181901b906001600160ff1b03811603610e2557801561108d5761108a920490610e4c565b90565b634e487b7160e01b5f52601260045260245ffd5b60ff600161104b565b80158015611177575b61116c57670de0b6b3a76400009004600354808211611160576110e5610f4d6110eb936110df84610fbd565b93610e18565b90610e18565b61271061111c61ffff7f00000000000000000000000000000000000000000000000000000000000000001683610e39565b0461271061114e61ffff7f00000000000000000000000000000000000000000000000000000000000000001684610e39565b0461115d81610ed08486610e18565b93565b50505f905f905f905f90565b505f905f905f905f90565b50670de0b6b3a7640000810615156110b3565b6003547f000000000000000000000000000000000000000000000000000000000000000081146111d5576001810190818111610e25576110e56111cf61108a93610fbd565b91610fbd565b505f90565b6001600160a01b039091169190821561061f576001600160a01b03165f8181526007602052604090205490919081811061125b57817fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef92602092855f52600784520360405f2055845f526007825260405f20818154019055604051908152a3565b631e9acf1760e31b5f5260045ffd5b3d156112a4573d9067ffffffffffffffff8211610d985760405191611299601f8201601f191660200184610d76565b82523d5f602084013e565b606090565b908160209103126101c5575180151581036101c55790565b80611326575b50806112d05750565b611324907f00000000000000000000000000000000000000000000000000000000000000007f00000000000000000000000000000000000000000000000000000000000000006001600160a01b0316611380565b565b61137a907f00000000000000000000000000000000000000000000000000000000000000007f00000000000000000000000000000000000000000000000000000000000000006001600160a01b0316611380565b5f6112c7565b5f929183809360405190602082019363a9059cbb60e01b855260018060a01b031660248301526044820152604481526113ba606482610d76565b51925af16113c661126a565b90159081156113d7575b5061050857565b80518015159250826113ec575b50505f6113d0565b6113ff92506020809183010191016112a9565b155f806113e456fea26469706673582212200a4c56699aec56a3572f30712d88ea3ede80aac27284cfe528d9a68d025aafba64736f6c634300081e0033",
+  "deployedBytecode": "0x6080806040526004361015610012575f80fd5b5f3560e01c90816302d05d3f14610d355750806302fb0c5e14610d1a57806306fdde0314610c62578063095ea7b314610be957806317773ebb14610bab57806318160ddd14610b7157806323b872dd14610a8a5780632e187a6814610a50578063313ce56714610a355780633e413bee146109f15780634593144c146109b75780634beb394c146109985780634f7d674b1461097b5780635b866bf01461095e5780635eb94d2a1461094157806361d027b3146108fd57806370a08231146108c55780637284e4161461080a5780638b9859af146107d057806395d89b41146106d05780639bdf6f62146106b35780639eed627f14610695578063a5c9cd8214610673578063a64190c41461062e578063a9059cbb146105dd578063cf09e0d0146105a3578063cf80c88e14610581578063d425fba714610547578063d6febde8146103d6578063d79875eb14610235578063dd62ed3e146101e5578063e1a45218146101c95763e80cfa5e14610187575f80fd5b346101c5575f3660031901126101c557602060405161ffff7f0000000000000000000000000000000000000000000000000000000000000000168152f35b5f80fd5b346101c5575f3660031901126101c55760206040516127108152f35b346101c55760403660031901126101c5576101fe610dd6565b610206610dec565b6001600160a01b039182165f908152600860209081526040808320949093168252928352819020549051908152f35b346101c55761024336610e02565b6001600954036103c7576002600955811561039e57670de0b6b3a764000082066103b857610270826110aa565b90949293821580156103ad575b61039e578085106103875750937fb7cfccdb200d3b32433aeb5d2b829c5191534e3602213c2fbb1d2de273a91f20916103776020966102bd8630336111da565b6102d3670de0b6b3a76400008704600354610e18565b6003556102e283600454610e18565b6004556102f184600554610e4c565b60055561030081600654610e4c565b60065561033787337f00000000000000000000000000000000000000000000000000000000000000006001600160a01b0316611380565b61034181856112c1565b60035490604051948594893399879260a094919796959260c0850198855260208501526040840152606083015260808201520152565b0390a26001600955604051908152f35b84906371c4efed60e01b5f5260045260245260445ffd5b63162908e360e11b5f5260045ffd5b50600454831161027d565b6373728b4b60e01b5f5260045ffd5b63558a1e0360e11b5f5260045ffd5b346101c5576103e436610e02565b6001600954036103c7576002600955811561039e5761040282610e59565b91949293841561039e5780851061038757505f8060405160208101906323b872dd60e01b825233602482015230604482015286606482015260648152610449608482610d76565b5190827f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03165af161048061126a565b9015908115610517575b50610508576020946103777f15053609d51f61ee8a7b1c2250290b901d8ef6cb2afec5d8987f3d8cafa06c4f936104cd670de0b6b3a76400008804600354610e4c565b6003556104dc83600454610e4c565b6004556104eb84600554610e4c565b6005556104fa81600654610e4c565b6006556103378733306111da565b6312171d8360e31b5f5260045ffd5b805180151592508261052c575b50508661048a565b61053f92506020809183010191016112a9565b158680610524565b346101c5575f3660031901126101c55760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346101c5575f3660031901126101c557602061059b61118a565b604051908152f35b346101c5575f3660031901126101c55760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346101c55760403660031901126101c5576105f6610dd6565b6001600160a01b038116301461061f576106149060243590336111da565b602060405160018152f35b634e46966960e11b5f5260045ffd5b346101c55760203660031901126101c55761066f61064d6004356110aa565b6040805194855260208501939093529183015260608201529081906080820190565b0390f35b346101c5575f3660031901126101c5576020604051670de0b6b3a76400008152f35b346101c55760203660031901126101c557602061059b600435610fbd565b346101c5575f3660031901126101c5576020600354604051908152f35b346101c5575f3660031901126101c5576040515f6001548060011c906001811680156107c6575b6020831081146107b25782855290811561078e5750600114610730575b61066f8361072481850382610d76565b60405191829182610dac565b60015f9081527fb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6939250905b80821061077457509091508101602001610724610714565b91926001816020925483858801015201910190929161075c565b60ff191660208086019190915291151560051b840190910191506107249050610714565b634e487b7160e01b5f52602260045260245ffd5b91607f16916106f7565b346101c5575f3660031901126101c55760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346101c5575f3660031901126101c5576040515f6002548060011c906001811680156108bb575b6020831081146107b25782855290811561078e575060011461085d5761066f8361072481850382610d76565b60025f9081527f405787fa12a823e0f2b7631cc41b3ba8828b3321ca811111fa75cd3aa3bb5ace939250905b8082106108a157509091508101602001610724610714565b919260018160209254838588010152019101909291610889565b91607f1691610831565b346101c55760203660031901126101c5576001600160a01b036108e6610dd6565b165f526007602052602060405f2054604051908152f35b346101c5575f3660031901126101c5576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b346101c5575f3660031901126101c5576020600454604051908152f35b346101c5575f3660031901126101c5576020600654604051908152f35b346101c5575f3660031901126101c5576020600554604051908152f35b346101c55760203660031901126101c55761066f61064d600435610e59565b346101c5575f3660031901126101c55760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346101c5575f3660031901126101c5576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b346101c5575f3660031901126101c557602060405160128152f35b346101c5575f3660031901126101c55760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346101c55760603660031901126101c557610aa3610dd6565b610aab610dec565b604435906001600160a01b038116301461061f576001600160a01b0383165f818152600860209081526040808320338452909152902054939060018501610af8575b5061061493506111da565b838510610b6257610b2f8486610b118261061499610e18565b5f858152600860209081526040808320338452909152902055610e18565b906040519182527f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b92560203393a384610aed565b6313be252b60e01b5f5260045ffd5b346101c5575f3660031901126101c55760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346101c5575f3660031901126101c557602060405161ffff7f0000000000000000000000000000000000000000000000000000000000000000168152f35b346101c55760403660031901126101c557610c02610dd6565b335f8181526008602090815260408083206001600160a01b03909516808452948252918290206024359081905591519182527f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b92591a3602060405160018152f35b346101c5575f3660031901126101c5576040515f5f548060011c90600181168015610d10575b6020831081146107b25782855290811561078e5750600114610cb45761066f8361072481850382610d76565b5f8080527f290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563939250905b808210610cf657509091508101602001610724610714565b919260018160209254838588010152019101909291610cde565b91607f1691610c88565b346101c5575f3660031901126101c557602060405160018152f35b346101c5575f3660031901126101c5577f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b90601f8019910116810190811067ffffffffffffffff821117610d9857604052565b634e487b7160e01b5f52604160045260245ffd5b602060409281835280519182918282860152018484015e5f828201840152601f01601f1916010190565b600435906001600160a01b03821682036101c557565b602435906001600160a01b03821682036101c557565b60409060031901126101c5576004359060243590565b91908203918211610e2557565b634e487b7160e01b5f52601160045260245ffd5b81810292918115918404141715610e2557565b91908201809211610e2557565b90610ed591612710610e8f61ffff7f00000000000000000000000000000000000000000000000000000000000000001683610e39565b04928391610ed0612710610ec761ffff7f00000000000000000000000000000000000000000000000000000000000000001684610e39565b04958692610e18565b610e18565b9260035493610f04857f0000000000000000000000000000000000000000000000000000000000000000610e18565b905f91610f1087610fbd565b915b818410610f55575050670de0b6b3a7640000820291808304670de0b6b3a76400001481151715610e2557610f4d610ed091610f529498610e4c565b610fbd565b92565b9092610f618185610e18565b9060018201809211610e255782610f8d85610ed0610f4d610f868e9760011c87610e4c565b8097610e4c565b11610f9b5750925b90610f12565b93505f19810190811115610f9557634e487b7160e01b5f52601160045260245ffd5b7f00000000000000000000000000000000000000000000000000000000000000009081811161039e57611058611013827f0000000000000000000000000000000000000000000000000000000000000000610e39565b91611052611041827f0000000000000000000000000000000000000000000000000000000000000000610e39565b91806110a15760ff5f5b1690610e18565b90610e39565b915f198101908111610e2557600181901b906001600160ff1b03811603610e2557801561108d5761108a920490610e4c565b90565b634e487b7160e01b5f52601260045260245ffd5b60ff600161104b565b80158015611177575b61116c57670de0b6b3a76400009004600354808211611160576110e5610f4d6110eb936110df84610fbd565b93610e18565b90610e18565b61271061111c61ffff7f00000000000000000000000000000000000000000000000000000000000000001683610e39565b0461271061114e61ffff7f00000000000000000000000000000000000000000000000000000000000000001684610e39565b0461115d81610ed08486610e18565b93565b50505f905f905f905f90565b505f905f905f905f90565b50670de0b6b3a7640000810615156110b3565b6003547f000000000000000000000000000000000000000000000000000000000000000081146111d5576001810190818111610e25576110e56111cf61108a93610fbd565b91610fbd565b505f90565b6001600160a01b039091169190821561061f576001600160a01b03165f8181526007602052604090205490919081811061125b57817fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef92602092855f52600784520360405f2055845f526007825260405f20818154019055604051908152a3565b631e9acf1760e31b5f5260045ffd5b3d156112a4573d9067ffffffffffffffff8211610d985760405191611299601f8201601f191660200184610d76565b82523d5f602084013e565b606090565b908160209103126101c5575180151581036101c55790565b80611326575b50806112d05750565b611324907f00000000000000000000000000000000000000000000000000000000000000007f00000000000000000000000000000000000000000000000000000000000000006001600160a01b0316611380565b565b61137a907f00000000000000000000000000000000000000000000000000000000000000007f00000000000000000000000000000000000000000000000000000000000000006001600160a01b0316611380565b5f6112c7565b5f929183809360405190602082019363a9059cbb60e01b855260018060a01b031660248301526044820152604481526113ba606482610d76565b51925af16113c661126a565b90159081156113d7575b5061050857565b80518015159250826113ec575b50505f6113d0565b6113ff92506020809183010191016112a9565b155f806113e456fea26469706673582212200a4c56699aec56a3572f30712d88ea3ede80aac27284cfe528d9a68d025aafba64736f6c634300081e0033",
+  "immutableReferences": {
+    "67": [
+      {
+        "length": 32,
+        "start": 2952
+      }
+    ],
+    "69": [
+      {
+        "length": 32,
+        "start": 2663
+      },
+      {
+        "length": 32,
+        "start": 3808
+      },
+      {
+        "length": 32,
+        "start": 4031
+      },
+      {
+        "length": 32,
+        "start": 4495
+      }
+    ],
+    "71": [
+      {
+        "length": 32,
+        "start": 3399
+      },
+      {
+        "length": 32,
+        "start": 4908
+      }
+    ],
+    "73": [
+      {
+        "length": 32,
+        "start": 2322
+      },
+      {
+        "length": 32,
+        "start": 4822
+      }
+    ],
+    "76": [
+      {
+        "length": 32,
+        "start": 778
+      },
+      {
+        "length": 32,
+        "start": 1102
+      },
+      {
+        "length": 32,
+        "start": 2566
+      },
+      {
+        "length": 32,
+        "start": 4855
+      },
+      {
+        "length": 32,
+        "start": 4941
+      }
+    ],
+    "78": [
+      {
+        "length": 32,
+        "start": 3013
+      },
+      {
+        "length": 32,
+        "start": 3689
+      },
+      {
+        "length": 32,
+        "start": 4342
+      }
+    ],
+    "80": [
+      {
+        "length": 32,
+        "start": 417
+      },
+      {
+        "length": 32,
+        "start": 3745
+      },
+      {
+        "length": 32,
+        "start": 4392
+      }
+    ],
+    "82": [
+      {
+        "length": 32,
+        "start": 1374
+      },
+      {
+        "length": 32,
+        "start": 4079
+      }
+    ],
+    "84": [
+      {
+        "length": 32,
+        "start": 2023
+      },
+      {
+        "length": 32,
+        "start": 4125
+      }
+    ],
+    "86": [
+      {
+        "length": 32,
+        "start": 1466
+      }
+    ],
+    "88": [
+      {
+        "length": 32,
+        "start": 2510
+      }
+    ]
+  },
+  "metadata": {
+    "compiler": {
+      "version": "0.8.30+commit.73712a01"
+    },
+    "language": "Solidity",
+    "output": {
+      "abi": [
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "creator_",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "treasury_",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "usdc_",
+              "type": "address"
+            },
+            {
+              "internalType": "string",
+              "name": "name_",
+              "type": "string"
+            },
+            {
+              "internalType": "string",
+              "name": "symbol_",
+              "type": "string"
+            },
+            {
+              "internalType": "string",
+              "name": "description_",
+              "type": "string"
+            },
+            {
+              "internalType": "uint256",
+              "name": "totalSupplyTokens_",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "basePriceUsdc_",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "slopePriceUsdc_",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint16",
+              "name": "creatorFeeBps_",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint16",
+              "name": "treasuryFeeBps_",
+              "type": "uint16"
+            }
+          ],
+          "stateMutability": "nonpayable",
+          "type": "constructor"
+        },
+        {
+          "inputs": [],
+          "name": "AmountMustBeWholeTokens",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "InsufficientAllowance",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "InsufficientBalance",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "InvalidAmount",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "InvalidRecipient",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "Reentrancy",
+          "type": "error"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "minimum",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "actual",
+              "type": "uint256"
+            }
+          ],
+          "name": "SlippageExceeded",
+          "type": "error"
+        },
+        {
+          "inputs": [],
+          "name": "TransferFailed",
+          "type": "error"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "owner",
+              "type": "address"
+            },
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "spender",
+              "type": "address"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "value",
+              "type": "uint256"
+            }
+          ],
+          "name": "Approval",
+          "type": "event"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "buyer",
+              "type": "address"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "usdcIn",
+              "type": "uint256"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "tokenOut",
+              "type": "uint256"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "curveCostUsdc",
+              "type": "uint256"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "creatorFeeUsdc",
+              "type": "uint256"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "treasuryFeeUsdc",
+              "type": "uint256"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "soldTokenCount",
+              "type": "uint256"
+            }
+          ],
+          "name": "Bought",
+          "type": "event"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "seller",
+              "type": "address"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "tokenIn",
+              "type": "uint256"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "usdcOut",
+              "type": "uint256"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "grossCurveReturnUsdc",
+              "type": "uint256"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "creatorFeeUsdc",
+              "type": "uint256"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "treasuryFeeUsdc",
+              "type": "uint256"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "soldTokenCount",
+              "type": "uint256"
+            }
+          ],
+          "name": "Sold",
+          "type": "event"
+        },
+        {
+          "anonymous": false,
+          "inputs": [
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "from",
+              "type": "address"
+            },
+            {
+              "indexed": true,
+              "internalType": "address",
+              "name": "to",
+              "type": "address"
+            },
+            {
+              "indexed": false,
+              "internalType": "uint256",
+              "name": "value",
+              "type": "uint256"
+            }
+          ],
+          "name": "Transfer",
+          "type": "event"
+        },
+        {
+          "inputs": [],
+          "name": "BPS_DENOMINATOR",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "TOKEN_UNIT",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "active",
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "owner",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "spender",
+              "type": "address"
+            }
+          ],
+          "name": "allowance",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "spender",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "name": "approve",
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "account",
+              "type": "address"
+            }
+          ],
+          "name": "balanceOf",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "basePriceUsdc",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "usdcIn",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "minimumTokenOut",
+              "type": "uint256"
+            }
+          ],
+          "name": "buy",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "tokenOut",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "createdAt",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "createdBlock",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "creator",
+          "outputs": [
+            {
+              "internalType": "address",
+              "name": "",
+              "type": "address"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "creatorFeeBps",
+          "outputs": [
+            {
+              "internalType": "uint16",
+              "name": "",
+              "type": "uint16"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "creatorFeesPaidUsdc",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "tokenCount",
+              "type": "uint256"
+            }
+          ],
+          "name": "cumulativeCurveCost",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "decimals",
+          "outputs": [
+            {
+              "internalType": "uint8",
+              "name": "",
+              "type": "uint8"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "description",
+          "outputs": [
+            {
+              "internalType": "string",
+              "name": "",
+              "type": "string"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "name",
+          "outputs": [
+            {
+              "internalType": "string",
+              "name": "",
+              "type": "string"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "usdcIn",
+              "type": "uint256"
+            }
+          ],
+          "name": "quoteBuy",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "tokenOut",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "curveCostUsdc",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "creatorFeeUsdc",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "treasuryFeeUsdc",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "tokenIn",
+              "type": "uint256"
+            }
+          ],
+          "name": "quoteSell",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "usdcOut",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "grossCurveReturnUsdc",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "creatorFeeUsdc",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "treasuryFeeUsdc",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "reserveUsdc",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "tokenIn",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "minimumUsdcOut",
+              "type": "uint256"
+            }
+          ],
+          "name": "sell",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "usdcOut",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "slopePriceUsdc",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "soldTokenCount",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "spotPriceUsdc",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "symbol",
+          "outputs": [
+            {
+              "internalType": "string",
+              "name": "",
+              "type": "string"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "totalSupply",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "totalSupplyTokens",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "to",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "name": "transfer",
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "from",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "to",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "amount",
+              "type": "uint256"
+            }
+          ],
+          "name": "transferFrom",
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ],
+          "stateMutability": "nonpayable",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "treasury",
+          "outputs": [
+            {
+              "internalType": "address",
+              "name": "",
+              "type": "address"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "treasuryFeeBps",
+          "outputs": [
+            {
+              "internalType": "uint16",
+              "name": "",
+              "type": "uint16"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "treasuryFeesPaidUsdc",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        },
+        {
+          "inputs": [],
+          "name": "usdc",
+          "outputs": [
+            {
+              "internalType": "contract IERC20MarketCurrency",
+              "name": "",
+              "type": "address"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function"
+        }
+      ],
+      "devdoc": {
+        "details": "Prices and accounting use the six-decimal Arc USDC ERC-20 interface. The MVP curve      trades whole tokens only; ERC-20 transfers can still move fractional token units.",
+        "kind": "dev",
+        "methods": {
+          "cumulativeCurveCost(uint256)": {
+            "details": "C(q) = base*q + slope*q*(q-1)/(2*(T-1)), rounded down."
+          }
+        },
+        "title": "MemeMarket",
+        "version": 1
+      },
+      "userdoc": {
+        "kind": "user",
+        "methods": {
+          "cumulativeCurveCost(uint256)": {
+            "notice": "Cumulative six-decimal USDC cost for the first `tokenCount` whole tokens."
+          }
+        },
+        "notice": "A fixed-supply ERC-20 meme asset with an integral linear USDC bonding curve.",
+        "version": 1
+      }
+    },
+    "settings": {
+      "compilationTarget": {
+        "MemeVerseMarket.sol": "MemeMarket"
+      },
+      "evmVersion": "cancun",
+      "libraries": {},
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "remappings": [],
+      "viaIR": true
+    },
+    "sources": {
+      "MemeVerseMarket.sol": {
+        "keccak256": "0xc089f1993253622009490473b18226b4bf6acbc75652cc0274a462c022462545",
+        "license": "MIT",
+        "urls": [
+          "bzz-raw://b0b7b228ae344e62dc86e4348aeee8424989c7f885c2cb3d12b3c7493d210e0e",
+          "dweb:/ipfs/QmNuKo4kbTNVRDGjVNLhBwK7FVtpNg6w44xiZF2eCJMQ6w"
+        ]
+      }
+    },
+    "version": 1
+  }
+}

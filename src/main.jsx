@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { fallback, parseEventLogs } from 'viem';
 import {
   WagmiProvider,
   createConfig,
@@ -13,6 +14,7 @@ import {
 import { injected } from 'wagmi/connectors';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import {
+  ARC_FALLBACK_RPC_URL,
   ARC_RPC_URL,
   arc,
   arcCapabilities,
@@ -20,8 +22,6 @@ import {
   arcLinks,
 } from './arc';
 import {
-  createReferenceId,
-  createSimulationRecord,
   transactionPhases,
 } from './transaction-lifecycle';
 import {
@@ -33,12 +33,28 @@ import {
   getApiHealth,
   reconcileSettlement,
 } from './api';
+import {
+  factoryAbi,
+  formatTokenAmount,
+  formatUsdc,
+  loadFactoryConfig,
+  loadMarkets,
+  loadUsdcBalance,
+  marketAbi,
+  minimumAfterSlippage,
+  parseUsdc,
+  parseWholeTokens,
+  quoteBuy,
+  quoteSell,
+  usdcAbi,
+} from './market';
+import { useOnchainAction } from './use-onchain-action';
 import './styles.css';
 
 const config = createConfig({
   chains: [arc],
   connectors: [injected()],
-  transports: { [arc.id]: http(ARC_RPC_URL) },
+  transports: { [arc.id]: fallback([http(ARC_RPC_URL), http(ARC_FALLBACK_RPC_URL)]) },
 });
 const queryClient = new QueryClient();
 const routerBase =
@@ -66,6 +82,7 @@ function BrowserRouter({ basename = '', children }) {
     const href = `${basename}${to === '/' ? '/' : to}`;
     window.history.pushState({}, '', href);
     setPathname(to);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }
 
   return <RouterContext.Provider value={{ basename, pathname, navigate }}>{children}</RouterContext.Provider>;
@@ -100,7 +117,7 @@ const network = {
   chain: arc,
   money: 'USDC',
 };
-const coins = [
+const demoCoins = [
   ['PEPE.exe', 'PEPX', '$0.004218', '+18.4'],
   ['GIGA BRAIN', 'GBRN', '$0.08801', '+9.7'],
   ['RUG PROOF', 'RUGP', '$0.00091', '-4.2'],
@@ -131,15 +148,19 @@ function Mascot({ small = false }) {
 }
 
 function Marquee() {
+  const markets = useQuery({
+    queryKey: ['onchain-markets', 'marquee'],
+    queryFn: () => loadMarkets(),
+    retry: 1,
+    refetchInterval: 15_000,
+  });
+  const items = markets.data ?? [];
   return (
-    <div className="marquee" aria-label="Simulated market ticker">
+    <div className="marquee" role="group" aria-label="Live Arc Testnet market ticker">
       <div>
-        {[...coins, ...coins].map((coin, index) => (
-          <span key={`${coin[1]}-${index}`}>
-            {coin[1]} <b>{coin[2]}</b>{' '}
-            <em className={coin[3][0] === '-' ? 'down' : 'up'}>
-              {coin[3]}% DEMO
-            </em>
+        {(items.length ? [...items, ...items] : [null, null]).map((market, index) => (
+          <span key={market ? `${market.address}-${index}` : `empty-${index}`}>
+            {market ? <>{market.symbol} <b>{formatUsdc(market.spotPriceUsdc)} USDC</b>{' '}<em className="up">ONCHAIN</em></> : <b>NO ONCHAIN MARKETS YET // LAUNCH THE FIRST</b>}
           </span>
         ))}
       </div>
@@ -149,16 +170,23 @@ function Marquee() {
 
 function Wallet() {
   const { address, isConnected } = useAccount();
-  const { connect, isPending } = useConnect();
+  const chainId = useChainId();
+  const { connect, isPending, error } = useConnect();
   const { disconnect } = useDisconnect();
+  const balance = useQuery({
+    queryKey: ['wallet-usdc', address],
+    queryFn: () => loadUsdcBalance(address),
+    enabled: isConnected && chainId === arc.id,
+    refetchInterval: 12_000,
+  });
 
   return isConnected ? (
     <button className="wallet" type="button" onClick={() => disconnect()} aria-label={`Disconnect testnet wallet ${address}`}>
-      <i />TESTNET {address.slice(0, 6)}…{address.slice(-4)}
+      <i /><span className="wallet-balance">{chainId === arc.id && balance.data !== undefined ? `${formatUsdc(balance.data, 4)} USDC // ` : 'TESTNET // '}</span><span>{address.slice(0, 6)}…{address.slice(-4)}</span>
     </button>
   ) : (
     <button className="wallet" type="button" onClick={() => connect({ connector: injected() })}>
-      {isPending ? 'REQUESTING…' : 'CONNECT TESTNET WALLET'}
+      {isPending ? 'REQUESTING…' : error ? 'WALLET UNAVAILABLE // RETRY' : 'CONNECT TESTNET WALLET'}
     </button>
   );
 }
@@ -170,7 +198,7 @@ function NetworkStatus() {
   const onArc = isConnected && chainId === arc.id;
 
   return (
-    <div className="network-switch" aria-label="Arc Testnet connection status">
+    <div className="network-switch" role="group" aria-label="Arc Testnet connection status">
       <button
         type="button"
         className={onArc ? 'active' : ''}
@@ -204,10 +232,11 @@ function BackendStatus() {
 
 function Shell() {
   const navItems = [
-    ['01', 'AGENT', '/agent'],
-    ['02', 'QUOTE', '/trade'],
-    ['03', 'LABS', '/launch'],
-    ['04', 'PROOF', '/safety'],
+    ['01', 'MARKETS', '/markets'],
+    ['02', 'LAUNCH', '/launch'],
+    ['03', 'AGENT', '/agent'],
+    ['04', 'QUOTE', '/quote'],
+    ['05', 'PROOF', '/safety'],
   ];
 
   return (
@@ -215,7 +244,7 @@ function Shell() {
       <a className="skip-link" href="#main-content">SKIP TO PRODUCT</a>
       <Marquee />
       <div className="network-bar">
-        <span>PUBLIC TESTNET // NO REAL ASSETS</span>
+        <span>ARC PUBLIC TESTNET // TEST ASSETS ONLY</span>
         <div className="network-center">
           <BackendStatus />
           <NetworkStatus />
@@ -223,7 +252,7 @@ function Shell() {
         <ExternalLink href={arcLinks.status}>NETWORK STATUS ↗</ExternalLink>
       </div>
       <div className="testnet-banner">
-        PUBLIC TESTNET — LIVE QUOTES, TEST ASSETS — HUMAN APPROVAL REQUIRED FOR EXECUTION
+        ARC PUBLIC TESTNET — REAL USDC MARKET TRANSACTIONS — TEST ASSETS HAVE NO REAL-WORLD VALUE
       </div>
       <header>
         <NavLink className="brand" to="/">
@@ -246,8 +275,10 @@ function Shell() {
       <main id="main-content">
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/markets" element={<Markets />} />
+          <Route path="/trade" element={<Markets />} />
           <Route path="/launch" element={<Launch />} />
-          <Route path="/trade" element={<Trade />} />
+          <Route path="/quote" element={<Quote />} />
           <Route path="/nft" element={<NFT />} />
           <Route path="/vault" element={<Vault />} />
           <Route path="/agent" element={<Agent />} />
@@ -271,9 +302,16 @@ function Home() {
     retry: 1,
     refetchInterval: 30_000,
   });
+  const factory = useQuery({
+    queryKey: ['market-factory-config'],
+    queryFn: loadFactoryConfig,
+    retry: 1,
+    refetchInterval: 30_000,
+  });
   const live = health.data?.status === 'ok';
   const checks = [
     ['ARC RPC', health.data?.arc?.status === 'verified', health.data?.arc?.blockNumber ? `BLOCK ${health.data.arc.blockNumber}` : 'VERIFYING'],
+    ['MARKET FACTORY', Boolean(factory.data), factory.data ? `${factory.data.marketCount} MARKETS` : 'VERIFYING'],
     ['POSTGRES', health.data?.persistence?.ready === true, 'RESERVATIONS READY'],
     ['CIRCLE WALLET', health.data?.circle?.configured === true, 'DEV-CONTROLLED'],
     ['CIRCLE QUOTE', health.data?.appKit?.runtimeEnabled === true, 'LIVE SWAP ESTIMATES'],
@@ -293,12 +331,11 @@ function Home() {
             <br />MONEY.
           </h1>
           <p>
-            MemeVerse is a policy-driven settlement layer for culture markets. An autonomous
-            agent evaluates signals, reserves USDC, and prepares a verifiable Arc transaction—
-            while execution remains explicitly human-controlled.
+            Launch and trade meme assets against real faucet-funded USDC on Arc Public Testnet.
+            Every balance, quote, market, fee allocation, and receipt comes from the chain.
           </p>
           <div className="hero-actions">
-            <NavLink className="btn primary" to="/agent">RUN LIVE AGENT DEMO →</NavLink>
+            <NavLink className="btn primary" to="/markets">OPEN ONCHAIN MARKETS →</NavLink>
             <NavLink className="btn secondary" to="/safety">VIEW PROOF &amp; SAFETY</NavLink>
           </div>
         </div>
@@ -337,9 +374,10 @@ function Home() {
       <section className="demo-surfaces">
         <Title n="LAB" t="EXPLORE THE PRODUCT SURFACES" as="h2" />
         <div>
+          <NavLink to="/markets"><small>REAL ARC CONTRACTS</small><strong>USDC MARKETS</strong><span>Buy and sell onchain →</span></NavLink>
+          <NavLink to="/launch"><small>WALLET SIGNED</small><strong>LAUNCH A MEME</strong><span>Deploy a real market →</span></NavLink>
           <NavLink to="/agent"><small>REAL BACKEND</small><strong>AGENT SETTLEMENT</strong><span>Policy-backed USDC quote →</span></NavLink>
-          <NavLink to="/trade"><small>REAL CIRCLE QUOTE</small><strong>STABLECOIN ESTIMATE</strong><span>USDC / EURC on Arc →</span></NavLink>
-          <NavLink to="/launch"><small>SAFE SIMULATION</small><strong>MARKET LAB</strong><span>Launch without broadcast →</span></NavLink>
+          <NavLink to="/quote"><small>REAL CIRCLE QUOTE</small><strong>STABLECOIN ESTIMATE</strong><span>USDC / EURC on Arc →</span></NavLink>
           <NavLink to="/safety"><small>OFFICIAL SOURCES</small><strong>PROOF &amp; SAFETY</strong><span>Contracts and lifecycle →</span></NavLink>
         </div>
       </section>
@@ -358,34 +396,52 @@ function Title({ n, t, as = 'h1' }) {
   );
 }
 
-function SimulationReceipt({ record }) {
-  if (!record) return null;
-
-  return (
-    <div className="receipt simulation-receipt" role="status">
-      <b>SIMULATION READY // NO TRANSACTION BROADCAST</b>
-      <span>REFERENCE: {record.reference}</span>
-      <span>MEMO ID: {record.memoId.slice(0, 18)}…{record.memoId.slice(-8)}</span>
-      <span>STATE: {record.state}</span>
-    </div>
-  );
-}
-
 function Launch() {
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
-  const [supply, setSupply] = useState('1000000000');
-  const [reference, setReference] = useState(() => createReferenceId('LAUNCH'));
-  const [record, setRecord] = useState(null);
+  const [supply, setSupply] = useState('1000000');
+  const [description, setDescription] = useState('');
+  const [basePrice, setBasePrice] = useState('0.0001');
+  const [slopePrice, setSlopePrice] = useState('0.001');
+  const [review, setReview] = useState(false);
+  const [result, setResult] = useState(null);
+  const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const action = useOnchainAction();
+  const factory = useQuery({
+    queryKey: ['market-factory-config'],
+    queryFn: loadFactoryConfig,
+    retry: 1,
+  });
+  const onArc = isConnected && chainId === arc.id;
 
   function handleSubmit(event) {
     event.preventDefault();
-    setRecord(createSimulationRecord('TOKEN_LAUNCH', reference));
+    setReview(true);
+    setResult(null);
+    action.reset();
+  }
+
+  async function launchMarket() {
+    try {
+      const receipt = await action.execute({
+        address: arcContracts.memeVerseFactory,
+        abi: factoryAbi,
+        functionName: 'createMarket',
+        args: [name.trim(), symbol.trim().toUpperCase(), description.trim(), BigInt(supply), parseUsdc(basePrice), parseUsdc(slopePrice)],
+        chainId: arc.id,
+      });
+      const [event] = parseEventLogs({ abi: factoryAbi, logs: receipt.logs, eventName: 'MarketCreated', strict: true });
+      setResult({ market: event.args.market, token: event.args.token, creator: address, hash: receipt.transactionHash });
+      queryClient.invalidateQueries({ queryKey: ['onchain-markets'] });
+      queryClient.invalidateQueries({ queryKey: ['market-factory-config'] });
+    } catch { /* The action state presents validation, wallet, and receipt errors. */ }
   }
 
   return (
     <section className="page">
-      <Title n="03" t="MARKET LAUNCH LAB" />
+      <Title n="02" t="LAUNCH ON ARC" />
+      <p className="lede">Deploy a fixed-supply meme token and its USDC-native bonding market from your connected wallet. Success appears only after Arc includes the transaction in a final block.</p>
       <div className="form-grid">
         <form onSubmit={handleSubmit}>
           <label>
@@ -394,6 +450,7 @@ function Launch() {
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="e.g. UNEMPLOYED CAT"
+              maxLength="64"
               required
             />
           </label>
@@ -403,7 +460,7 @@ function Launch() {
               value={symbol}
               onChange={(event) => setSymbol(event.target.value.toUpperCase())}
               placeholder="UCAT"
-              maxLength="6"
+              maxLength="10"
               required
             />
           </label>
@@ -413,37 +470,46 @@ function Launch() {
               value={supply}
               onChange={(event) => setSupply(event.target.value)}
               type="number"
-              min="1"
-            />
-          </label>
-          <label>
-            MEMO / RECONCILIATION REFERENCE
-            <input
-              value={reference}
-              onChange={(event) => setReference(event.target.value)}
-              maxLength="80"
+              min="100"
+              max="1000000000"
+              step="1"
               required
             />
           </label>
           <label>
+            INITIAL PRICE / TOKEN
+            <input
+              value={basePrice}
+              onChange={(event) => setBasePrice(event.target.value)}
+              type="number"
+              min="0.000001"
+              max="1000"
+              step="0.000001"
+              required
+            />
+          </label>
+          <label>CURVE PRICE INCREASE<input value={slopePrice} onChange={(event) => setSlopePrice(event.target.value)} type="number" min="0" max="1000" step="0.000001" required /></label>
+          <label>
             LORE / DESCRIPTION
-            <textarea placeholder="Why does this deserve liquidity?" />
+            <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength="280" placeholder="Why does this deserve liquidity?" />
           </label>
           <div className="receive">
-            <span>SIMULATED ALLOCATION</span>
+            <span>FIXED ONCHAIN SUPPLY</span>
             <b>{Number(supply || 0).toLocaleString()} ${symbol || 'TOKEN'}</b>
           </div>
-          <button className="btn primary full">PREPARE TESTNET SIMULATION →</button>
-          <SimulationReceipt record={record} />
+          <button className="btn primary full" disabled={action.state.status === 'WALLET_SIGNATURE' || action.state.status === 'SUBMITTED'}>REVIEW ONCHAIN LAUNCH →</button>
+          {review ? <div className="onchain-review" role="region" aria-label="Launch review"><b>REVIEW BEFORE SIGNING</b><span>CREATOR // {address ?? 'CONNECT WALLET'}</span><span>FACTORY // {arcContracts.memeVerseFactory}</span><span>PRICE // {basePrice} + UP TO {slopePrice} USDC</span><span>FEES // {factory.data ? `${Number(factory.data.creatorFeeBps) / 100}% CREATOR + ${Number(factory.data.treasuryFeeBps) / 100}% TREASURY` : 'READING ONCHAIN'}</span><button className="btn primary full" type="button" disabled={!onArc || !factory.data || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(action.state.status)} onClick={launchMarket}>{!isConnected ? 'CONNECT WALLET FIRST' : !onArc ? 'SWITCH TO ARC TESTNET' : 'SIGN + LAUNCH ON ARC →'}</button></div> : null}
+          <TransactionStatus state={action.state} />
+          {result ? <div className="receipt onchain-receipt" role="status"><b>MARKET CONFIRMED ON ARC</b><span>MARKET + TOKEN // {result.market}</span><span>CREATOR // {result.creator}</span><ExternalLink href={`${arcLinks.explorer}/tx/${result.hash}`}>VIEW TRANSACTION ON ARCSCAN ↗</ExternalLink><ExternalLink href={`${arcLinks.explorer}/address/${result.market}`}>VIEW MARKET CONTRACT ↗</ExternalLink></div> : null}
         </form>
         <aside className="spec">
           <span>DEPLOYMENT SPEC</span>
           <dl>
-            <dt>MODE</dt><dd>SIMULATION</dd>
+            <dt>MODE</dt><dd>ONCHAIN</dd>
             <dt>NETWORK</dt><dd>{network.chain.name}</dd>
             <dt>SETTLEMENT</dt><dd>USDC</dd>
-            <dt>MEMO</dt><dd>REFERENCE READY</dd>
-            <dt>BROADCAST</dt><dd>DISABLED</dd>
+            <dt>CURVE</dt><dd>LINEAR / WHOLE TOKEN</dd>
+            <dt>BROADCAST</dt><dd>WALLET SIGNED</dd>
           </dl>
           <Mascot />
         </aside>
@@ -452,7 +518,198 @@ function Launch() {
   );
 }
 
-function Trade() {
+function TransactionStatus({ state }) {
+  if (!state || state.status === 'IDLE') return null;
+  return (
+    <div className={`transaction-status ${state.status === 'FAILED' ? 'failed' : ''}`} role="status" aria-live="polite">
+      <b>{state.status}</b>
+      {state.hash ? <ExternalLink href={`${arcLinks.explorer}/tx/${state.hash}`}>{state.hash.slice(0, 18)}…{state.hash.slice(-8)} ↗</ExternalLink> : null}
+      {state.error ? <span>{state.error}</span> : null}
+    </div>
+  );
+}
+
+function shortAddress(address) {
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+function Markets() {
+  const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const [selectedAddress, setSelectedAddress] = useState(null);
+  const [side, setSide] = useState('BUY');
+  const [buyAmount, setBuyAmount] = useState('0.01');
+  const [sellAmount, setSellAmount] = useState('1');
+  const slippageBps = 100;
+  const onArc = isConnected && chainId === arc.id;
+  const markets = useQuery({
+    queryKey: ['onchain-markets', address ?? 'anonymous'],
+    queryFn: () => loadMarkets(address),
+    retry: 1,
+    refetchInterval: 12_000,
+  });
+  const usdcBalance = useQuery({
+    queryKey: ['wallet-usdc', address],
+    queryFn: () => loadUsdcBalance(address),
+    enabled: onArc,
+    refetchInterval: 12_000,
+  });
+  const selected = markets.data?.find((market) => market.address === selectedAddress)
+    ?? markets.data?.[0]
+    ?? null;
+  useEffect(() => {
+    if (!selectedAddress && markets.data?.[0]) setSelectedAddress(markets.data[0].address);
+  }, [markets.data, selectedAddress]);
+
+  let buyUnits = 0n;
+  let sellUnits = 0n;
+  let buyInputError = null;
+  let sellInputError = null;
+  try { buyUnits = parseUsdc(buyAmount); } catch (error) { buyInputError = error.message; }
+  try { sellUnits = parseWholeTokens(sellAmount); } catch (error) { sellInputError = error.message; }
+
+  const buyQuote = useQuery({
+    queryKey: ['market-buy-quote', selected?.address, buyUnits.toString()],
+    queryFn: () => quoteBuy(selected.address, buyUnits),
+    enabled: Boolean(selected && buyUnits > 0n),
+    retry: 1,
+    refetchInterval: 8_000,
+  });
+  const sellQuote = useQuery({
+    queryKey: ['market-sell-quote', selected?.address, sellUnits.toString()],
+    queryFn: () => quoteSell(selected.address, sellUnits),
+    enabled: Boolean(selected && sellUnits > 0n),
+    retry: 1,
+    refetchInterval: 8_000,
+  });
+  const approval = useOnchainAction();
+  const buy = useOnchainAction();
+  const sell = useOnchainAction();
+  const allowanceRequired = Boolean(selected && buyUnits > selected.usdcAllowance);
+
+  async function refreshMarketState() {
+    await Promise.all([
+      markets.refetch(),
+      usdcBalance.refetch(),
+      queryClient.invalidateQueries({ queryKey: ['market-buy-quote'] }),
+      queryClient.invalidateQueries({ queryKey: ['market-sell-quote'] }),
+    ]);
+  }
+
+  async function approveUsdc() {
+    try {
+      await approval.execute({
+        address: arcContracts.usdc,
+        abi: usdcAbi,
+        functionName: 'approve',
+        args: [selected.address, buyUnits],
+        chainId: arc.id,
+      });
+      await refreshMarketState();
+    } catch { /* The action state presents the wallet/provider error. */ }
+  }
+
+  async function buyTokens(event) {
+    event.preventDefault();
+    if (!buyQuote.data) return;
+    try {
+      await buy.execute({
+        address: selected.address,
+        abi: marketAbi,
+        functionName: 'buy',
+        args: [buyUnits, minimumAfterSlippage(buyQuote.data[0], slippageBps)],
+        chainId: arc.id,
+      });
+      await refreshMarketState();
+    } catch { /* The action state presents the wallet/provider error. */ }
+  }
+
+  async function sellTokens(event) {
+    event.preventDefault();
+    if (!sellQuote.data) return;
+    try {
+      await sell.execute({
+        address: selected.address,
+        abi: marketAbi,
+        functionName: 'sell',
+        args: [sellUnits, minimumAfterSlippage(sellQuote.data[0], slippageBps)],
+        chainId: arc.id,
+      });
+      await refreshMarketState();
+    } catch { /* The action state presents the wallet/provider error. */ }
+  }
+
+  return (
+    <section className="page markets-page">
+      <Title n="01" t="ONCHAIN USDC MARKETS" />
+      <p className="lede">Markets are read directly from the deployed MemeVerse factory. Quotes, reserves, positions, fees, and balances are live Arc Public Testnet state.</p>
+      {markets.isError ? <p className="agent-error" role="alert">ARC RPC READ FAILED // {markets.error.shortMessage ?? 'Public RPC unavailable. Retry shortly.'}</p> : null}
+      {!markets.isPending && !markets.data?.length ? (
+        <div className="empty"><Mascot small /><span>ONCHAIN MARKETS: 0<br /><NavLink to="/launch">LAUNCH THE FIRST MARKET →</NavLink></span></div>
+      ) : null}
+      {markets.data?.length ? (
+        <div className="market-layout">
+          <div className="market-list" aria-label="Onchain markets">
+            {markets.data.map((market) => (
+              <button key={market.address} type="button" className={selected?.address === market.address ? 'active' : ''} onClick={() => setSelectedAddress(market.address)}>
+                <span>{market.symbol}</span><strong>{market.name}</strong><small>{formatUsdc(market.spotPriceUsdc)} USDC / TOKEN</small><em>{market.soldTokenCount.toLocaleString()} / {market.totalSupplyTokens.toLocaleString()} SOLD</em>
+              </button>
+            ))}
+          </div>
+          {selected ? <div className="market-terminal">
+            <section className="market-proof">
+              <div><small>MARKET</small><strong>{selected.name} / ${selected.symbol}</strong><ExternalLink href={`${arcLinks.explorer}/address/${selected.address}`}>{shortAddress(selected.address)} ↗</ExternalLink></div>
+              <dl>
+                <dt>SPOT QUOTE</dt><dd>{formatUsdc(selected.spotPriceUsdc)} USDC</dd>
+                <dt>CURVE RESERVE</dt><dd>{formatUsdc(selected.reserveUsdc)} USDC</dd>
+                <dt>SUPPLY SOLD</dt><dd>{selected.soldTokenCount.toLocaleString()} / {selected.totalSupplyTokens.toLocaleString()}</dd>
+                <dt>CREATOR</dt><dd>{shortAddress(selected.creator)}</dd>
+                <dt>CREATOR FEES PAID</dt><dd>{formatUsdc(selected.creatorFeesPaidUsdc)} USDC</dd>
+                <dt>TREASURY FEES PAID</dt><dd>{formatUsdc(selected.treasuryFeesPaidUsdc)} USDC</dd>
+                <dt>YOUR POSITION</dt><dd>{formatTokenAmount(selected.userBalance)} {selected.symbol}</dd>
+              </dl>
+              {selected.description ? <p>{selected.description}</p> : null}
+            </section>
+            <section className="market-order">
+              <div className="tabs"><button type="button" className={side === 'BUY' ? 'active' : ''} onClick={() => setSide('BUY')}>BUY</button><button type="button" className={side === 'SELL' ? 'active sell' : ''} onClick={() => setSide('SELL')}>SELL</button></div>
+              {side === 'BUY' ? <form onSubmit={buyTokens}>
+                <label>USDC AMOUNT<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="number" inputMode="decimal" min="0.000001" step="0.000001" required /><small>USDC</small></label>
+                <div className="trade-review">
+                  <span>WALLET BALANCE <b>{onArc && usdcBalance.data !== undefined ? `${formatUsdc(usdcBalance.data)} USDC` : 'CONNECT ON ARC'}</b></span>
+                  <span>ESTIMATED OUT <b>{buyQuote.data ? `${formatTokenAmount(buyQuote.data[0], 0)} ${selected.symbol}` : '—'}</b></span>
+                  <span>CURVE COST <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[1])} USDC` : '—'}</b></span>
+                  <span>CREATOR ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[2])} USDC` : '—'}</b></span>
+                  <span>TREASURY ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[3])} USDC` : '—'}</b></span>
+                  <span>MINIMUM OUT / SLIPPAGE <b>{buyQuote.data ? `${formatTokenAmount(minimumAfterSlippage(buyQuote.data[0], slippageBps), 2)} / 1%` : '—'}</b></span>
+                </div>
+                {buyInputError ? <p className="agent-error">{buyInputError}</p> : null}
+                {allowanceRequired ? <button className="btn secondary full" type="button" disabled={!onArc || approval.state.status === 'WALLET_SIGNATURE' || approval.state.status === 'SUBMITTED'} onClick={approveUsdc}>APPROVE {buyAmount || '0'} USDC →</button> : null}
+                <button className="btn primary full" disabled={!onArc || !buyQuote.data || buyQuote.data[0] === 0n || allowanceRequired || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(buy.state.status)}>SIGN BUY ON ARC →</button>
+                <TransactionStatus state={approval.state} />
+                <TransactionStatus state={buy.state} />
+              </form> : <form onSubmit={sellTokens}>
+                <label>TOKEN AMOUNT<input value={sellAmount} onChange={(event) => setSellAmount(event.target.value)} type="number" inputMode="numeric" min="1" step="1" required /><small>{selected.symbol}</small></label>
+                <div className="trade-review">
+                  <span>YOUR POSITION <b>{formatTokenAmount(selected.userBalance)} {selected.symbol}</b></span>
+                  <span>GROSS CURVE RETURN <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[1])} USDC` : '—'}</b></span>
+                  <span>CREATOR ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[2])} USDC` : '—'}</b></span>
+                  <span>TREASURY ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[3])} USDC` : '—'}</b></span>
+                  <span>ESTIMATED USDC OUT <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[0])} USDC` : '—'}</b></span>
+                  <span>MINIMUM OUT / SLIPPAGE <b>{sellQuote.data ? `${formatUsdc(minimumAfterSlippage(sellQuote.data[0], slippageBps))} / 1%` : '—'}</b></span>
+                </div>
+                {sellInputError ? <p className="agent-error">{sellInputError}</p> : null}
+                <button className="btn primary full" disabled={!onArc || !sellQuote.data || sellQuote.data[0] === 0n || sellUnits > selected.userBalance || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(sell.state.status)}>SIGN SELL ON ARC →</button>
+                <TransactionStatus state={sell.state} />
+              </form>}
+            </section>
+          </div> : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function Quote() {
   const [pair, setPair] = useState(['USDC', 'EURC']);
   const [amount, setAmount] = useState('0.01');
   const [quote, setQuote] = useState(null);
@@ -649,7 +906,7 @@ function Vault() {
       </div>
       {tab === 'TOKENS' ? (
         <div className="assets">
-          {coins.slice(0, 3).map((coin, index) => (
+          {demoCoins.slice(0, 3).map((coin, index) => (
             <div key={coin[0]}>
               <b>{coin[0]} <small>${coin[1]}</small></b>
               <strong>{[238400, 91420, 404808][index].toLocaleString()}</strong>
@@ -936,7 +1193,8 @@ function Safety() {
         <ResourceCard label="HEALTH" value="ARC STATUS" href={arcLinks.status} note="Check incidents and degraded service before retrying failed transactions." />
         <ResourceCard label="TEST FUNDS" value="CIRCLE FAUCET" href={arcLinks.faucet} note="Use only the official faucet. Testnet assets have no real-world value." />
         <ResourceCard label="VERIFY" value="ARCSCAN" href={arcLinks.explorer} note="A hash is not final proof; confirm the receipt status and expected events." />
-        <ResourceCard label="RECONCILIATION" value="TX MEMOS" href={arcLinks.memos} note="Memo IDs connect onchain calls to application records. Direct EOA callers only." />
+        <ResourceCard label="MARKETS" value="FACTORY" href={`${arcLinks.explorer}/address/${arcContracts.memeVerseFactory}`} note="Immutable registry for real MemeVerse token launches and USDC markets." />
+        <ResourceCard label="RECONCILIATION" value="TX MEMOS" href={arcLinks.memos} note="Memo IDs connect Agent settlement calls to application records. Direct EOA callers only." />
         <ResourceCard label="MULTI-CALL" value="BATCHED TX" href={arcLinks.batches} note="Define allow-failure policy explicitly and verify every target event." />
         <ResourceCard label="BRAND" value="BUILT ON ARC" href={arcLinks.brand} note="MemeVerse leads as the product brand; Arc is presented only as its infrastructure." />
       </div>
@@ -956,6 +1214,7 @@ function Safety() {
             <dt>USDC</dt><dd>{arcContracts.usdc.slice(0, 10)}…{arcContracts.usdc.slice(-6)}</dd>
             <dt>MEMO</dt><dd>{arcContracts.memo.slice(0, 10)}…{arcContracts.memo.slice(-6)}</dd>
             <dt>MEMEVERSE</dt><dd><ExternalLink href={`${arcLinks.explorer}/address/${arcContracts.memeVerseSettlement}`}>{arcContracts.memeVerseSettlement.slice(0, 10)}…{arcContracts.memeVerseSettlement.slice(-6)}</ExternalLink></dd>
+            <dt>MARKET FACTORY</dt><dd><ExternalLink href={`${arcLinks.explorer}/address/${arcContracts.memeVerseFactory}`}>{arcContracts.memeVerseFactory.slice(0, 10)}…{arcContracts.memeVerseFactory.slice(-6)}</ExternalLink></dd>
             <dt>BATCH</dt><dd>{arcContracts.multicall3From.slice(0, 10)}…{arcContracts.multicall3From.slice(-6)}</dd>
           </dl>
           <ExternalLink href={arcLinks.contracts}>VERIFY ALL ADDRESSES ↗</ExternalLink>

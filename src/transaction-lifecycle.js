@@ -1,11 +1,11 @@
 import { keccak256, stringToHex } from 'viem';
 
 export const transactionPhases = Object.freeze([
-  'PREPARED',
-  'AWAITING_SIGNATURE',
-  'BROADCAST',
-  'CONFIRMING',
-  'SETTLED',
+  'REQUESTED',
+  'WALLET_SIGNATURE',
+  'SUBMITTED',
+  'CONFIRMED',
+  'FAILED',
 ]);
 
 function randomSuffix() {
