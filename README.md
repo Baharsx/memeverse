@@ -52,8 +52,8 @@ MemeVerse uses only parameters currently published in the official Arc documenta
 |---|---|
 | Chain ID | `5042002` |
 | Native gas | USDC |
-| RPC | `https://rpc.testnet.arc.network` |
-| WebSocket | `wss://rpc.testnet.arc.network` |
+| RPC | `https://rpc.testnet.arc.io` |
+| WebSocket | `wss://rpc.testnet.arc.io` |
 | Explorer | `https://testnet.arcscan.app` |
 | Faucet | `https://faucet.circle.com/` |
 | Finality handling | 1 confirmed block |

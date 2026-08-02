@@ -1,14 +1,14 @@
 import { arcTestnet as viemArcTestnet } from 'viem/chains';
 
 export const ARC_RPC_URL =
-  import.meta.env.VITE_ARC_RPC_URL?.trim() || 'https://rpc.testnet.arc.network';
+  import.meta.env.VITE_ARC_RPC_URL?.trim() || 'https://rpc.testnet.arc.io';
 
 export const arc = {
   ...viemArcTestnet,
   rpcUrls: {
     default: {
       http: [ARC_RPC_URL],
-      webSocket: ['wss://rpc.testnet.arc.network'],
+      webSocket: ['wss://rpc.testnet.arc.io'],
     },
   },
   blockExplorers: {
