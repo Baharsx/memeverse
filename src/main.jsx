@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   WagmiProvider,
@@ -27,7 +27,9 @@ import {
 import {
   createIdempotencyKey,
   createAgentDecision,
+  estimateAppKitSwap,
   executeSettlement,
+  getAppKitCapabilities,
   getApiHealth,
   reconcileSettlement,
 } from './api';
@@ -96,11 +98,7 @@ function Routes({ children }) {
 
 const network = {
   chain: arc,
-  label: 'ARC TESTNET',
   money: 'USDC',
-  gas: 'USDC',
-  settlement: '1 BLOCK',
-  accent: 'STABLECOIN-NATIVE',
 };
 const coins = [
   ['PEPE.exe', 'PEPX', '$0.004218', '+18.4'],
@@ -155,11 +153,11 @@ function Wallet() {
   const { disconnect } = useDisconnect();
 
   return isConnected ? (
-    <button className="wallet" onClick={() => disconnect()}>
+    <button className="wallet" type="button" onClick={() => disconnect()} aria-label={`Disconnect testnet wallet ${address}`}>
       <i />TESTNET {address.slice(0, 6)}…{address.slice(-4)}
     </button>
   ) : (
-    <button className="wallet" onClick={() => connect({ connector: injected() })}>
+    <button className="wallet" type="button" onClick={() => connect({ connector: injected() })}>
       {isPending ? 'REQUESTING…' : 'CONNECT TESTNET WALLET'}
     </button>
   );
@@ -174,6 +172,7 @@ function NetworkStatus() {
   return (
     <div className="network-switch" aria-label="Arc Testnet connection status">
       <button
+        type="button"
         className={onArc ? 'active' : ''}
         disabled={!isConnected || isPending}
         onClick={() => switchChain({ chainId: arc.id })}
@@ -205,16 +204,15 @@ function BackendStatus() {
 
 function Shell() {
   const navItems = [
-    ['01', 'LAUNCH', '/launch'],
-    ['02', 'TRADE', '/trade'],
-    ['03', 'NFT', '/nft'],
-    ['04', 'VAULT', '/vault'],
-    ['05', 'AGENT', '/agent'],
-    ['06', 'SAFETY', '/safety'],
+    ['01', 'AGENT', '/agent'],
+    ['02', 'APP KIT', '/trade'],
+    ['03', 'LABS', '/launch'],
+    ['04', 'PROOF', '/safety'],
   ];
 
   return (
     <>
+      <a className="skip-link" href="#main-content">SKIP TO PRODUCT</a>
       <Marquee />
       <div className="network-bar">
         <span>PUBLIC TESTNET // NO REAL ASSETS</span>
@@ -225,8 +223,7 @@ function Shell() {
         <ExternalLink href={arcLinks.status}>NETWORK STATUS ↗</ExternalLink>
       </div>
       <div className="testnet-banner">
-        SIMULATION ENVIRONMENT — VERIFY CHAIN {arc.id} BEFORE SIGNING — NEVER SHARE
-        KEYS OR SEED PHRASES
+        PUBLIC TESTNET — LIVE QUOTES, TEST ASSETS — HUMAN APPROVAL REQUIRED FOR EXECUTION
       </div>
       <header>
         <NavLink className="brand" to="/">
@@ -236,7 +233,7 @@ function Shell() {
             alt="MemeVerse"
           />
         </NavLink>
-        <nav>
+        <nav aria-label="Primary navigation">
           {navItems.map((item) => (
             <NavLink key={item[1]} to={item[2]}>
               <sup>{item[0]}</sup>
@@ -246,7 +243,7 @@ function Shell() {
         </nav>
         <Wallet />
       </header>
-      <main>
+      <main id="main-content">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/launch" element={<Launch />} />
@@ -266,16 +263,21 @@ function Shell() {
   );
 }
 
-function Stat({ n, l }) {
-  return (
-    <div>
-      <strong>{n}</strong>
-      <small>{l}</small>
-    </div>
-  );
-}
-
 function Home() {
+  const health = useQuery({
+    queryKey: ['api-health'],
+    queryFn: getApiHealth,
+    retry: 1,
+    refetchInterval: 30_000,
+  });
+  const live = health.data?.status === 'ok';
+  const checks = [
+    ['ARC RPC', health.data?.arc?.status === 'verified', health.data?.arc?.blockNumber ? `BLOCK ${health.data.arc.blockNumber}` : 'VERIFYING'],
+    ['POSTGRES', health.data?.persistence?.ready === true, 'RESERVATIONS READY'],
+    ['CIRCLE WALLET', health.data?.circle?.configured === true, 'DEV-CONTROLLED'],
+    ['APP KIT', health.data?.appKit?.runtimeEnabled === true, 'LIVE SWAP ESTIMATES'],
+  ];
+
   return (
     <>
       <section className="hero">
@@ -284,71 +286,72 @@ function Home() {
             {arcCapabilities.phase} / CHAIN {network.chain.id}
           </div>
           <h1>
-            MEMES ARE
+            CULTURE MEETS
             <br />
-            <mark>FINANCIAL</mark>
-            <br />PRIMITIVES.
+            <mark>PROGRAMMABLE</mark>
+            <br />MONEY.
           </h1>
           <p>
-            Prototype culture markets with USDC as the money, gas and settlement
-            layer. Every current action is a transparent Testnet simulation until
-            the corresponding contracts are deployed and verified.
+            MemeVerse is a policy-driven settlement layer for culture markets. An autonomous
+            agent evaluates signals, reserves USDC, and prepares a verifiable Arc transaction—
+            while execution remains explicitly human-controlled.
           </p>
-          <NavLink className="btn primary" to="/launch">
-            BUILD ON {network.label} →
-          </NavLink>
+          <div className="hero-actions">
+            <NavLink className="btn primary" to="/agent">RUN LIVE AGENT DEMO →</NavLink>
+            <NavLink className="btn secondary" to="/safety">VIEW PROOF &amp; SAFETY</NavLink>
+          </div>
         </div>
         <aside>
           <Mascot />
           <p>
-            SETTLEMENT_LAYER: ARC
-            <br />STATUS: <b className="acid">PUBLIC TESTNET</b>
-            <br />ASSET_VALUE: TEST ONLY
+            PRODUCT: MEMEVERSE
+            <br />INFRASTRUCTURE: <b className="acid">BUILT ON ARC</b>
+            <br />MONEY + GAS: USDC
+            <br />STATUS: {live ? 'BACKEND VERIFIED' : 'VERIFYING BACKEND'}
           </p>
         </aside>
       </section>
-      <section className="stats">
-        <Stat n="USDC" l="NATIVE GAS" />
-        <Stat n={network.chain.id} l="CHAIN ID" />
-        <Stat n={network.settlement} l="FINALITY MODEL" />
-        <Stat n="TESTNET" l="NO REAL ASSETS" />
-      </section>
-      <section className="split">
-        <div>
-          <Title n="05" t="SIMULATED MARKETS" />
-          <div className="coin-table">
-            {coins.map((coin, index) => (
-              <div className="coin-row" key={coin[0]}>
-                <span className="rank">0{index + 1}</span>
-                <span>
-                  <b>{coin[0]}</b>
-                  <small>${coin[1]} / DEMO</small>
-                </span>
-                <strong>{coin[2]}</strong>
-                <em className={coin[3][0] === '-' ? 'down' : 'up'}>
-                  {coin[3][0] === '-' ? '▼' : '▲'} {coin[3]}%
-                </em>
-                <button>PREVIEW</button>
-              </div>
-            ))}
+      <section className="runtime-proof" aria-label="Live infrastructure status">
+        {checks.map(([label, ready, detail]) => (
+          <div key={label} className={ready ? 'ready' : ''}>
+            <span><i />{ready ? 'VERIFIED' : health.isPending ? 'CHECKING' : 'UNAVAILABLE'}</span>
+            <strong>{label}</strong>
+            <small>{detail}</small>
           </div>
-        </div>
-        <div>
-          <Title n="06" t="DEMO DROPS" />
-          {nfts.slice(0, 2).map((item, index) => (
-            <NFTCard key={item[0]} n={item[0]} p={item[1]} i={index} />
+        ))}
+      </section>
+      <section className="product-flow">
+        <Title n="01—04" t="A CONTROLLED AUTONOMY LOOP" as="h2" />
+        <div className="flow-grid">
+          {[
+            ['01', 'INGEST', 'Score engagement, retention, liquidity, risk, and confidence.'],
+            ['02', 'ENFORCE', 'Apply server-side caps and reserve treasury funds atomically.'],
+            ['03', 'PREPARE', 'Create a reconciliation memo and a Circle execution plan.'],
+            ['04', 'VERIFY', 'Reconcile the transaction receipt and Arc contract events.'],
+          ].map(([n, title, copy]) => (
+            <article key={n}><span>{n}</span><h3>{title}</h3><p>{copy}</p></article>
           ))}
+        </div>
+      </section>
+      <section className="demo-surfaces">
+        <Title n="LAB" t="EXPLORE THE PRODUCT SURFACES" as="h2" />
+        <div>
+          <NavLink to="/agent"><small>REAL BACKEND</small><strong>AGENT SETTLEMENT</strong><span>Policy-backed USDC quote →</span></NavLink>
+          <NavLink to="/trade"><small>REAL CIRCLE QUOTE</small><strong>APP KIT ESTIMATE</strong><span>USDC / EURC on Arc →</span></NavLink>
+          <NavLink to="/launch"><small>SAFE SIMULATION</small><strong>MARKET LAB</strong><span>Launch without broadcast →</span></NavLink>
+          <NavLink to="/safety"><small>OFFICIAL SOURCES</small><strong>PROOF &amp; SAFETY</strong><span>Contracts and lifecycle →</span></NavLink>
         </div>
       </section>
     </>
   );
 }
 
-function Title({ n, t }) {
+function Title({ n, t, as = 'h1' }) {
+  const Heading = as;
   return (
     <div className="title">
       <span>{n}</span>
-      <h2>{t}</h2>
+      <Heading>{t}</Heading>
       <i />
     </div>
   );
@@ -381,7 +384,7 @@ function Launch() {
 
   return (
     <section className="page">
-      <Title n="01" t="LAUNCH A MEME" />
+      <Title n="03" t="MARKET LAUNCH LAB" />
       <div className="form-grid">
         <form onSubmit={handleSubmit}>
           <label>
@@ -448,57 +451,107 @@ function Launch() {
   );
 }
 
-function Chart() {
-  return (
-    <svg className="chart" viewBox="0 0 800 360" preserveAspectRatio="none" aria-label="Simulated price chart">
-      <g className="grid">
-        {[60, 120, 180, 240, 300].map((y) => (
-          <line key={y} x1="0" y1={y} x2="800" y2={y} />
-        ))}
-      </g>
-      <polyline points="0,290 70,278 130,240 190,260 250,192 310,210 370,130 430,151 490,100 550,120 610,63 670,91 735,41 800,54" />
-    </svg>
-  );
-}
-
 function Trade() {
-  const [side, setSide] = useState('BUY');
-  const [amount, setAmount] = useState('25');
+  const [pair, setPair] = useState(['USDC', 'EURC']);
+  const [amount, setAmount] = useState('0.01');
+  const [quote, setQuote] = useState(null);
+  const [requestState, setRequestState] = useState({ status: 'idle', error: null });
+  const capabilities = useQuery({
+    queryKey: ['app-kit-capabilities'],
+    queryFn: getAppKitCapabilities,
+    retry: 1,
+    staleTime: 30_000,
+  });
+  const runtimeReady = capabilities.data?.data?.runtimeEnabled === true;
+
+  function reversePair() {
+    setPair(([tokenIn, tokenOut]) => [tokenOut, tokenIn]);
+    setQuote(null);
+  }
+
+  async function requestQuote(event) {
+    event.preventDefault();
+    setRequestState({ status: 'loading', error: null });
+    setQuote(null);
+    try {
+      const response = await estimateAppKitSwap({
+        tokenIn: pair[0],
+        tokenOut: pair[1],
+        amountIn: amount,
+      });
+      setQuote(response.data);
+      setRequestState({ status: 'success', error: null });
+    } catch (error) {
+      setRequestState({
+        status: 'error',
+        error: `${error.code ?? 'QUOTE_FAILED'}: ${error.message}`,
+      });
+    }
+  }
 
   return (
-    <section className="page">
-      <Title n="02" t="TRADE / PEPX / DEMO" />
-      <div className="trade-grid">
-        <div className="chartbox">
-          <div className="quote">
-            <span>PEPE.exe / SIMULATED USD</span>
-            <b>$0.004218</b>
-            <em className="up">▲ 18.4%</em>
+    <section className="page app-kit-page">
+      <Title n="02" t="CIRCLE APP KIT QUOTE" />
+      <p className="lede">
+        Request a live, authenticated Stablecoin Kits estimate for Arc Testnet. The Kit Key stays
+        on the server, transaction data is discarded, and this screen never signs or broadcasts.
+      </p>
+      <div className="app-kit-grid">
+        <form className="quote-form" onSubmit={requestQuote}>
+          <div className={`runtime-badge ${runtimeReady ? 'ready' : ''}`}>
+            <i />{capabilities.isPending ? 'CHECKING RUNTIME' : runtimeReady ? 'CIRCLE RUNTIME READY' : 'RUNTIME UNAVAILABLE'}
           </div>
-          <Chart />
-          <div className="axis">00:00　04:00　08:00　12:00　16:00　20:00　NOW</div>
-        </div>
-        <div className="order">
-          <div className="tabs">
-            <button className={side === 'BUY' ? 'active' : ''} onClick={() => setSide('BUY')}>BUY</button>
-            <button className={side === 'SELL' ? 'sell' : ''} onClick={() => setSide('SELL')}>SELL</button>
+          <div className="pair-display" aria-label={`Swap pair ${pair[0]} to ${pair[1]}`}>
+            <span><small>FROM</small>{pair[0]}</span>
+            <button type="button" onClick={reversePair} aria-label="Reverse token pair">⇄</button>
+            <span><small>TO</small>{pair[1]}</span>
           </div>
           <label>
-            YOU PAY
-            <input value={amount} onChange={(event) => setAmount(event.target.value)} />
-            <small>{network.money}</small>
+            AMOUNT IN
+            <input
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              inputMode="decimal"
+              min="0.000001"
+              step="0.000001"
+              type="number"
+              required
+            />
+            <small>{pair[0]}</small>
           </label>
-          <div className="receive">
-            <span>SIMULATED RECEIVE</span>
-            <b>{(Number(amount || 0) * 237).toFixed(0)} PEPX</b>
+          <button className="btn primary full" disabled={!runtimeReady || requestState.status === 'loading'}>
+            {requestState.status === 'loading' ? 'REQUESTING CIRCLE QUOTE…' : 'GET LIVE ESTIMATE →'}
+          </button>
+          <p className="quote-boundary">ESTIMATE ONLY // NO SIGNATURE // NO BROADCAST // TESTNET ASSETS</p>
+          {requestState.error ? <p className="agent-error" role="alert">{requestState.error}</p> : null}
+        </form>
+        <section className="quote-result" aria-live="polite" aria-busy={requestState.status === 'loading'}>
+          <span>SERVER-SANITIZED RESPONSE</span>
+          {quote ? (
+            <>
+              <div className="quote-output"><small>ESTIMATED OUTPUT</small><strong>{quote.estimatedOutput.amount}</strong><b>{quote.estimatedOutput.token}</b></div>
+              <dl>
+                <dt>INPUT</dt><dd>{quote.amountIn} {quote.tokenIn}</dd>
+                <dt>STOP LIMIT</dt><dd>{quote.stopLimit.amount} {quote.stopLimit.token}</dd>
+                <dt>NETWORK</dt><dd>{quote.chain.replace('_', ' ')}</dd>
+                <dt>PROVIDER</dt><dd>CIRCLE</dd>
+                <dt>FEES</dt><dd>{quote.fees.length ? quote.fees.map((fee) => `${fee.amount} ${fee.token}`).join(' + ') : 'NONE RETURNED'}</dd>
+              </dl>
+              {quote.quoteReference ? <p>QUOTE REF // {quote.quoteReference}</p> : null}
+            </>
+          ) : (
+            <div className="quote-empty"><Mascot small /><p>Enter an amount to fetch a real Arc Testnet estimate from Circle.</p></div>
+          )}
+          <div className="quote-proof">
+            <span>KIT KEY</span><b>SERVER ONLY</b>
+            <span>TRANSACTION PAYLOAD</span><b>DISCARDED</b>
+            <span>DEPENDENCY AUDIT</span><b>0 FINDINGS</b>
           </div>
-          <dl>
-            <dt>CURVE PROGRESS</dt><dd>68.4% DEMO</dd>
-            <dt>PRICE IMPACT</dt><dd>0.82% DEMO</dd>
-            <dt>BROADCAST</dt><dd>DISABLED</dd>
-          </dl>
-          <button className="btn primary full">PREVIEW {side} →</button>
-        </div>
+        </section>
+      </div>
+      <div className="stack-strip">
+        <span>BUILT ON ARC</span><span>USDC GAS</span><span>LIVE CIRCLE ESTIMATE</span>
+        <span>SERVER-SIDE AUTH</span><span>FAIL-CLOSED VALIDATION</span><span>NO BROADCAST</span>
       </div>
     </section>
   );
@@ -512,7 +565,7 @@ function NFTCard({ n, p, i }) {
         <small>MEMEVERSE DEMO ARCHIVE</small>
         <h3>{n}</h3>
         <b>{p}</b>
-        <button>PREVIEW</button>
+        <span className="card-action">PREVIEW</span>
       </div>
     </article>
   );
@@ -520,6 +573,8 @@ function NFTCard({ n, p, i }) {
 
 function NFT() {
   const [modal, setModal] = useState(false);
+  const closeButton = useRef(null);
+  const opener = useRef(null);
   const items = [
     ...nfts,
     ['LIQUIDITY GOBLIN #2', '160 USDC'],
@@ -527,27 +582,50 @@ function NFT() {
     ['DEGEN RELIC #404', '320 USDC'],
   ];
 
+  useEffect(() => {
+    if (!modal) return undefined;
+    closeButton.current?.focus();
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setModal(false);
+        opener.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [modal]);
+
+  function openPreview(event) {
+    opener.current = event.currentTarget;
+    setModal(true);
+  }
+
+  function closePreview() {
+    setModal(false);
+    requestAnimationFrame(() => opener.current?.focus());
+  }
+
   return (
     <section className="page">
-      <Title n="03" t="NFT ARCHIVE / DEMO" />
+      <Title n="LAB A" t="NFT ARCHIVE / DEMO" />
       <div className="nft-grid">
         {items.map((item, index) => (
-          <button className="nft-trigger" key={item[0]} onClick={() => setModal(true)}>
+          <button className="nft-trigger" type="button" key={item[0]} onClick={openPreview}>
             <NFTCard n={item[0]} p={item[1]} i={index % 3} />
           </button>
         ))}
       </div>
       {modal ? (
-        <div className="modal" onClick={() => setModal(false)}>
-          <div role="dialog" aria-modal="true" aria-label="Preview NFT listing" onClick={(event) => event.stopPropagation()}>
-            <button className="x" onClick={() => setModal(false)} aria-label="Close">×</button>
-            <Title n="DEMO" t="PREVIEW ASK PRICE" />
+        <div className="modal" onClick={closePreview}>
+          <div role="dialog" aria-modal="true" aria-labelledby="preview-dialog-title" onClick={(event) => event.stopPropagation()}>
+            <button ref={closeButton} className="x" type="button" onClick={closePreview} aria-label="Close preview dialog">×</button>
+            <div id="preview-dialog-title"><Title n="DEMO" t="PREVIEW ASK PRICE" as="h2" /></div>
             <label>
               PRICE
-              <input placeholder="0.00" />
+              <input placeholder="0.00" inputMode="decimal" />
               <small>USDC</small>
             </label>
-            <button className="btn primary full">PREVIEW LISTING →</button>
+            <button className="btn primary full" type="button">PREVIEW LISTING →</button>
           </div>
         </div>
       ) : null}
@@ -560,10 +638,10 @@ function Vault() {
 
   return (
     <section className="page">
-      <Title n="04" t="SIMULATED ASSETS" />
-      <div className="big-tabs">
-        <button className={tab === 'TOKENS' ? 'active' : ''} onClick={() => setTab('TOKENS')}>TOKENS / 03</button>
-        <button className={tab === 'NFTS' ? 'active' : ''} onClick={() => setTab('NFTS')}>NFTS / 02</button>
+      <Title n="LAB B" t="SIMULATED ASSETS" />
+      <div className="big-tabs" role="tablist" aria-label="Asset type">
+        <button type="button" role="tab" aria-selected={tab === 'TOKENS'} className={tab === 'TOKENS' ? 'active' : ''} onClick={() => setTab('TOKENS')}>TOKENS / 03</button>
+        <button type="button" role="tab" aria-selected={tab === 'NFTS'} className={tab === 'NFTS' ? 'active' : ''} onClick={() => setTab('NFTS')}>NFTS / 02</button>
       </div>
       {tab === 'TOKENS' ? (
         <div className="assets">
@@ -572,7 +650,7 @@ function Vault() {
               <b>{coin[0]} <small>${coin[1]}</small></b>
               <strong>{[238400, 91420, 404808][index].toLocaleString()}</strong>
               <span>{coin[2]} DEMO</span>
-              <button>PREVIEW ↗</button>
+              <span>DEMO ONLY</span>
             </div>
           ))}
         </div>
@@ -595,7 +673,7 @@ function Agent() {
   const [record, setRecord] = useState(null);
   const [form, setForm] = useState({
     recipient: '0x1111111111111111111111111111111111111111',
-    requestedAmount: '25.00',
+    requestedAmount: '1.00',
     engagementVelocity: '94',
     holderRetention: '92',
     liquidityDepth: '90',
@@ -604,6 +682,7 @@ function Agent() {
     reference: 'MEME-CREATOR-PAYOUT',
   });
   const [requestState, setRequestState] = useState({ status: 'idle', error: null, replayed: false });
+  const [executionReview, setExecutionReview] = useState({ open: false, confirmation: '' });
   const lastAttempt = useRef(null);
   const health = useQuery({
     queryKey: ['api-health'],
@@ -652,6 +731,7 @@ function Agent() {
       },
     };
     setRequestState({ status: 'loading', error: null, replayed: false });
+    setExecutionReview({ open: false, confirmation: '' });
     setRecord(null);
     try {
       const quote = await createAgentDecision(input, lastAttempt.current.key);
@@ -671,6 +751,7 @@ function Agent() {
   }
 
   async function executeWithCircle() {
+    if (executionReview.confirmation !== 'EXECUTE') return;
     setRequestState({ status: 'loading', error: null, replayed: false });
     try {
       const response = await executeSettlement(record.id);
@@ -702,7 +783,7 @@ function Agent() {
 
   return (
     <section className="page agent-page">
-      <Title n="05" t="AUTONOMOUS SETTLEMENT" />
+      <Title n="01" t="AUTONOMOUS SETTLEMENT" />
       <p className="lede">
         The backend weights fresh engagement, retention, liquidity, fraud-risk, and confidence
         signals against live Arc and Circle treasury evidence. The agent may quote and prepare,
@@ -710,30 +791,30 @@ function Agent() {
       </p>
       <div className="agent-grid">
         <form className="agent-rules" onSubmit={runPolicy}>
-          <span>SERVER-ENFORCED AGENT POLICY / V2</span>
-          <label>RECIPIENT<input name="recipient" value={form.recipient} onChange={updateForm} required /></label>
-          <label>REQUESTED SPEND<input name="requestedAmount" inputMode="decimal" value={form.requestedAmount} onChange={updateForm} required /><small>{network.money}</small></label>
-          <label>ENGAGEMENT VELOCITY<input name="engagementVelocity" type="number" min="0" max="100" value={form.engagementVelocity} onChange={updateForm} required /><small>45%</small></label>
-          <label>HOLDER RETENTION<input name="holderRetention" type="number" min="0" max="100" value={form.holderRetention} onChange={updateForm} required /><small>25%</small></label>
-          <label>LIQUIDITY DEPTH<input name="liquidityDepth" type="number" min="0" max="100" value={form.liquidityDepth} onChange={updateForm} required /><small>30%</small></label>
-          <label>FRAUD RISK<input name="fraudRisk" type="number" min="0" max="100" value={form.fraudRisk} onChange={updateForm} required /><small>MAX 20</small></label>
-          <label>SIGNAL CONFIDENCE<input name="confidence" type="number" min="0" max="100" value={form.confidence} onChange={updateForm} required /><small>MIN 80</small></label>
-          <label>RECONCILIATION REFERENCE<input name="reference" value={form.reference} onChange={updateForm} minLength="3" maxLength="120" required /></label>
-          <dl>
-            <dt>MAX SPEND</dt><dd>25.00 USDC</dd>
-            <dt>MIN. SCORE</dt><dd>78 / 100</dd>
-            <dt>CREATOR SHARE</dt><dd>60%</dd>
-            <dt>DAILY AGENT CAP</dt><dd>30.00 USDC</dd>
-            <dt>EXECUTION AUTHORITY</dt><dd>HUMAN ONLY</dd>
-            <dt>NETWORK</dt><dd>{network.chain.name}</dd>
-            <dt>RETRY POLICY</dt><dd>NO BLIND RETRIES</dd>
-          </dl>
+          <div className="form-section-label"><span>01</span> SETTLEMENT REQUEST</div>
+          <div className="agent-fields identity-fields">
+            <label className="wide">RECIPIENT<input name="recipient" value={form.recipient} onChange={updateForm} spellCheck="false" required /></label>
+            <label>REQUESTED SPEND<input name="requestedAmount" type="number" inputMode="decimal" min="0.01" max="25" step="0.01" value={form.requestedAmount} onChange={updateForm} required /><small>{network.money}</small></label>
+            <label>REFERENCE<input name="reference" value={form.reference} onChange={updateForm} minLength="3" maxLength="120" spellCheck="false" required /></label>
+          </div>
+          <div className="form-section-label"><span>02</span> DECISION SIGNALS / 0—100</div>
+          <div className="agent-fields signal-fields">
+            <label>ENGAGEMENT<input name="engagementVelocity" type="number" min="0" max="100" value={form.engagementVelocity} onChange={updateForm} required /><small>45% WT.</small></label>
+            <label>RETENTION<input name="holderRetention" type="number" min="0" max="100" value={form.holderRetention} onChange={updateForm} required /><small>25% WT.</small></label>
+            <label>LIQUIDITY<input name="liquidityDepth" type="number" min="0" max="100" value={form.liquidityDepth} onChange={updateForm} required /><small>30% WT.</small></label>
+            <label>FRAUD RISK<input name="fraudRisk" type="number" min="0" max="100" value={form.fraudRisk} onChange={updateForm} required /><small>MAX 20</small></label>
+            <label>CONFIDENCE<input name="confidence" type="number" min="0" max="100" value={form.confidence} onChange={updateForm} required /><small>MIN 80</small></label>
+          </div>
+          <div className="policy-caps" aria-label="Enforced policy limits">
+            <span>MAX <b>25 USDC</b></span><span>SCORE <b>78+</b></span><span>SHARE <b>60%</b></span>
+            <span>DAILY <b>30 USDC</b></span><span>AUTH <b>HUMAN</b></span><span>RETRY <b>EXPLICIT</b></span>
+          </div>
           <button className="btn primary full" type="submit" disabled={requestState.status === 'loading'}>
             {requestState.status === 'loading' ? 'ENFORCING POLICY…' : 'REQUEST SETTLEMENT QUOTE →'}
           </button>
           {requestState.error ? <p className="agent-error" role="alert">{requestState.error}</p> : null}
         </form>
-        <div className="agent-log">
+        <div className="agent-log" aria-live="polite">
           <span>BACKEND EXECUTION TRACE</span>
           {trace.map((item) => (
             <div className={record ? (approved ? 'done' : 'denied') : ''} key={item[0]}>
@@ -750,7 +831,7 @@ function Agent() {
         </div>
       </div>
       {record ? (
-        <div className={`settlement-receipt ${approved ? '' : 'denied'}`}>
+        <div className={`settlement-receipt ${approved ? '' : 'denied'}`} role="status" aria-live="polite">
           <b>{approved ? 'PERSISTED SETTLEMENT PLAN' : 'POLICY DENIED'}</b>
           <span>ID // {record.id}</span>
           <span>STATE // {record.state}</span>
@@ -770,14 +851,33 @@ function Agent() {
             <ExternalLink href={`${arcLinks.explorer}/tx/${record.transactionHash}`}>VERIFY ON ARCSCAN ↗</ExternalLink>
           ) : null}
           {approved && record.state === 'AWAITING_SIGNATURE' ? (
-            <button
-              className="btn circle-action"
-              type="button"
-              disabled={!circleConfigured || requestState.status === 'loading'}
-              onClick={executeWithCircle}
-            >
-              {circleConfigured ? 'EXECUTE ARC MEMO SETTLEMENT VIA CIRCLE →' : 'CIRCLE + SETTLEMENT CONTRACT REQUIRED'}
-            </button>
+            executionReview.open ? (
+              <div className="execution-review">
+                <strong>HUMAN EXECUTION GATE</strong>
+                <p>This broadcasts a testnet transaction through Circle. Verify the recipient, amount, memo, chain {arc.id}, and contract before proceeding.</p>
+                <label>TYPE EXECUTE TO AUTHORIZE
+                  <input
+                    value={executionReview.confirmation}
+                    onChange={(event) => setExecutionReview((current) => ({ ...current, confirmation: event.target.value }))}
+                    autoComplete="off"
+                    spellCheck="false"
+                  />
+                </label>
+                <div>
+                  <button className="btn" type="button" onClick={() => setExecutionReview({ open: false, confirmation: '' })}>CANCEL</button>
+                  <button className="btn circle-action" type="button" disabled={executionReview.confirmation !== 'EXECUTE' || requestState.status === 'loading'} onClick={executeWithCircle}>EXECUTE VIA CIRCLE →</button>
+                </div>
+              </div>
+            ) : (
+              <button
+                className="btn circle-action"
+                type="button"
+                disabled={!circleConfigured || requestState.status === 'loading'}
+                onClick={() => setExecutionReview({ open: true, confirmation: '' })}
+              >
+                {circleConfigured ? 'REVIEW HUMAN EXECUTION →' : 'CIRCLE + SETTLEMENT CONTRACT REQUIRED'}
+              </button>
+            )
           ) : null}
           {record.circle && !['COMPLETE', 'FAILED', 'DENIED', 'CANCELLED'].includes(record.state) ? (
             <button
@@ -801,7 +901,7 @@ function Agent() {
         <span>NO BLIND RETRIES</span>
         <span>CONDITIONAL SETTLEMENT</span>
         <span>CIRCLE DEV-CONTROLLED EOA</span>
-        <span>APP KIT BOUNDARY / FAIL-CLOSED</span>
+        <span>APP KIT QUOTES LIVE / FAIL-CLOSED</span>
         <span>SEPARATE LEASED WORKER</span>
       </div>
     </section>
@@ -822,7 +922,7 @@ function ResourceCard({ label, value, href, note }) {
 function Safety() {
   return (
     <section className="page safety-page">
-      <Title n="06" t="SAFETY / OFFICIAL SOURCES" />
+      <Title n="04" t="PROOF / SAFETY / SOURCES" />
       <div className="risk-banner">
         <strong>TESTNET ONLY</strong>
         <span>No MemeVerse screen should ask for a seed phrase or private key. Treat unsolicited support DMs as scams.</span>
@@ -834,6 +934,7 @@ function Safety() {
         <ResourceCard label="VERIFY" value="ARCSCAN" href={arcLinks.explorer} note="A hash is not final proof; confirm the receipt status and expected events." />
         <ResourceCard label="RECONCILIATION" value="TX MEMOS" href={arcLinks.memos} note="Memo IDs connect onchain calls to application records. Direct EOA callers only." />
         <ResourceCard label="MULTI-CALL" value="BATCHED TX" href={arcLinks.batches} note="Define allow-failure policy explicitly and verify every target event." />
+        <ResourceCard label="BRAND" value="BUILT ON ARC" href={arcLinks.brand} note="MemeVerse leads as the product brand; Arc is presented only as its infrastructure." />
       </div>
       <div className="safety-grid">
         <section>

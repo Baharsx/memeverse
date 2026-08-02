@@ -64,6 +64,13 @@ export async function getAppKitCapabilities() {
   return request('/api/v1/app-kit/capabilities');
 }
 
+export async function estimateAppKitSwap(input) {
+  return request('/api/v1/app-kit/swap/estimate', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 export async function prepareSettlement(settlementId) {
   return request(`/api/v1/settlements/${encodeURIComponent(settlementId)}/prepare`, {
     method: 'POST',

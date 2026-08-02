@@ -55,7 +55,7 @@ export const memoAbi = [
 ];
 
 export const arcCapabilities = Object.freeze({
-  phase: 'PHASE 4 / PUBLIC TESTNET',
+  phase: 'FINAL MVP / PUBLIC TESTNET',
   realAssets: false,
   confirmationsRequired: 1,
   transactionMemos: 'LIVE IN MEMEVERSE / EOA ONLY',

@@ -2,7 +2,7 @@
 
 **MemeVerse is a meme asset terminal built on Arc Network for launching, trading, minting, and autonomously preparing creator settlement in USDC.**
 
-The current release is a public Arc Testnet MVP. Launch, trade, and NFT screens remain simulations. Agent Policy V2 derives a confidence-adjusted score from fresh engagement, retention, liquidity, fraud-risk, and confidence signals; combines it with live Arc and Circle treasury evidence; reserves capacity transactionally; and may prepare—but never autonomously execute—a creator payout. Explicit human approval submits the payout through Arc Memo and the verified MemeVerseSettlement contract using a Circle Developer-Controlled EOA.
+The current release is a presentation-ready public Arc Testnet MVP. Market launch, NFT, and vault screens remain clearly labelled simulations. The App Kit screen requests a real authenticated USDC/EURC estimate without signing or broadcasting. Agent Policy V2 derives a confidence-adjusted score from fresh engagement, retention, liquidity, fraud-risk, and confidence signals; combines it with live Arc and Circle treasury evidence; reserves capacity transactionally; and may prepare—but never autonomously execute—a creator payout. Explicit human approval submits the payout through Arc Memo and the verified MemeVerseSettlement contract using a Circle Developer-Controlled EOA.
 
 ## Built on Arc
 
@@ -36,8 +36,9 @@ The product explores two Arc ecosystem tracks:
 - Separately supervised reconciliation worker with expiring PostgreSQL leases
 - PostgreSQL webhook replay protection
 - Fail-closed Arc App Kit integration boundary and capability discovery
+- Presentation UI for live server-authenticated Circle Stablecoin Kits estimates
 - USDC-native gas and settlement presentation
-- Meme-token launch, bonding-curve trade, NFT archive, vault, and agent simulations
+- Clearly labelled market-launch, NFT archive, and vault simulations
 - Reconciliation reference and deterministic `bytes32` Memo ID generation
 - Explicit simulation receipts that distinguish preparation from broadcast and settlement
 - Safety center with verified Arc resources, contract links, and transaction lifecycle
@@ -81,7 +82,7 @@ MemeVerse owns and operates this application contract; it is not an Arc or Circl
 
 Addresses must be rechecked against the [official Arc contract registry](https://docs.arc.io/arc/references/contract-addresses) before deployment.
 
-## Phase 4 architecture
+## Phase 5 architecture
 
 ```text
 Agent form → Settlement API → Policy + treasury reservation
@@ -133,7 +134,7 @@ Blind retries are forbidden. A pre-broadcast rejection may be safely retried aft
 
 ### Transaction Memo guardrails
 
-- Memo is Testnet infrastructure. Only the Agent settlement flow is currently onchain; the launch, trade, and NFT screens remain simulations.
+- Memo is Testnet infrastructure. Only the Agent settlement flow is currently onchain; market launch, NFT, and vault screens remain simulations. The App Kit screen returns a live estimate but never prepares or broadcasts its transaction.
 - The direct caller must be an externally owned account (EOA).
 - Smart contract accounts, ERC-4337 wallets, Safe, and intermediary contracts are not supported as direct callers.
 - Memo events are indexed by `memoId`, sender, and target; the original calldata should be retained when exact call reconstruction is required.
@@ -321,7 +322,7 @@ Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration
 - End-to-end Memo settlement: [`0xbdd7b3edaf3a10bb8b81a8ef6eea1644fc04ccfd94ff938e3f528fdac4effac6`](https://testnet.arcscan.app/tx/0xbdd7b3edaf3a10bb8b81a8ef6eea1644fc04ccfd94ff938e3f528fdac4effac6)
 - Indexed result: Circle `COMPLETE`, Arc event reconciliation `VERIFIED`, reservation `CONSUMED`
 
-## Phase 4 verification
+## Phase 5 verification
 
 - Agent Policy V2 may only quote and prepare; execution remains human-only.
 - PostgreSQL daily-cap concurrency, webhook replay, and worker leasing are covered by automated tests.
@@ -329,8 +330,9 @@ Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration
 - The internal review is documented in [`docs/PHASE-4-SECURITY-REVIEW.md`](./docs/PHASE-4-SECURITY-REVIEW.md).
 - Authenticated Arc Testnet `USDC → EURC` estimation is verified through the server-only Stablecoin Kits boundary; no transaction is signed or broadcast.
 - The official full App Kit package graph remains excluded because it still adds 25 audit findings; the active native-fetch boundary keeps `npm audit` at zero.
+- The presentation flow, responsive layouts, explicit execution gate, and browser-to-API paths are documented in [`docs/PHASE-5-HANDOFF.md`](./docs/PHASE-5-HANDOFF.md).
 
-## Next implementation milestone — Phase 5
+## Post-hackathon hardening
 
 - Connect an authenticated analytics/indexing pipeline and disable `MANUAL_DEMO` signals in production.
 - Deploy the API, worker, and managed PostgreSQL to a public testnet environment with backup and restore drills.
