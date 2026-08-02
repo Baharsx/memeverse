@@ -116,42 +116,117 @@ describe('MemeMarket', () => {
 
   it('returns a deterministic maximal buy quote with explicit fee rounding', async () => {
     const { market } = await createMarket();
-    const amountIn = 1n * USDC;
-    const [tokenOut, curveCost, creatorFee, treasuryFee] = await market.read.quoteBuy([amountIn]);
-    assert.equal(creatorFee, 10_000n);
-    assert.equal(treasuryFee, 10_000n);
+    const maximumUsdcIn = 1n * USDC;
+    const [tokenOut, curveCost, creatorFee, treasuryFee, actualUsdcSpent] =
+      await market.read.quoteBuy([maximumUsdcIn]);
+    assert.equal(creatorFee, curveCost / 100n);
+    assert.equal(treasuryFee, curveCost / 100n);
+    assert.equal(actualUsdcSpent, curveCost + creatorFee + treasuryFee);
+    assert.ok(actualUsdcSpent <= maximumUsdcIn);
     assert.equal(tokenOut % TOKEN, 0n);
     assert.ok(tokenOut > 0n);
-    assert.ok(curveCost <= 980_000n);
     const tokenCount = tokenOut / TOKEN;
     const nextCost = await market.read.cumulativeCurveCost([tokenCount + 1n]);
-    assert.ok(nextCost > 980_000n);
-    assert.deepEqual(await market.read.quoteBuy([amountIn]), [tokenOut, curveCost, creatorFee, treasuryFee]);
+    const nextSpend = nextCost + nextCost / 100n + nextCost / 100n;
+    assert.ok(nextSpend > maximumUsdcIn);
+    assert.deepEqual(
+      await market.read.quoteBuy([maximumUsdcIn]),
+      [tokenOut, curveCost, creatorFee, treasuryFee, actualUsdcSpent],
+    );
   });
 
   it('executes a buy and accounts for reserve, creator, treasury, and supply', async () => {
     const { currency, market } = await createMarket();
-    const amountIn = 1n * USDC;
-    await fundAndApprove(currency, market, amountIn);
-    const quote = await market.read.quoteBuy([amountIn]);
-    await market.write.buy([amountIn, quote[0]], { account: buyer.account });
+    const maximumUsdcIn = 1n * USDC;
+    await fundAndApprove(currency, market, maximumUsdcIn);
+    const quote = await market.read.quoteBuy([maximumUsdcIn]);
+    await market.write.buy([maximumUsdcIn, quote[0]], { account: buyer.account });
 
     assert.equal(await market.read.balanceOf([buyer.account.address]), quote[0]);
     assert.equal(await market.read.soldTokenCount(), quote[0] / TOKEN);
     assert.equal(await market.read.reserveUsdc(), quote[1]);
     assert.equal(await market.read.creatorFeesPaidUsdc(), quote[2]);
     assert.equal(await market.read.treasuryFeesPaidUsdc(), quote[3]);
-    assert.equal(await currency.read.balanceOf([buyer.account.address]), 0n);
+    assert.equal(await currency.read.balanceOf([buyer.account.address]), maximumUsdcIn - quote[4]);
+    assert.equal(await currency.read.allowance([buyer.account.address, market.address]), maximumUsdcIn - quote[4]);
     assert.equal(await currency.read.balanceOf([creator.account.address]), quote[2]);
     assert.equal(await currency.read.balanceOf([treasury.account.address]), quote[3]);
-    assert.equal(
-      await currency.read.balanceOf([market.address]),
-      amountIn - quote[2] - quote[3],
-    );
+    assert.equal(await currency.read.balanceOf([market.address]), quote[1]);
     assert.equal(
       (await market.read.balanceOf([market.address])) + (await market.read.soldTokenCount()) * TOKEN,
       await market.read.totalSupply(),
     );
+  });
+
+  it('does not overcharge an oversized maximum and retains every unused unit in the wallet', async () => {
+    const { currency, market } = await createMarket({ supply: 100n });
+    const maximumUsdcIn = 1_000n * USDC;
+    await fundAndApprove(currency, market, maximumUsdcIn);
+    const quote = await market.read.quoteBuy([maximumUsdcIn]);
+    assert.equal(quote[0], 100n * TOKEN);
+    assert.ok(quote[4] < maximumUsdcIn / 100n);
+
+    await market.write.buy([maximumUsdcIn, quote[0]], { account: buyer.account });
+
+    assert.equal(await currency.read.balanceOf([buyer.account.address]), maximumUsdcIn - quote[4]);
+    assert.equal(await currency.read.allowance([buyer.account.address, market.address]), maximumUsdcIn - quote[4]);
+    assert.equal(await currency.read.balanceOf([market.address]), quote[1]);
+    assert.equal(quote[2], (quote[1] * 100n) / 10_000n);
+    assert.equal(quote[3], (quote[1] * 100n) / 10_000n);
+    assert.equal(quote[4], quote[1] + quote[2] + quote[3]);
+  });
+
+  it('charges only the exact executed value when buying the entire remaining supply', async () => {
+    const { currency, market } = await createMarket({ supply: 100n });
+    const walletFunding = 2_000n * USDC;
+    await fundAndApprove(currency, market, walletFunding);
+    const firstQuote = await market.read.quoteBuy([1n * USDC]);
+    await market.write.buy([1n * USDC, firstQuote[0]], { account: buyer.account });
+    const soldBefore = await market.read.soldTokenCount();
+    const startCost = await market.read.cumulativeCurveCost([soldBefore]);
+    const finalCost = await market.read.cumulativeCurveCost([100n]);
+    const expectedCurveCost = finalCost - startCost;
+    const expectedCreatorFee = expectedCurveCost / 100n;
+    const expectedTreasuryFee = expectedCurveCost / 100n;
+    const oversizedMaximum = 1_000n * USDC;
+
+    const quote = await market.read.quoteBuy([oversizedMaximum]);
+    assert.equal(quote[0], (100n - soldBefore) * TOKEN);
+    assert.deepEqual(
+      quote.slice(1),
+      [
+        expectedCurveCost,
+        expectedCreatorFee,
+        expectedTreasuryFee,
+        expectedCurveCost + expectedCreatorFee + expectedTreasuryFee,
+      ],
+    );
+    const buyerBefore = await currency.read.balanceOf([buyer.account.address]);
+    await market.write.buy([oversizedMaximum, quote[0]], { account: buyer.account });
+    assert.equal(await currency.read.balanceOf([buyer.account.address]), buyerBefore - quote[4]);
+    assert.equal(await market.read.soldTokenCount(), 100n);
+    assert.equal(await currency.read.balanceOf([market.address]), await market.read.reserveUsdc());
+  });
+
+  it('bounds fee rounding below one USDC atomic unit per allocation and keeps curve reversal exact', async () => {
+    const { currency, market } = await createMarket({
+      supply: 100n,
+      basePrice: 101n,
+      slopePrice: 997n,
+      creatorFeeBps: 333,
+      treasuryFeeBps: 167,
+    });
+    const maximumUsdcIn = 25_000n;
+    await fundAndApprove(currency, market, maximumUsdcIn);
+    const quote = await market.read.quoteBuy([maximumUsdcIn]);
+    assert.ok(quote[0] > 0n);
+    assert.ok(quote[4] <= maximumUsdcIn);
+    assert.ok(quote[1] * 333n - quote[2] * 10_000n < 10_000n);
+    assert.ok(quote[1] * 167n - quote[3] * 10_000n < 10_000n);
+    await market.write.buy([maximumUsdcIn, quote[0]], { account: buyer.account });
+    const sellQuote = await market.read.quoteSell([quote[0]]);
+    assert.equal(sellQuote[1], quote[1]);
+    assert.equal(await currency.read.balanceOf([market.address]), quote[1]);
   });
 
   it('executes a buy-sell round trip and preserves reserve solvency', async () => {

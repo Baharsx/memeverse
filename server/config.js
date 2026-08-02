@@ -33,7 +33,7 @@ const environmentSchema = z.object({
   CIRCLE_MARKET_FACTORY_CONTRACT_ID: z.string().uuid().optional(),
   CIRCLE_MARKET_FACTORY_DEPLOYMENT_TX_ID: z.string().uuid().optional(),
   MARKET_FACTORY_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/)
-    .default('0x765E2Eaaba8eaEF4437B15CF42C1F268D3c8c08F'),
+    .default('0x363124490E953EEbB414eB4c3e2f03a40eef8F2C'),
   CIRCLE_SETTLEMENT_ALLOWANCE_USDC: z.string().regex(/^\d+(?:\.\d{1,6})?$/).default('20.00'),
   CIRCLE_API_BASE_URL: z.string().url().default('https://api.circle.com'),
   CIRCLE_FEE_LEVEL: z.enum(['LOW', 'MEDIUM', 'HIGH']).default('MEDIUM'),

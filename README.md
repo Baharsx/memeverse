@@ -85,10 +85,12 @@ MemeVerse owns and operates this application contract; it is not an Arc or Circl
 | Contract | Address | Verification |
 |---|---|---|
 | MemeVerseSettlement | [`0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7`](https://testnet.arcscan.app/address/0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7) | Fully verified source on ArcScan; Solidity 0.8.30, Cancun, optimizer 200 |
-| MemeVerseFactory | [`0x765E2Eaaba8eaEF4437B15CF42C1F268D3c8c08F`](https://testnet.arcscan.app/address/0x765E2Eaaba8eaEF4437B15CF42C1F268D3c8c08F) | Fully verified immutable registry/factory; Solidity 0.8.30, Cancun, via-IR, optimizer 200 |
-| MMV6A MemeMarket | [`0x5CcB34ec32e5ea12CdD7119157De9b8207b8880D`](https://testnet.arcscan.app/address/0x5CcB34ec32e5ea12CdD7119157De9b8207b8880D) | Fully verified seed market and ERC-20 asset |
+| MemeVerseFactory 6A.1 | [`0x363124490E953EEbB414eB4c3e2f03a40eef8F2C`](https://testnet.arcscan.app/address/0x363124490E953EEbB414eB4c3e2f03a40eef8F2C) | Fully verified exact-spend registry/factory; Solidity 0.8.30, Cancun, via-IR, optimizer 200 |
+| MMV6A1 MemeMarket | [`0xBe6E56a8B5ec8861aE1284dF3f60E27953f2d39D`](https://testnet.arcscan.app/address/0xBe6E56a8B5ec8861aE1284dF3f60E27953f2d39D) | Fully verified exact-spend seed market and ERC-20 asset |
 
 Addresses must be rechecked against the [official Arc contract registry](https://docs.arc.io/arc/references/contract-addresses) before deployment.
+
+The Phase 6A factory [`0x765E2Eaa…8c08F`](https://testnet.arcscan.app/address/0x765E2Eaaba8eaEF4437B15CF42C1F268D3c8c08F) and market [`0x5CcB34ec…8880D`](https://testnet.arcscan.app/address/0x5CcB34ec32e5ea12CdD7119157De9b8207b8880D) are immutable legacy Testnet contracts. Their buy path transferred the complete maximum input and could retain a material unused budget. The application no longer discovers or submits transactions to them.
 
 ## Architecture
 
@@ -110,7 +112,7 @@ For total whole-token supply `T`, base price `b`, curve increment `m`, and sold 
 C(q) = bq + floor(mq(q - 1) / (2(T - 1)))
 ```
 
-A buy uses binary search to return the largest whole-token output whose curve cost fits the post-fee USDC input. A sell returns `C(q) - C(q - amount)` before the same transparent fees. Fee division and the curve term round down; buy remainder stays in the market as non-withdrawable solvency surplus. Users set exact USDC input plus minimum token output on buys, and exact whole-token input plus minimum USDC output on sells. The UI defaults to 1% slippage.
+A buy treats the user's input as a maximum budget. Binary search returns the largest whole-token output whose executed curve cost plus creator and treasury fees fits that maximum. Both buy fees are derived from actual curve cost, and the contract transfers only `actualUsdcSpent = curveCost + creatorFee + treasuryFee`; unused maximum budget never leaves the wallet. Approval may cover the maximum. A sell returns `C(q) - C(q - amount)` before fees derived from that same executed curve value. Fee division and the curve term round down; each fee's rounding error is strictly less than one six-decimal USDC atomic unit. Users set maximum USDC input plus minimum token output on buys, and exact whole-token input plus minimum USDC output on sells. The UI defaults to 1% slippage.
 
 This deliberately simple Testnet curve is not capital efficient, does not provide external liquidity, trades only whole tokens, and has not received an independent audit. It must not be deployed to mainnet.
 
@@ -382,15 +384,16 @@ Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration
 - The official App Kit SDK package graph remains excluded because it still adds 25 audit findings; the active native-fetch boundary keeps `npm audit` at zero.
 - The presentation flow, responsive layouts, explicit execution gate, and browser-to-API paths are documented in [`docs/PHASE-5-HANDOFF.md`](./docs/PHASE-5-HANDOFF.md).
 
-## Phase 6A verification evidence
+## Phase 6A.1 verification evidence
 
-- Factory deployment: [`0x1beb6371c9a50cba115044d6002f671fb1895d59fcae5302a46193c836bc8020`](https://testnet.arcscan.app/tx/0x1beb6371c9a50cba115044d6002f671fb1895d59fcae5302a46193c836bc8020)
-- Seed market launch: [`0xcb4020a1708487c4a31bbe25f763b4969de4b735530feec947bff5286c125278`](https://testnet.arcscan.app/tx/0xcb4020a1708487c4a31bbe25f763b4969de4b735530feec947bff5286c125278)
-- Exact 0.01 USDC approval: [`0x7a44e1caa32346b6206bda8ce0896f35a794155abbb4bccdec566657b655a5e2`](https://testnet.arcscan.app/tx/0x7a44e1caa32346b6206bda8ce0896f35a794155abbb4bccdec566657b655a5e2)
-- Buy 0.01 USDC → 97 MMV6A: [`0x62cfc205277c34da50a1763f727b190753445c2947010ba09770b2f3b8bff732`](https://testnet.arcscan.app/tx/0x62cfc205277c34da50a1763f727b190753445c2947010ba09770b2f3b8bff732)
-- Sell 48 MMV6A → 0.004739 USDC: [`0x5af385b082c7b4de0c338717e9923608c0aafa1424a70849cd7bb1ca8a514a07`](https://testnet.arcscan.app/tx/0x5af385b082c7b4de0c338717e9923608c0aafa1424a70849cd7bb1ca8a514a07)
-- Final state: 49 MMV6A held, 0.004911 USDC curve reserve, and 0.000148 USDC each recorded as creator and treasury fees.
-- `npm run markets:audit:onchain` independently matches factory and market runtime bytecode, immutable configuration, registry membership, fixed-supply accounting, and reserve solvency.
+- Exact-spend factory deployment: [`0xfc4aff2c762edae0d94c6a68a0bd77f6cfbd451f597e066801cba12faee66307`](https://testnet.arcscan.app/tx/0xfc4aff2c762edae0d94c6a68a0bd77f6cfbd451f597e066801cba12faee66307)
+- Seed market launch: [`0x89fbc6f27d51457741dc58df278915628b928bb5efa70f2113074be3cad7e8e7`](https://testnet.arcscan.app/tx/0x89fbc6f27d51457741dc58df278915628b928bb5efa70f2113074be3cad7e8e7)
+- Maximum 0.01 USDC approval: [`0x9c3ec3d3d3b35dffe8b6433eaf523dde202d3a073f8cb2f3c8dd137910159aea`](https://testnet.arcscan.app/tx/0x9c3ec3d3d3b35dffe8b6433eaf523dde202d3a073f8cb2f3c8dd137910159aea)
+- Buy maximum 0.01 USDC → 97 MMV6A1, actual spend 0.009940 USDC: [`0x11b8dbd52d2db6a3f843b41771078ed0ad0f8fb62c76d7740e8d14f514e8c2b2`](https://testnet.arcscan.app/tx/0x11b8dbd52d2db6a3f843b41771078ed0ad0f8fb62c76d7740e8d14f514e8c2b2)
+- Sell 48 MMV6A1 → 0.004739 USDC: [`0x8b69b0c7189ae20081d3783ddb3eb6e488081d909d334bfff1c3cc8858468bec`](https://testnet.arcscan.app/tx/0x8b69b0c7189ae20081d3783ddb3eb6e488081d909d334bfff1c3cc8858468bec)
+- Final state: 49 MMV6A1 held, 0.004911 USDC curve reserve, exactly 0.004911 USDC market balance, and 0.000145 USDC each recorded as creator and treasury fees.
+- `npm run markets:audit:onchain` independently matches factory and market runtime bytecode, immutable configuration, registry membership, fixed-supply accounting, reserve solvency, and exact reserve balance.
+- The original Phase 6A deployment and identified limitation remain recorded in [`docs/PHASE-6A-ONCHAIN-MARKETS.md`](./docs/PHASE-6A-ONCHAIN-MARKETS.md).
 
 ## Not yet live
 

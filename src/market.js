@@ -55,11 +55,11 @@ export const marketAbi = parseAbi([
   'function active() view returns (bool)',
   'function balanceOf(address account) view returns (uint256)',
   'function spotPriceUsdc() view returns (uint256)',
-  'function quoteBuy(uint256 usdcIn) view returns (uint256 tokenOut,uint256 curveCostUsdc,uint256 creatorFeeUsdc,uint256 treasuryFeeUsdc)',
+  'function quoteBuy(uint256 maximumUsdcIn) view returns (uint256 tokenOut,uint256 curveCostUsdc,uint256 creatorFeeUsdc,uint256 treasuryFeeUsdc,uint256 actualUsdcSpent)',
   'function quoteSell(uint256 tokenIn) view returns (uint256 usdcOut,uint256 grossCurveReturnUsdc,uint256 creatorFeeUsdc,uint256 treasuryFeeUsdc)',
-  'function buy(uint256 usdcIn,uint256 minimumTokenOut) returns (uint256 tokenOut)',
+  'function buy(uint256 maximumUsdcIn,uint256 minimumTokenOut) returns (uint256 tokenOut,uint256 actualUsdcSpent)',
   'function sell(uint256 tokenIn,uint256 minimumUsdcOut) returns (uint256 usdcOut)',
-  'event Bought(address indexed buyer,uint256 usdcIn,uint256 tokenOut,uint256 curveCostUsdc,uint256 creatorFeeUsdc,uint256 treasuryFeeUsdc,uint256 soldTokenCount)',
+  'event Bought(address indexed buyer,uint256 maximumUsdcIn,uint256 actualUsdcSpent,uint256 tokenOut,uint256 curveCostUsdc,uint256 creatorFeeUsdc,uint256 treasuryFeeUsdc,uint256 soldTokenCount)',
   'event Sold(address indexed seller,uint256 tokenIn,uint256 usdcOut,uint256 grossCurveReturnUsdc,uint256 creatorFeeUsdc,uint256 treasuryFeeUsdc,uint256 soldTokenCount)',
 ]);
 

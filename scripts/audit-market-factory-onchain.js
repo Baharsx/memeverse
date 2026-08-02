@@ -98,11 +98,15 @@ for (let index = 0n; index < marketCount; index += 1n) {
     throw new Error(`Market ${market} fixed-supply invariant failed.`);
   }
   if (currencyBalance < reserveUsdc) throw new Error(`Market ${market} is insolvent.`);
+  if (currencyBalance !== reserveUsdc) {
+    throw new Error(`Market ${market} has ${currencyBalance - reserveUsdc} unaccounted USDC units.`);
+  }
   markets.push({
     address: getAddress(market),
     bytecodeMatches: true,
     supplyInvariant: true,
     solvent: true,
+    exactReserveBalance: true,
     soldTokenCount,
     reserveUsdc,
     currencyBalance,

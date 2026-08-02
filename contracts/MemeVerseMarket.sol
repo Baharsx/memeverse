@@ -55,7 +55,8 @@ contract MemeMarket {
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Bought(
         address indexed buyer,
-        uint256 usdcIn,
+        uint256 maximumUsdcIn,
+        uint256 actualUsdcSpent,
         uint256 tokenOut,
         uint256 curveCostUsdc,
         uint256 creatorFeeUsdc,
@@ -149,19 +150,20 @@ contract MemeMarket {
         return cumulativeCurveCost(soldTokenCount + 1) - cumulativeCurveCost(soldTokenCount);
     }
 
-    function quoteBuy(uint256 usdcIn)
+    /// @notice Quotes the greatest whole-token purchase affordable within `maximumUsdcIn`.
+    /// @dev Fees are derived from executed curve value, not from unused input budget. Each fee
+    ///      rounds down by less than one six-decimal USDC unit.
+    function quoteBuy(uint256 maximumUsdcIn)
         public
         view
         returns (
             uint256 tokenOut,
             uint256 curveCostUsdc,
             uint256 creatorFeeUsdc,
-            uint256 treasuryFeeUsdc
+            uint256 treasuryFeeUsdc,
+            uint256 actualUsdcSpent
         )
     {
-        creatorFeeUsdc = (usdcIn * creatorFeeBps) / BPS_DENOMINATOR;
-        treasuryFeeUsdc = (usdcIn * treasuryFeeBps) / BPS_DENOMINATOR;
-        uint256 curveBudget = usdcIn - creatorFeeUsdc - treasuryFeeUsdc;
         uint256 available = totalSupplyTokens - soldTokenCount;
         uint256 low;
         uint256 high = available;
@@ -169,13 +171,14 @@ contract MemeMarket {
 
         while (low < high) {
             uint256 middle = low + (high - low + 1) / 2;
-            uint256 cost = cumulativeCurveCost(soldTokenCount + middle) - startCost;
-            if (cost <= curveBudget) low = middle;
+            (,,, uint256 spend) = _buyCostForTokenCount(middle, startCost);
+            if (spend <= maximumUsdcIn) low = middle;
             else high = middle - 1;
         }
 
         tokenOut = low * TOKEN_UNIT;
-        curveCostUsdc = cumulativeCurveCost(soldTokenCount + low) - startCost;
+        (curveCostUsdc, creatorFeeUsdc, treasuryFeeUsdc, actualUsdcSpent) =
+            _buyCostForTokenCount(low, startCost);
     }
 
     function quoteSell(uint256 tokenIn)
@@ -198,20 +201,21 @@ contract MemeMarket {
         usdcOut = grossCurveReturnUsdc - creatorFeeUsdc - treasuryFeeUsdc;
     }
 
-    function buy(uint256 usdcIn, uint256 minimumTokenOut)
+    function buy(uint256 maximumUsdcIn, uint256 minimumTokenOut)
         external
         nonReentrant
-        returns (uint256 tokenOut)
+        returns (uint256 tokenOut, uint256 actualUsdcSpent)
     {
-        if (usdcIn == 0) revert InvalidAmount();
+        if (maximumUsdcIn == 0) revert InvalidAmount();
         uint256 curveCost;
         uint256 creatorFee;
         uint256 treasuryFee;
-        (tokenOut, curveCost, creatorFee, treasuryFee) = quoteBuy(usdcIn);
+        (tokenOut, curveCost, creatorFee, treasuryFee, actualUsdcSpent) =
+            quoteBuy(maximumUsdcIn);
         if (tokenOut == 0) revert InvalidAmount();
         if (tokenOut < minimumTokenOut) revert SlippageExceeded(minimumTokenOut, tokenOut);
 
-        _safeTransferFrom(address(usdc), msg.sender, address(this), usdcIn);
+        _safeTransferFrom(address(usdc), msg.sender, address(this), actualUsdcSpent);
         uint256 tokenCount = tokenOut / TOKEN_UNIT;
         soldTokenCount += tokenCount;
         reserveUsdc += curveCost;
@@ -222,7 +226,8 @@ contract MemeMarket {
 
         emit Bought(
             msg.sender,
-            usdcIn,
+            maximumUsdcIn,
+            actualUsdcSpent,
             tokenOut,
             curveCost,
             creatorFee,
@@ -267,6 +272,22 @@ contract MemeMarket {
     function _distributeFees(uint256 creatorFee, uint256 treasuryFee) private {
         if (creatorFee != 0) _safeTransfer(address(usdc), creator, creatorFee);
         if (treasuryFee != 0) _safeTransfer(address(usdc), treasury, treasuryFee);
+    }
+
+    function _buyCostForTokenCount(uint256 tokenCount, uint256 startCost)
+        private
+        view
+        returns (
+            uint256 curveCostUsdc,
+            uint256 creatorFeeUsdc,
+            uint256 treasuryFeeUsdc,
+            uint256 actualUsdcSpent
+        )
+    {
+        curveCostUsdc = cumulativeCurveCost(soldTokenCount + tokenCount) - startCost;
+        creatorFeeUsdc = (curveCostUsdc * creatorFeeBps) / BPS_DENOMINATOR;
+        treasuryFeeUsdc = (curveCostUsdc * treasuryFeeBps) / BPS_DENOMINATOR;
+        actualUsdcSpent = curveCostUsdc + creatorFeeUsdc + treasuryFeeUsdc;
     }
 
     function _transfer(address from, address to, uint256 amount) private {

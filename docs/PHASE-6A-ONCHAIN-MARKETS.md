@@ -1,5 +1,7 @@
 # Phase 6A onchain market record
 
+Status: **LEGACY — superseded by Phase 6A.1.** These immutable Testnet contracts remain available for historical verification, but the application no longer uses them. Review found that `buy` transferred the complete input budget even when the selected whole-token output cost less. The difference could be material near sellout, so this deployment must not be used for new trades.
+
 Date: 2026-08-02
 Network: Arc Public Testnet (`5042002`) only
 
@@ -26,6 +28,6 @@ Final checked state was 49 MMV6A held by the E2E wallet, 49 whole tokens sold, 0
 
 The cumulative curve is `C(q) = bq + floor(mq(q-1)/(2(T-1)))` in six-decimal USDC units. Buys binary-search the greatest whole-token output affordable after fees; sells reverse the exact cumulative curve interval. Every trade enforces a caller-supplied minimum output.
 
-This MVP trades whole tokens only, has no external liquidity or price oracle, can retain non-withdrawable buy rounding surplus, and is not independently audited. The contracts have no upgrade, admin mutation, arbitrary call, or withdrawal path. Mainnet use is prohibited.
+This legacy MVP trades whole tokens only, has no external liquidity or price oracle, can retain a non-withdrawable unused buy budget, and is not independently audited. The contracts have no upgrade, admin mutation, arbitrary call, or withdrawal path. Mainnet use is prohibited.
 
 NFT and legacy Vault surfaces remain simulations for Phase 6B.

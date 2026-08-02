@@ -11,6 +11,7 @@ import {
 import { arcTestnet } from 'viem/chains';
 import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
+import { circleIdempotencyKey } from './circle-idempotency.js';
 
 loadLocalEnvironment();
 const config = loadServerConfig();
@@ -53,6 +54,13 @@ if (!wallet || wallet.blockchain !== 'ARC-TESTNET' || wallet.accountType !== 'EO
   throw new Error('E2E wallet must be a directly signing ARC-TESTNET EOA.');
 }
 if (await publicClient.getChainId() !== 5042002) throw new Error('Arc RPC chain mismatch.');
+const e2eIdentity = [
+  config.marketFactoryAddress,
+  factoryArtifact.bytecode,
+  getAddress(wallet.address),
+  'MEMEVERSE GENESIS 6A1',
+  'MMV6A1',
+];
 
 async function waitForCircleTransaction(transactionId) {
   let transaction;
@@ -96,11 +104,11 @@ const initialUsdc = await readContract({
 if (initialUsdc < 100_000n) throw new Error('At least 0.10 Testnet USDC is required for E2E plus gas.');
 
 const launch = await execute({
-  idempotencyKey: 'd8b68851-0fc3-4c07-a3cf-46fb98365cb7',
+  idempotencyKey: circleIdempotencyKey('market-e2e-launch', e2eIdentity),
   contractAddress: config.marketFactoryAddress,
   signature: 'createMarket(string,string,string,uint256,uint256,uint256)',
-  parameters: ['MEMEVERSE GENESIS', 'MMV6A', 'Phase 6A verified Arc Public Testnet market.', '100000', '100', '1000'],
-  reference: 'mmv6a-launch',
+  parameters: ['MEMEVERSE GENESIS 6A1', 'MMV6A1', 'Phase 6A.1 exact-spend Arc Public Testnet market.', '100000', '100', '1000'],
+  reference: 'mmv6a1-launch',
 });
 const marketCreated = launch.receipt.logs.map((log) => {
   try {
@@ -109,14 +117,52 @@ const marketCreated = launch.receipt.logs.map((log) => {
 }).find((event) => event?.eventName === 'MarketCreated');
 if (!marketCreated?.args?.market) throw new Error('MarketCreated event was not found in launch receipt.');
 const marketAddress = getAddress(marketCreated.args.market);
+const seedSupply = 100_000n;
+const seedBasePrice = 100n;
+const seedSlopePrice = 1_000n;
+const seedCreatorFeeBps = 100n;
+const seedTreasuryFeeBps = 100n;
+
+function seedCumulativeCost(tokenCount) {
+  return seedBasePrice * tokenCount
+    + (seedSlopePrice * tokenCount * (tokenCount === 0n ? 0n : tokenCount - 1n))
+      / (2n * (seedSupply - 1n));
+}
+
+function seedBuyQuote(maximumUsdcIn, soldTokenCount = 0n) {
+  let low = 0n;
+  let high = seedSupply - soldTokenCount;
+  const startCost = seedCumulativeCost(soldTokenCount);
+  while (low < high) {
+    const middle = low + (high - low + 1n) / 2n;
+    const curveCost = seedCumulativeCost(soldTokenCount + middle) - startCost;
+    const spend = curveCost
+      + (curveCost * seedCreatorFeeBps) / 10_000n
+      + (curveCost * seedTreasuryFeeBps) / 10_000n;
+    if (spend <= maximumUsdcIn) low = middle;
+    else high = middle - 1n;
+  }
+  const curveCost = seedCumulativeCost(soldTokenCount + low) - startCost;
+  const creatorFee = (curveCost * seedCreatorFeeBps) / 10_000n;
+  const treasuryFee = (curveCost * seedTreasuryFeeBps) / 10_000n;
+  return [low * 10n ** 18n, curveCost, creatorFee, treasuryFee, curveCost + creatorFee + treasuryFee];
+}
+
+function seedSellQuote(tokenIn, soldTokenCount) {
+  const tokenCount = tokenIn / 10n ** 18n;
+  const grossReturn = seedCumulativeCost(soldTokenCount) - seedCumulativeCost(soldTokenCount - tokenCount);
+  const creatorFee = (grossReturn * seedCreatorFeeBps) / 10_000n;
+  const treasuryFee = (grossReturn * seedTreasuryFeeBps) / 10_000n;
+  return [grossReturn - creatorFee - treasuryFee, grossReturn, creatorFee, treasuryFee];
+}
 
 const buyAmount = 10_000n; // 0.01 USDC
 const approval = await execute({
-  idempotencyKey: 'ab2be08b-3a04-49c0-b085-d8a4c2ad3ce8',
+  idempotencyKey: circleIdempotencyKey('market-e2e-approve', [...e2eIdentity, marketAddress, buyAmount.toString()]),
   contractAddress: config.arcUsdcAddress,
   signature: 'approve(address,uint256)',
   parameters: [marketAddress, buyAmount.toString()],
-  reference: 'mmv6a-approve',
+  reference: 'mmv6a1-approve',
 });
 const allowance = await readContract({
   address: config.arcUsdcAddress,
@@ -134,19 +180,25 @@ if (allowance < buyAmount && balanceBeforeBuyStep === 0n) {
   throw new Error('Confirmed approval did not create the expected allowance.');
 }
 
-const buyQuote = await readContract({
-  address: marketAddress,
-  abi: marketArtifact.abi,
-  functionName: 'quoteBuy',
-  args: [buyAmount],
-});
+const buyQuote = seedBuyQuote(buyAmount);
+if (balanceBeforeBuyStep === 0n) {
+  const liveBuyQuote = await readContract({
+    address: marketAddress,
+    abi: marketArtifact.abi,
+    functionName: 'quoteBuy',
+    args: [buyAmount],
+  });
+  if (liveBuyQuote.some((value, index) => value !== buyQuote[index])) {
+    throw new Error('Fresh market buy quote differs from the independently calculated seed quote.');
+  }
+}
 if (buyQuote[0] === 0n) throw new Error('Buy quote returned zero tokens.');
 const buy = await execute({
-  idempotencyKey: '51d9eb03-a73b-44dc-9220-8354c57ad36a',
+  idempotencyKey: circleIdempotencyKey('market-e2e-buy', [...e2eIdentity, marketAddress, buyAmount.toString()]),
   contractAddress: marketAddress,
   signature: 'buy(uint256,uint256)',
   parameters: [buyAmount.toString(), buyQuote[0].toString()],
-  reference: 'mmv6a-buy',
+  reference: 'mmv6a1-buy',
 });
 const boughtEvent = buy.receipt.logs.map((log) => {
   try {
@@ -155,6 +207,14 @@ const boughtEvent = buy.receipt.logs.map((log) => {
 }).find((event) => event?.eventName === 'Bought');
 if (!boughtEvent?.args?.tokenOut) throw new Error('Bought event was not found in the confirmed receipt.');
 const boughtTokenOut = boughtEvent.args.tokenOut;
+if (boughtEvent.args.maximumUsdcIn !== buyAmount
+  || boughtEvent.args.actualUsdcSpent !== buyQuote[4]
+  || boughtEvent.args.curveCostUsdc !== buyQuote[1]
+  || boughtEvent.args.creatorFeeUsdc !== buyQuote[2]
+  || boughtEvent.args.treasuryFeeUsdc !== buyQuote[3]) {
+  throw new Error('Confirmed buy event does not match the exact-spend quote.');
+}
+if (buyQuote[4] >= buyAmount) throw new Error('E2E maximum input did not leave an unused budget remainder.');
 const tokenBalance = await readContract({
   address: marketAddress,
   abi: marketArtifact.abi,
@@ -162,21 +222,47 @@ const tokenBalance = await readContract({
   args: [wallet.address],
 });
 if (tokenBalance === 0n || tokenBalance > boughtTokenOut) throw new Error('Confirmed buy did not create a valid token balance.');
+const [allowanceAfterBuy, marketBalanceAfterBuy] = await Promise.all([
+  readContract({
+    address: config.arcUsdcAddress,
+    abi: usdcAbi,
+    functionName: 'allowance',
+    args: [wallet.address, marketAddress],
+  }),
+  readContract({
+    address: config.arcUsdcAddress,
+    abi: usdcAbi,
+    functionName: 'balanceOf',
+    args: [marketAddress],
+  }),
+]);
+if (allowanceAfterBuy !== buyAmount - buyQuote[4]) {
+  throw new Error('Buy consumed more or less allowance than actualUsdcSpent.');
+}
+if (balanceBeforeBuyStep === 0n && marketBalanceAfterBuy !== buyQuote[1]) {
+  throw new Error('Market retained USDC beyond the executed curve cost.');
+}
 
 const sellAmount = (boughtTokenOut / 10n ** 18n / 2n) * 10n ** 18n;
-const sellQuote = await readContract({
-  address: marketAddress,
-  abi: marketArtifact.abi,
-  functionName: 'quoteSell',
-  args: [sellAmount],
-});
+const sellQuote = seedSellQuote(sellAmount, boughtTokenOut / 10n ** 18n);
+if (balanceBeforeBuyStep === 0n) {
+  const liveSellQuote = await readContract({
+    address: marketAddress,
+    abi: marketArtifact.abi,
+    functionName: 'quoteSell',
+    args: [sellAmount],
+  });
+  if (liveSellQuote.some((value, index) => value !== sellQuote[index])) {
+    throw new Error('Post-buy sell quote differs from the independently calculated seed quote.');
+  }
+}
 if (sellQuote[0] === 0n) throw new Error('Sell quote returned zero USDC.');
 const sell = await execute({
-  idempotencyKey: '2199e80b-a430-475a-92da-ab430ec1cab7',
+  idempotencyKey: circleIdempotencyKey('market-e2e-sell', [...e2eIdentity, marketAddress, sellAmount.toString()]),
   contractAddress: marketAddress,
   signature: 'sell(uint256,uint256)',
   parameters: [sellAmount.toString(), sellQuote[0].toString()],
-  reference: 'mmv6a-sell',
+  reference: 'mmv6a1-sell',
 });
 const soldEvent = sell.receipt.logs.map((log) => {
   try {
@@ -185,17 +271,19 @@ const soldEvent = sell.receipt.logs.map((log) => {
 }).find((event) => event?.eventName === 'Sold');
 if (!soldEvent?.args?.tokenIn) throw new Error('Sold event was not found in the confirmed receipt.');
 
-const [finalTokenBalance, finalUsdc, reserveUsdc, creatorFees, treasuryFees, soldTokenCount] = await Promise.all([
+const [finalTokenBalance, finalUsdc, reserveUsdc, creatorFees, treasuryFees, soldTokenCount, marketUsdcBalance] = await Promise.all([
   readContract({ address: marketAddress, abi: marketArtifact.abi, functionName: 'balanceOf', args: [wallet.address] }),
   readContract({ address: config.arcUsdcAddress, abi: usdcAbi, functionName: 'balanceOf', args: [wallet.address] }),
   readContract({ address: marketAddress, abi: marketArtifact.abi, functionName: 'reserveUsdc' }),
   readContract({ address: marketAddress, abi: marketArtifact.abi, functionName: 'creatorFeesPaidUsdc' }),
   readContract({ address: marketAddress, abi: marketArtifact.abi, functionName: 'treasuryFeesPaidUsdc' }),
   readContract({ address: marketAddress, abi: marketArtifact.abi, functionName: 'soldTokenCount' }),
+  readContract({ address: config.arcUsdcAddress, abi: usdcAbi, functionName: 'balanceOf', args: [marketAddress] }),
 ]);
 if (finalTokenBalance !== boughtTokenOut - soldEvent.args.tokenIn) throw new Error('Sell did not return the expected token amount.');
 if (creatorFees === 0n || treasuryFees === 0n) throw new Error('Trade fee allocation counters were not updated.');
 if (soldTokenCount !== finalTokenBalance / 10n ** 18n) throw new Error('Market sold-supply accounting mismatch.');
+if (marketUsdcBalance !== reserveUsdc) throw new Error('Final market balance contains unused input or is insolvent.');
 
 const txUrl = (hash) => `https://testnet.arcscan.app/tx/${hash}`;
 console.log(JSON.stringify({
@@ -210,7 +298,12 @@ console.log(JSON.stringify({
   buy: {
     hash: buy.transaction.txHash,
     arcScan: txUrl(buy.transaction.txHash),
-    usdcIn: formatUnits(buyAmount, 6),
+    maximumUsdcIn: formatUnits(buyAmount, 6),
+    actualUsdcSpent: formatUnits(buyQuote[4], 6),
+    unusedMaximumBudget: formatUnits(buyAmount - buyQuote[4], 6),
+    curveCostUsdc: formatUnits(buyQuote[1], 6),
+    creatorFeeUsdc: formatUnits(buyQuote[2], 6),
+    treasuryFeeUsdc: formatUnits(buyQuote[3], 6),
     tokenOut: formatUnits(boughtTokenOut, 18),
   },
   sell: {
@@ -221,6 +314,7 @@ console.log(JSON.stringify({
   },
   finalTokenBalance: formatUnits(finalTokenBalance, 18),
   reserveUsdc: formatUnits(reserveUsdc, 6),
+  marketUsdcBalance: formatUnits(marketUsdcBalance, 6),
   creatorFeesPaidUsdc: formatUnits(creatorFees, 6),
   treasuryFeesPaidUsdc: formatUnits(treasuryFees, 6),
 }, null, 2));

@@ -4,6 +4,7 @@ import { initiateSmartContractPlatformClient } from '@circle-fin/smart-contract-
 import { getAddress } from 'viem';
 import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
+import { circleIdempotencyKey } from './circle-idempotency.js';
 
 loadLocalEnvironment();
 const config = loadServerConfig();
@@ -27,15 +28,21 @@ if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
     if (!wallet || wallet.blockchain !== 'ARC-TESTNET' || wallet.accountType !== 'EOA') {
       throw new Error('Deployment wallet must be an ARC-TESTNET EOA.');
     }
+    const constructorParameters = [config.arcUsdcAddress, wallet.address, '100', '100'];
+    const artifactFingerprint = circleIdempotencyKey('market-factory-artifact', [
+      artifact.bytecode,
+      'ARC-TESTNET',
+      ...constructorParameters,
+    ]);
 
     const deployment = await contractClient.deployContract({
-      idempotencyKey: '1d6518bd-b73d-4725-b75d-d2b7e8e36055',
+      idempotencyKey: circleIdempotencyKey('market-factory-deploy', [artifactFingerprint]),
       name: 'MemeVerseFactory',
       blockchain: 'ARC-TESTNET',
       walletId: config.circleWalletId,
       abiJson: JSON.stringify(artifact.abi),
       bytecode: artifact.bytecode,
-      constructorParameters: [config.arcUsdcAddress, wallet.address, '100', '100'],
+      constructorParameters,
       fee: { type: 'level', config: { feeLevel: config.circleFeeLevel } },
     });
     const contractId = deployment.data?.contractId;
@@ -65,6 +72,7 @@ if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
     console.log(`CIRCLE_MARKET_FACTORY_CONTRACT_ID=${contractId}`);
     console.log(`CIRCLE_MARKET_FACTORY_DEPLOYMENT_TX_ID=${transactionId}`);
     console.log(`MARKET_FACTORY_ADDRESS=${getAddress(contractAddress)}`);
+    console.log(`Artifact fingerprint: ${artifactFingerprint}`);
     console.log(`Deployment transaction: ${transaction.txHash}`);
   } catch (error) {
     const provider = error?.response?.data;

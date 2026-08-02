@@ -43,7 +43,7 @@ export const arcContracts = Object.freeze({
   memo: '0x5294E9927c3306DcBaDb03fe70b92e01cCede505',
   multicall3From: '0x522fAf9A91c41c443c66765030741e4AaCe147D0',
   memeVerseSettlement: '0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7',
-  memeVerseFactory: '0x765E2Eaaba8eaEF4437B15CF42C1F268D3c8c08F',
+  memeVerseFactory: '0x363124490E953EEbB414eB4c3e2f03a40eef8F2C',
 });
 
 export const memoAbi = [

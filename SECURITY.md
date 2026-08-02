@@ -35,6 +35,7 @@ MemeVerse is currently a public Arc Testnet MVP. Its backend can authorize a Cir
 - Contract source, compiler version, optimizer settings, constructor arguments, deployed bytecode, and operator address must remain independently reproducible.
 - MemeVerse markets are Arc Public Testnet-only, non-upgradeable, and unaudited. The factory fee configuration is immutable and capped at 5% combined; the deployed configuration is 1% creator plus 1% treasury.
 - Market trades use only the official six-decimal USDC ERC-20 interface. Buy/sell amounts, quotes, allocations, reserve state, and slippage bounds must remain integer onchain values.
+- Buy input is a maximum, never a mandatory charge. Fees must derive from executed curve value, and `buy` may transfer only the quoted curve cost plus those fees; unused allowance and wallet budget must remain untouched.
 - Market contracts have no admin withdrawal or arbitrary-call surface. Their actual USDC balance must remain greater than or equal to the curve reserve, and fixed supply must equal market inventory plus sold whole-token units.
 - Browser market actions must never report success before a successful final Arc receipt. A submitted hash remains pending evidence, not success.
 - Production services must validate chain ID, contract address, recipient, amount, fee assumptions, and transaction status server-side.
