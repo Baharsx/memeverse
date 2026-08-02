@@ -1,100 +1,151 @@
 # MemeVerse
 
-**MemeVerse is a meme asset terminal built on Arc Network for launching, trading, minting, and autonomously settling creator activity in USDC.**
+**MemeVerse is a meme asset terminal built on Arc Network for launching, trading, minting, and autonomously preparing creator settlement in USDC.**
 
-The MemeVerse product and visual identity always lead. Arc provides the stablecoin-native infrastructure underneath it:
-
-- **Arc Testnet:** USDC-native gas, pricing, treasury allocation, and agent-driven creator settlement.
+The current release is a public Testnet simulation. It does not broadcast launch, trade, NFT, or agent transactions and it never represents simulated market data as real activity.
 
 ## Built on Arc
 
-MemeVerse is designed for two Arc ecosystem tracks:
+MemeVerse is an independent product. The MemeVerse name and visual identity lead; Arc is the stablecoin infrastructure underneath it.
 
-### DeFi
+The product explores two Arc ecosystem tracks:
 
-Meme assets are priced and settled in USDC on Arc. The product models programmable treasury controls, bonding-curve trading, creator revenue splits, and conditional settlement.
-
-### Agentic Economy
-
-The Autonomous Settlement Agent evaluates token traction using explicit signals and policy rules. It can:
-
-1. ingest volume and holder signals;
-2. enforce a maximum spend and treasury risk limit;
-3. allocate USDC;
-4. split settlement between creators and protocol treasury;
-5. prepare the approved action for an onchain wallet signature.
-
-The current frontend exposes this decision process as a transparent simulation. The next implementation milestone connects it to Circle Agent Wallets/App Kits for real autonomous USDC settlement.
+- **DeFi:** USDC-denominated meme markets, bonding curves, treasury controls, creator revenue splits, and conditional settlement.
+- **Agentic economy:** transparent policy evaluation, capped allocation, reconciliation references, explicit transaction states, and non-custodial settlement preparation.
 
 ## Current MVP
 
-- Arc Testnet connection and network switching through MetaMask
-- Arc Testnet configuration with USDC-denominated gas
-- Network-aware launch, trade, explorer, fee, and settlement interfaces
-- Meme-token launch form and live receive calculation
-- Bonding-curve trading terminal
-- NFT archive, mint, listing modal, and asset vault
-- Autonomous settlement policy simulator with execution trace
+- Arc Testnet wallet connection and network switching through wagmi
+- Centralized Arc RPC, explorer, official links, and contract registry
+- USDC-native gas and settlement presentation
+- Meme-token launch, bonding-curve trade, NFT archive, vault, and agent simulations
+- Reconciliation reference and deterministic `bytes32` Memo ID generation
+- Explicit simulation receipts that distinguish preparation from broadcast and settlement
+- Safety center with verified Arc resources, contract links, and transaction lifecycle
 - Responsive tactile-brutalist interface
 
-## Network Configuration
+## Arc Testnet configuration
 
-| Network | Chain ID | Native currency | RPC | Explorer |
-|---|---:|---|---|---|
-| Arc Testnet | `5042002` | USDC | `https://rpc.testnet.arc.network` | `https://testnet.arcscan.app` |
+MemeVerse uses only parameters currently published in the official Arc documentation. No mainnet RPC, chain ID, or contract address will be added until Arc publishes it through official documentation.
 
-Arc Testnet USDC contract: `0x3600000000000000000000000000000000000000`
+| Property | Value |
+|---|---|
+| Chain ID | `5042002` |
+| Native gas | USDC |
+| RPC | `https://rpc.testnet.arc.io` |
+| WebSocket | `wss://rpc.testnet.arc.io` |
+| Explorer | `https://testnet.arcscan.app` |
+| Faucet | `https://faucet.circle.com/` |
+| Finality handling | 1 confirmed block |
+
+The public RPC can be overridden for local development:
+
+```bash
+cp .env.example .env
+```
+
+Only public browser configuration may use a `VITE_*` variable. Never place private keys or privileged Circle credentials in a Vite environment variable.
+
+## Verified Testnet contracts
+
+| Contract | Address | Purpose |
+|---|---|---|
+| USDC ERC-20 interface | `0x3600000000000000000000000000000000000000` | Six-decimal USDC transfers and allowances |
+| Memo | `0x5294E9927c3306DcBaDb03fe70b92e01cCede505` | Reconciliation metadata around a contract call |
+| Multicall3From | `0x522fAf9A91c41c443c66765030741e4AaCe147D0` | Batched calls with original EOA sender preservation |
+
+Addresses must be rechecked against the [official Arc contract registry](https://docs.arc.io/arc/references/contract-addresses) before deployment.
+
+## Transaction and reconciliation model
+
+Every future write flow follows these application states:
+
+1. `PREPARED`
+2. `AWAITING_SIGNATURE`
+3. `BROADCAST`
+4. `CONFIRMING`
+5. `SETTLED`
+
+The application must persist the client reference, Memo ID, latest transaction hash, chain ID, expected contract and failure class. A hash alone is not proof of success; settlement requires a successful receipt and expected events.
+
+Blind retries are forbidden. A pre-broadcast rejection may be safely retried after user action. An unknown or post-broadcast failure must first be reconciled by transaction hash and reference to avoid duplicate execution.
+
+### Transaction Memo guardrails
+
+- Memo is Testnet infrastructure, not a claim that current MemeVerse simulations are onchain.
+- The direct caller must be an externally owned account (EOA).
+- Smart contract accounts, ERC-4337 wallets, Safe, and intermediary contracts are not supported as direct callers.
+- Memo events are indexed by `memoId`, sender, and target; the original calldata should be retained when exact call reconstruction is required.
+- Memo formats and indexer queries must be tested end to end before production use.
+
+### Batched transaction guardrails
+
+- Multicall3From also requires a direct EOA caller.
+- `allowFailure` must be selected deliberately for each call.
+- Atomic financial operations use `allowFailure: false`; partial execution is allowed only when the product explicitly reconciles each failed subcall.
+- Success is verified from the target contract events because Multicall3From does not emit a batch-specific success event.
+
+## Circle integration boundary
+
+Circle Stablecoin Kits, Gateway, Unified Balance, Agent Wallets, and webhooks are roadmap dependencies, not installed capabilities in this repository.
+
+Before adding them:
+
+- model confirmed, pending inbound, and funds-in-motion balances separately;
+- validate route readiness and fee assumptions before execution;
+- persist the latest onchain hash through broadcast callbacks;
+- authenticate Gateway webhooks and deduplicate at-least-once delivery by notification ID;
+- distinguish recoverable mint-side failures from permanent validation failures;
+- make telemetry opt-in/opt-out behavior an explicit product decision and never send wallet addresses, transaction data, stack traces, or secrets unintentionally.
+
+## Security posture
+
+See [SECURITY.md](./SECURITY.md). The product links only to official Arc documentation, status, faucet, and explorer resources. MemeVerse support will never request a seed phrase, private key, wallet backup, or one-time code.
+
+Arc post-quantum capabilities are currently a roadmap. MemeVerse does not claim post-quantum protection today. Future wallet and custody architecture must remain migration-ready and follow the [official Arc post-quantum documentation](https://docs.arc.io/arc/concepts/post-quantum-security).
+
+## Arc Brand compliance
+
+- Public copy uses descriptive language such as **Built on Arc**, **Available on Arc**, or **Deploy on Arc**.
+- Arc is not incorporated into the MemeVerse name, logo, company identity, or app icon.
+- The repository contains no Arc logo asset; all bundled marks are original MemeVerse assets.
+- Arc references describe infrastructure and do not imply endorsement, partnership, or an official Circle product.
+- Any future co-marketing or Arc logo use requires review against the [Arc Brand Guidelines and Partner Toolkit](https://www.arc.io/brand-guidelines-and-partner-toolkit).
+
+## Community contribution
+
+Arc roles and points are external community programs and do not establish endorsement or technical readiness. MemeVerse progress should be shared through meaningful demos, documentation, testing feedback, and verifiable GitHub work—not role requests or low-effort promotional posts.
 
 ## Stack
 
 - React + Vite
 - wagmi + viem
 - TanStack Query
-- MetaMask injected connector
+- MetaMask-compatible injected connector
 - Arc Testnet
-- Circle USDC architecture
 
-## Run Locally
+## Run locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Production Build
+## Production build
 
 ```bash
 npm run build
 npm run preview
 ```
 
-## Arc Brand Compliance
+## Next implementation milestones
 
-MemeVerse is an independent product built on Arc Network. References to Arc describe the infrastructure and do not imply that MemeVerse is an official Arc or Circle product, endorsement, or partnership.
-
-- The product name, app identity, logo, icon, and visual system remain exclusively MemeVerse.
-- Public product copy uses descriptive language such as **Built on Arc**, **Available on Arc**, or **Deploy on Arc**.
-- Arc is not incorporated into the MemeVerse product name, company name, app icon, or logo system.
-- The repository currently contains no Arc logo asset; all bundled marks are original MemeVerse assets.
-- If an Arc logo is added later, use only the latest approved asset from the [Circle Brand Kit](https://www.circle.com/pressroom), without recoloring, distortion, recreation, overlays, or effects.
-- Any future Arc logo must retain the official clear space, render at least 50px high digitally, and remain less prominent than the MemeVerse logo.
-- Co-marketing, paid media, partner launches, or materials that could imply endorsement require a fresh review against the [Arc Brand Guidelines and Partner Toolkit](https://www.arc.io/brand-guidelines-and-partner-toolkit) and any necessary approval.
-
-## Arc House and Architects
-
-Architects is a personal community role administered outside this repository; it does not establish a partnership, agency, or endorsement relationship with Circle. Participating maintainers should keep their Discord username current in their Arc House profile so manually administered role updates can be matched correctly. No Arc House credentials or personal Discord identifiers belong in this repository.
-
-## Roadmap to Final Submission
-
-- Deploy launch, bonding-curve, treasury, and settlement contracts on Arc
-- Integrate Circle App Kits for Send/Swap/Bridge or Unified Balance where applicable
-- Connect the settlement agent to a Circle wallet and real USDC transfers
-- Persist token, NFT, listing, and policy state from onchain events
-- Add transaction history, risk monitoring, and public demo data
-
-## Design
-
-MemeVerse uses a **Tactile Brutalist Degen Terminal** system: hard 1px borders, flat surfaces, mono data, acid-lime state accents, zero gradients, and a custom vector coin mark.
+- Deploy and verify launch, bonding-curve, treasury, NFT, and settlement contracts on Arc Testnet
+- Replace simulated receipts with wallet-signed writes and verified event indexing
+- Integrate Memo references for EOA flows and an application-layer metadata fallback for smart accounts
+- Add durable transaction state, idempotency keys, reconciliation workers, and authenticated webhook ingestion
+- Add contract allowlists, amount/recipient confirmation, monitoring, and recovery tooling
+- Evaluate Circle Kits only where they reduce product complexity without hiding route or failure state
 
 ## License
 
