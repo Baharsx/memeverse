@@ -1,6 +1,7 @@
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
 import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
+import { circleIdempotencyKey } from './circle-idempotency.js';
 
 loadLocalEnvironment();
 const config = loadServerConfig();
@@ -20,7 +21,7 @@ if (!config.circleApiKey || !config.circleEntitySecret) {
     let walletSetId = config.circleWalletSetId;
     if (!walletSetId) {
       const response = await client.createWalletSet({
-        idempotencyKey: '67a259b6-2b5e-4e0e-9162-a6c3a9c8d201',
+        idempotencyKey: circleIdempotencyKey('wallet-set-create', ['MemeVerse Arc Settlement']),
         name: 'MemeVerse Arc Settlement',
       });
       walletSetId = response.data?.walletSet?.id;
@@ -33,7 +34,9 @@ if (!config.circleApiKey || !config.circleEntitySecret) {
       wallet = response.data?.wallet;
     } else {
       const response = await client.createWallets({
-        idempotencyKey: '9470eebd-dabb-4191-8c5d-3432bbda6e50',
+        idempotencyKey: circleIdempotencyKey('wallet-create', [
+          'ARC-TESTNET', 'EOA', 1, walletSetId, 'memeverse-arc-settlement',
+        ]),
         blockchains: ['ARC-TESTNET'],
         accountType: 'EOA',
         count: 1,

@@ -1,11 +1,13 @@
 import { createAgentPolicy } from './domain/agent-policy.js';
 import { AgentDecisionService } from './domain/agent-decision-service.js';
+import { OperatorAuthService } from './domain/operator-auth-service.js';
 import { createSettlementPolicy } from './domain/policy.js';
 import { SettlementService } from './domain/settlement-service.js';
 import { ArcRpcClient } from './infrastructure/arc-rpc.js';
 import { ArcSettlementIndexer } from './infrastructure/arc-settlement-indexer.js';
 import { createCircleAppKitGateway } from './infrastructure/circle-app-kit-gateway.js';
 import { createCircleWalletGateway } from './infrastructure/circle-wallet-gateway.js';
+import { PostgresOperatorAuthStore } from './repositories/operator-auth-store.js';
 import { createPostgresSettlementStore } from './repositories/postgres-settlement-store.js';
 
 export async function createSettlementRuntime(config) {
@@ -35,6 +37,15 @@ export async function createSettlementRuntime(config) {
     policy: createAgentPolicy(config),
   });
   const appKitGateway = createCircleAppKitGateway(config, { circleGateway });
+  const operatorAuthService = new OperatorAuthService({
+    store: new PostgresOperatorAuthStore({ database: store.database }),
+    operatorAddress: config.settlementOperatorAddress,
+    appOrigin: config.appOrigin,
+    chainId: config.arcChainId,
+    challengeTtlSeconds: config.operatorChallengeTtlSeconds,
+    sessionTtlSeconds: config.operatorSessionTtlSeconds,
+    executionTtlSeconds: config.operatorExecutionTtlSeconds,
+  });
 
   return {
     store,
@@ -44,6 +55,7 @@ export async function createSettlementRuntime(config) {
     settlementService,
     agentDecisionService,
     appKitGateway,
+    operatorAuthService,
     async close() { await store.close?.(); },
   };
 }

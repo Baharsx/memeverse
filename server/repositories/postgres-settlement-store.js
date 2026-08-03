@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
 import { DomainError } from '../domain/errors.js';
+import { requiredTables, schemaSql } from './schema.js';
 
 const { Pool } = pg;
 const terminalStates = new Set(['COMPLETE', 'DENIED', 'EXPIRED', 'CANCELLED', 'FAILED']);
@@ -12,8 +13,16 @@ function clone(value) {
   return value == null ? value : structuredClone(value);
 }
 
+/**
+ * The row version is authoritative and is projected onto the returned record so every caller
+ * carries the version it read into its next write.
+ */
 function recordFromRow(row) {
-  return clone(typeof row.record === 'string' ? JSON.parse(row.record) : row.record);
+  const record = clone(typeof row.record === 'string' ? JSON.parse(row.record) : row.record);
+  if (record && row.version !== undefined && row.version !== null) {
+    record.version = Number(row.version);
+  }
+  return record;
 }
 
 function reservationForCreate(
@@ -121,42 +130,16 @@ export class PostgresSettlementStore {
   async initialize({ migrate = true } = {}) {
     if (!migrate) {
       const result = await this.database.query(
-        `SELECT to_regclass('public.settlements') IS NOT NULL AS settlements_ready,
-                to_regclass('public.circle_notifications') IS NOT NULL AS notifications_ready`,
+        `SELECT count(*)::text AS ready FROM unnest($1::text[]) AS name
+         WHERE to_regclass('public.' || name) IS NOT NULL`,
+        [requiredTables],
       );
-      if (!result.rows[0]?.settlements_ready || !result.rows[0]?.notifications_ready) {
+      if (Number(result.rows[0]?.ready ?? 0) !== requiredTables.length) {
         throw new Error('Database schema is missing. Run npm run db:migrate first.');
       }
       return;
     }
-    await this.database.exec(`
-      CREATE TABLE IF NOT EXISTS settlements (
-        id text PRIMARY KEY,
-        idempotency_key text NOT NULL UNIQUE,
-        circle_transaction_id text UNIQUE,
-        state text NOT NULL,
-        reservation_units numeric(78, 0) NOT NULL DEFAULT 0,
-        reservation_status text NOT NULL DEFAULT 'NONE',
-        record jsonb NOT NULL,
-        created_at timestamptz NOT NULL,
-        updated_at timestamptz NOT NULL,
-        reconciliation_lease_owner text,
-        reconciliation_lease_until timestamptz
-      );
-      ALTER TABLE settlements
-        ADD COLUMN IF NOT EXISTS reconciliation_lease_owner text,
-        ADD COLUMN IF NOT EXISTS reconciliation_lease_until timestamptz;
-      CREATE TABLE IF NOT EXISTS circle_notifications (
-        notification_id text PRIMARY KEY,
-        processed_at timestamptz NOT NULL,
-        outcome jsonb NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS settlements_state_idx ON settlements (state);
-      CREATE INDEX IF NOT EXISTS settlements_created_at_idx ON settlements (created_at DESC);
-      CREATE INDEX IF NOT EXISTS settlements_reconciliation_idx
-        ON settlements (state, circle_transaction_id)
-        WHERE circle_transaction_id IS NOT NULL;
-    `);
+    await this.database.exec(schemaSql);
     await this.importLegacyRecords();
     await this.importLegacyNotifications();
   }
@@ -219,6 +202,9 @@ export class PostgresSettlementStore {
   }
 
   values(record) {
+    // The version lives in its own column; keeping it out of the document avoids two
+    // competing sources of truth.
+    const { version: _version, ...persisted } = record;
     return [
       record.id,
       record.idempotencyKey,
@@ -226,25 +212,30 @@ export class PostgresSettlementStore {
       record.state,
       record.reservation?.units ?? '0',
       record.reservation?.status ?? 'NONE',
-      JSON.stringify(record),
+      JSON.stringify(persisted),
       record.createdAt,
       record.updatedAt,
     ];
   }
 
   async list() {
-    const result = await this.database.query('SELECT record FROM settlements ORDER BY created_at DESC');
+    const result = await this.database.query(
+      'SELECT record, version FROM settlements ORDER BY created_at DESC',
+    );
     return result.rows.map(recordFromRow);
   }
 
   async get(id) {
-    const result = await this.database.query('SELECT record FROM settlements WHERE id = $1', [id]);
+    const result = await this.database.query(
+      'SELECT record, version FROM settlements WHERE id = $1',
+      [id],
+    );
     return result.rows[0] ? recordFromRow(result.rows[0]) : undefined;
   }
 
   async getByIdempotencyKey(key) {
     const result = await this.database.query(
-      'SELECT record FROM settlements WHERE idempotency_key = $1',
+      'SELECT record, version FROM settlements WHERE idempotency_key = $1',
       [key],
     );
     return result.rows[0] ? recordFromRow(result.rows[0]) : undefined;
@@ -252,7 +243,7 @@ export class PostgresSettlementStore {
 
   async getByCircleTransactionId(id) {
     const result = await this.database.query(
-      'SELECT record FROM settlements WHERE circle_transaction_id = $1',
+      'SELECT record, version FROM settlements WHERE circle_transaction_id = $1',
       [id],
     );
     return result.rows[0] ? recordFromRow(result.rows[0]) : undefined;
@@ -264,7 +255,7 @@ export class PostgresSettlementStore {
         await transaction.query('SELECT pg_advisory_xact_lock($1)', [5042002]);
       }
       const existing = await transaction.query(
-        'SELECT record FROM settlements WHERE idempotency_key = $1',
+        'SELECT record, version FROM settlements WHERE idempotency_key = $1',
         [record.idempotencyKey],
       );
       if (existing.rows[0]) return { record: recordFromRow(existing.rows[0]), created: false };
@@ -305,7 +296,7 @@ export class PostgresSettlementStore {
         ) VALUES ($1, $2, $3, $4, $5::numeric, $6, $7::jsonb, $8::timestamptz, $9::timestamptz)`,
         this.values(stored),
       );
-      return { record: clone(stored), created: true };
+      return { record: { ...clone(stored), version: 0 }, created: true };
     });
     if (this.database.supportsAdvisoryLocks) return operation();
 
@@ -314,8 +305,14 @@ export class PostgresSettlementStore {
     return pending;
   }
 
+  /**
+   * Optimistic concurrency: the write only lands when the row still holds the version the
+   * caller read. A losing writer receives `SETTLEMENT_VERSION_CONFLICT` and must reload and
+   * re-evaluate rather than overwrite newer evidence.
+   */
   async update(record) {
     const stored = updateReservation(record);
+    const expectedVersion = Number(record.version ?? 0);
     const result = await this.database.query(
       `UPDATE settlements SET
         idempotency_key = $2,
@@ -325,20 +322,31 @@ export class PostgresSettlementStore {
         reservation_status = $6,
         record = $7::jsonb,
         created_at = $8::timestamptz,
-        updated_at = $9::timestamptz
-       WHERE id = $1
-       RETURNING record`,
-      this.values(stored),
+        updated_at = $9::timestamptz,
+        version = version + 1
+       WHERE id = $1 AND version = $10::bigint
+       RETURNING record, version`,
+      [...this.values(stored), expectedVersion],
     );
-    if (!result.rows[0]) {
+    if (result.rows[0]) return recordFromRow(result.rows[0]);
+
+    const current = await this.database.query('SELECT version FROM settlements WHERE id = $1', [record.id]);
+    if (!current.rows[0]) {
       throw new DomainError('SETTLEMENT_NOT_FOUND', 'Settlement was not found.', { status: 404 });
     }
-    return recordFromRow(result.rows[0]);
+    throw new DomainError(
+      'SETTLEMENT_VERSION_CONFLICT',
+      'The settlement was modified by another writer.',
+      {
+        status: 409,
+        details: { expectedVersion, currentVersion: Number(current.rows[0].version) },
+      },
+    );
   }
 
   async listReconciliationCandidates() {
     const result = await this.database.query(
-      `SELECT record FROM settlements
+      `SELECT record, version FROM settlements
        WHERE circle_transaction_id IS NOT NULL
          AND state NOT IN ('COMPLETE', 'FAILED', 'DENIED', 'CANCELLED')
        ORDER BY updated_at ASC
@@ -364,7 +372,7 @@ export class PostgresSettlementStore {
            reconciliation_lease_until = now() + ($3::text || ' seconds')::interval
        FROM candidates
        WHERE settlement.id = candidates.id
-       RETURNING settlement.record`,
+       RETURNING settlement.record, settlement.version`,
       [limit, owner, leaseSeconds],
     );
     return result.rows.map(recordFromRow);

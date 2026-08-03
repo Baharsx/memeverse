@@ -14,6 +14,9 @@ export class ApiError extends Error {
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
+    // The operator session is an HttpOnly, SameSite=Strict cookie. It is never readable from
+    // JavaScript and is only ever sent to the same origin as the application.
+    credentials: 'same-origin',
     headers: {
       accept: 'application/json',
       ...(options.body ? { 'content-type': 'application/json' } : {}),
@@ -77,9 +80,39 @@ export async function prepareSettlement(settlementId) {
   });
 }
 
-export async function executeSettlement(settlementId) {
+export async function requestOperatorChallenge(address) {
+  return request('/api/v1/auth/challenge', {
+    method: 'POST',
+    body: JSON.stringify({ address }),
+  });
+}
+
+export async function verifyOperatorSignature(challengeId, signature) {
+  return request('/api/v1/auth/verify', {
+    method: 'POST',
+    body: JSON.stringify({ challengeId, signature }),
+  });
+}
+
+export async function getOperatorSession() {
+  return request('/api/v1/auth/session');
+}
+
+export async function endOperatorSession() {
+  return request('/api/v1/auth/logout', { method: 'POST' });
+}
+
+export async function authorizeSettlementExecution(settlementId) {
+  return request(
+    `/api/v1/settlements/${encodeURIComponent(settlementId)}/execution-authorization`,
+    { method: 'POST' },
+  );
+}
+
+export async function executeSettlement(settlementId, authorizationId) {
   return request(`/api/v1/settlements/${encodeURIComponent(settlementId)}/execute`, {
     method: 'POST',
+    body: JSON.stringify({ authorizationId }),
   });
 }
 

@@ -60,6 +60,23 @@ function withInitialReservation(
   };
 }
 
+/**
+ * Mirrors the PostgreSQL optimistic-concurrency contract so domain code behaves identically
+ * against embedded and managed storage.
+ */
+function nextVersionOrConflict(existing, record) {
+  const expectedVersion = Number(record.version ?? 0);
+  const currentVersion = Number(existing.version ?? 0);
+  if (currentVersion !== expectedVersion) {
+    throw new DomainError(
+      'SETTLEMENT_VERSION_CONFLICT',
+      'The settlement was modified by another writer.',
+      { status: 409, details: { expectedVersion, currentVersion } },
+    );
+  }
+  return expectedVersion + 1;
+}
+
 function withUpdatedReservation(record) {
   if (!record.reservation) return record;
   let status = record.reservation.status;
@@ -115,16 +132,19 @@ export class MemorySettlementStore {
         treasuryAvailableUnits,
         agentDailyCapUnits,
       );
-      this.records.set(stored.id, clone(stored));
-      return { record: clone(stored), created: true };
+      const versioned = { ...stored, version: 0 };
+      this.records.set(versioned.id, clone(versioned));
+      return { record: clone(versioned), created: true };
     });
   }
 
   async update(record) {
-    if (!this.records.has(record.id)) {
+    const existing = this.records.get(record.id);
+    if (!existing) {
       throw new DomainError('SETTLEMENT_NOT_FOUND', 'Settlement was not found.', { status: 404 });
     }
-    const stored = withUpdatedReservation(record);
+    const version = nextVersionOrConflict(existing, record);
+    const stored = { ...withUpdatedReservation(record), version };
     this.records.set(stored.id, clone(stored));
     return clone(stored);
   }
@@ -204,18 +224,21 @@ export class JsonSettlementStore {
         treasuryAvailableUnits,
         agentDailyCapUnits,
       );
-      this.records.set(stored.id, clone(stored));
+      const versioned = { ...stored, version: 0 };
+      this.records.set(versioned.id, clone(versioned));
       await this.persist();
-      return { record: clone(stored), created: true };
+      return { record: clone(versioned), created: true };
     });
   }
 
   async update(record) {
     return this.mutate(async () => {
-      if (!this.records.has(record.id)) {
+      const existing = this.records.get(record.id);
+      if (!existing) {
         throw new DomainError('SETTLEMENT_NOT_FOUND', 'Settlement was not found.', { status: 404 });
       }
-      const stored = withUpdatedReservation(record);
+      const version = nextVersionOrConflict(existing, record);
+      const stored = { ...withUpdatedReservation(record), version };
       this.records.set(stored.id, clone(stored));
       await this.persist();
       return clone(stored);

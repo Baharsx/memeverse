@@ -1,11 +1,11 @@
 import { formatUsdc, parseUsdc } from './money.js';
+import { assertKnownProvenance, trustedSignalProvenance } from './signal-provenance.js';
 
 export function createAgentPolicy({
   agentDailySpendUsdc,
   agentMaxFraudRisk,
   agentMinConfidence,
   agentSignalMaxAgeSeconds,
-  agentAllowManualDemo = true,
 }) {
   const dailySpendUnits = parseUsdc(agentDailySpendUsdc, 'AGENT_DAILY_SPEND_USDC');
   return Object.freeze({
@@ -14,12 +14,12 @@ export function createAgentPolicy({
     maxFraudRisk: agentMaxFraudRisk,
     minConfidence: agentMinConfidence,
     signalMaxAgeSeconds: agentSignalMaxAgeSeconds,
-    allowManualDemo: agentAllowManualDemo,
     weights: Object.freeze({ engagementVelocity: 45, holderRetention: 25, liquidityDepth: 30 }),
   });
 }
 
-export function evaluateAgentSignals(signals, policy, { now, arc, circle }) {
+export function evaluateAgentSignals(signals, policy, { now, arc, circle, evidence }) {
+  assertKnownProvenance(signals.provenance);
   const reasons = [];
   const observedAt = new Date(signals.observedAt);
   const ageSeconds = Math.floor((now.getTime() - observedAt.getTime()) / 1000);
@@ -38,12 +38,6 @@ export function evaluateAgentSignals(signals, policy, { now, arc, circle }) {
     reasons.push({
       code: 'FRAUD_RISK_TOO_HIGH',
       message: `Fraud risk must not exceed ${policy.maxFraudRisk}.`,
-    });
-  }
-  if (signals.source === 'MANUAL_DEMO' && !policy.allowManualDemo) {
-    reasons.push({
-      code: 'MANUAL_SIGNAL_DISABLED',
-      message: 'Manual demo signals are disabled in this environment.',
     });
   }
   if (arc.status !== 'verified') {
@@ -68,6 +62,12 @@ export function evaluateAgentSignals(signals, policy, { now, arc, circle }) {
     approved: reasons.length === 0,
     reasons,
     signals: { ...signals, ageSeconds },
+    evidence: Object.freeze({
+      ...evidence,
+      provenance: signals.provenance,
+      provenanceTrusted: trustedSignalProvenance.has(signals.provenance),
+      assignedBy: 'SERVER',
+    }),
     weightedScore,
     confidenceAdjustedScore,
     policy: {
@@ -76,7 +76,6 @@ export function evaluateAgentSignals(signals, policy, { now, arc, circle }) {
       maxFraudRisk: policy.maxFraudRisk,
       signalMaxAgeSeconds: policy.signalMaxAgeSeconds,
       dailySpendUsdc: policy.dailySpendUsdc,
-      allowManualDemo: policy.allowManualDemo,
     },
     operationalEvidence: {
       arc: { status: arc.status, chainId: arc.chainId, blockNumber: arc.blockNumber },
@@ -92,6 +91,7 @@ export function evaluateAgentSignals(signals, policy, { now, arc, circle }) {
       mayPrepare: true,
       mayExecute: false,
       humanApprovalRequired: true,
+      executionMode: 'MANUAL_OPERATOR',
     },
   });
 }

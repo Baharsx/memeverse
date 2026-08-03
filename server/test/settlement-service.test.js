@@ -31,6 +31,16 @@ function fixture(circleGateway, arcIndexer) {
   };
 }
 
+/** The transport resolves and consumes a real authorization; the domain only sees the result. */
+const manualOperatorAuthority = {
+  mode: 'MANUAL_OPERATOR',
+  operatorAddress: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  sessionId: 'session-1',
+  authorizationRef: 'a'.repeat(32),
+  bindingHash: `0x${'11'.repeat(32)}`,
+  authorizedAt: '2026-08-02T10:00:00.000Z',
+};
+
 const validRequest = {
   recipient: '0x1111111111111111111111111111111111111111',
   requestedAmount: '25.00',
@@ -127,8 +137,8 @@ test('Circle execution and reconciliation persist asynchronous provider states',
   const { service } = fixture(circleGateway);
   const quote = await service.quote(validRequest, 'request-key-006');
   await service.prepare(quote.record.id);
-  const initiated = await service.execute(quote.record.id);
-  const sent = await service.execute(quote.record.id);
+  const initiated = await service.execute(quote.record.id, manualOperatorAuthority);
+  const sent = await service.execute(quote.record.id, manualOperatorAuthority);
 
   assert.equal(initiated.state, 'INITIATED');
   assert.equal(initiated.broadcast, false);
@@ -151,7 +161,7 @@ test('Circle webhook ignores stale success states after confirmation', async () 
   const { service } = fixture(circleGateway);
   const quote = await service.quote(validRequest, 'request-key-007');
   await service.prepare(quote.record.id);
-  await service.execute(quote.record.id);
+  await service.execute(quote.record.id, manualOperatorAuthority);
   const outcome = await service.applyCircleNotification({
     id: 'circle-transaction-2',
     state: 'QUEUED',
@@ -183,7 +193,7 @@ test('Circle COMPLETE remains CONFIRMED until Arc events are independently verif
   const { service } = fixture(circleGateway, arcIndexer);
   const quote = await service.quote(validRequest, 'request-key-008');
   await service.prepare(quote.record.id);
-  const complete = await service.execute(quote.record.id);
+  const complete = await service.execute(quote.record.id, manualOperatorAuthority);
 
   assert.equal(complete.state, 'COMPLETE');
   assert.equal(complete.circle.state, 'COMPLETE');

@@ -10,7 +10,7 @@ loadLocalEnvironment();
 const config = loadServerConfig();
 const runtime = await createSettlementRuntime(config);
 const { store, circleGateway, arcIndexer, settlementService, arcRpc,
-  agentDecisionService, appKitGateway } = runtime;
+  agentDecisionService, appKitGateway, operatorAuthService } = runtime;
 const webhookVerifier = new CircleWebhookVerifier({
   circleGateway,
   cacheSeconds: config.circleWebhookKeyCacheSeconds,
@@ -30,6 +30,7 @@ const app = createApp({
   store,
   agentDecisionService,
   appKitGateway,
+  operatorAuthService,
 });
 const server = app.listen(config.port, '127.0.0.1', () => {
   console.info(JSON.stringify({
@@ -38,6 +39,8 @@ const server = app.listen(config.port, '127.0.0.1', () => {
     chainId: config.arcChainId,
     persistence: config.databaseUrl ? 'POSTGRES' : 'PGLITE_POSTGRES',
     circleConfigured: circleGateway.configuration().configured,
+    operatorAuthConfigured: operatorAuthService.configured,
+    executionMode: 'MANUAL_OPERATOR',
     reconciliationMode: 'SEPARATE_WORKER',
   }));
 });

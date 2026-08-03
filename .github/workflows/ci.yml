@@ -8,10 +8,15 @@ on:
 permissions:
   contents: read
 
+# CI runs deterministic, offline checks only. It holds no Circle credentials, never signs or
+# broadcasts an Arc transaction, never deploys a contract, never funds a wallet, and never runs
+# a privileged settlement execution. Every Arc write script is invoked manually.
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,8 +30,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests and production build
+      - name: Compile contracts
+        run: npm run contracts:compile
+
+      - name: Run backend, security, and contract tests
+        run: npm test
+
+      - name: Verify tests and production build
         run: npm run check
 
       - name: Audit dependencies
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=low

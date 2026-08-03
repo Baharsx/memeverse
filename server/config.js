@@ -1,5 +1,19 @@
 import { resolve } from 'node:path';
+import { getAddress, isAddress } from 'viem';
 import { z } from 'zod';
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+// viem accepts an all-lowercase address because it carries no checksum information. A
+// privileged operator address must be unambiguous, so the exact EIP-55 form is required.
+const checksummedAddress = z.string().refine((value) => {
+  if (!isAddress(value, { strict: true }) || value === ZERO_ADDRESS) return false;
+  try {
+    return getAddress(value) === value;
+  } catch {
+    return false;
+  }
+}, { message: 'must be a checksummed EVM address' });
 
 const environmentSchema = z.object({
   API_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
@@ -21,7 +35,11 @@ const environmentSchema = z.object({
   AGENT_MAX_FRAUD_RISK: z.coerce.number().int().min(0).max(100).default(20),
   AGENT_MIN_CONFIDENCE: z.coerce.number().int().min(0).max(100).default(80),
   AGENT_SIGNAL_MAX_AGE_SECONDS: z.coerce.number().int().min(30).max(86400).default(300),
-  AGENT_ALLOW_MANUAL_DEMO: z.enum(['true', 'false']).default('true'),
+  SETTLEMENT_OPERATOR_ADDRESS: checksummedAddress.optional(),
+  OPERATOR_SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(3600).default(1200),
+  OPERATOR_CHALLENGE_TTL_SECONDS: z.coerce.number().int().min(60).max(900).default(300),
+  OPERATOR_EXECUTION_TTL_SECONDS: z.coerce.number().int().min(30).max(600).default(180),
+  TRUSTED_PROXY_HOP_COUNT: z.coerce.number().int().min(0).max(5).default(0),
   CIRCLE_API_KEY: z.string().min(1).optional(),
   CIRCLE_ENTITY_SECRET: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
   CIRCLE_WALLET_SET_ID: z.string().uuid().optional(),
@@ -45,10 +63,43 @@ const environmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 });
 
+/**
+ * Route-class request budgets. Testnet presentation traffic stays comfortable while credential
+ * probing, agent decision spam, and Circle-billed estimate spam are individually bounded.
+ */
+function createRateLimits(nodeEnv) {
+  if (nodeEnv === 'test') {
+    return Object.freeze({
+      global: 10_000, authChallenge: 10_000, authVerify: 10_000, settlementWrite: 10_000,
+      settlementExecute: 10_000, appKitEstimate: 10_000,
+    });
+  }
+  return Object.freeze({
+    global: 240,
+    authChallenge: 12,
+    authVerify: 20,
+    settlementWrite: 40,
+    settlementExecute: 15,
+    appKitEstimate: 20,
+  });
+}
+
 export function loadServerConfig(environment = process.env) {
   const parsed = environmentSchema.parse(environment);
   if (parsed.NODE_ENV === 'production' && !parsed.DATABASE_URL) {
     throw new Error('DATABASE_URL is required when NODE_ENV=production.');
+  }
+  // Privileged Circle settlement execution is only reachable through an authenticated operator
+  // session. Production must therefore never boot with execution credentials but no operator.
+  const settlementExecutionConfigured = Boolean(
+    parsed.CIRCLE_API_KEY && parsed.CIRCLE_ENTITY_SECRET
+    && parsed.CIRCLE_WALLET_ID && parsed.CIRCLE_SETTLEMENT_CONTRACT_ADDRESS,
+  );
+  if (parsed.NODE_ENV === 'production'
+    && settlementExecutionConfigured && !parsed.SETTLEMENT_OPERATOR_ADDRESS) {
+    throw new Error(
+      'SETTLEMENT_OPERATOR_ADDRESS is required when privileged Circle settlement execution is configured.',
+    );
   }
 
   return Object.freeze({
@@ -72,7 +123,16 @@ export function loadServerConfig(environment = process.env) {
     agentMaxFraudRisk: parsed.AGENT_MAX_FRAUD_RISK,
     agentMinConfidence: parsed.AGENT_MIN_CONFIDENCE,
     agentSignalMaxAgeSeconds: parsed.AGENT_SIGNAL_MAX_AGE_SECONDS,
-    agentAllowManualDemo: parsed.NODE_ENV !== 'production' && parsed.AGENT_ALLOW_MANUAL_DEMO === 'true',
+    settlementOperatorAddress: parsed.SETTLEMENT_OPERATOR_ADDRESS
+      ? getAddress(parsed.SETTLEMENT_OPERATOR_ADDRESS)
+      : undefined,
+    settlementExecutionConfigured,
+    operatorSessionTtlSeconds: parsed.OPERATOR_SESSION_TTL_SECONDS,
+    operatorChallengeTtlSeconds: parsed.OPERATOR_CHALLENGE_TTL_SECONDS,
+    operatorExecutionTtlSeconds: parsed.OPERATOR_EXECUTION_TTL_SECONDS,
+    trustedProxyHopCount: parsed.TRUSTED_PROXY_HOP_COUNT,
+    secureCookies: parsed.NODE_ENV === 'production',
+    rateLimits: createRateLimits(parsed.NODE_ENV),
     nodeEnv: parsed.NODE_ENV,
     arcChainId: 5042002,
     arcUsdcAddress: '0x3600000000000000000000000000000000000000',

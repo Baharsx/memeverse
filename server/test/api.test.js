@@ -4,21 +4,34 @@ import { createApp } from '../app.js';
 import { createSettlementPolicy } from '../domain/policy.js';
 import { SettlementService } from '../domain/settlement-service.js';
 import { MemorySettlementStore } from '../repositories/settlement-store.js';
+import { unlimitedRateLimits } from './helpers/app.js';
+import {
+  authorizedHeaders,
+  createTestOperatorAuthService,
+  originHeaders,
+  signInOperator,
+  testAppOrigin,
+} from './helpers/operator.js';
 
 let server;
 let baseUrl;
+let cookie;
 let capturedAgentDecision;
 let capturedSwapEstimate;
 
 before(async () => {
   const config = {
     nodeEnv: 'test',
-    appOrigin: 'http://127.0.0.1:5173',
+    appOrigin: testAppOrigin,
     arcChainId: 5042002,
     quoteTtlSeconds: 300,
     maxSpendUsdc: '25.00',
     minViralityScore: 78,
     creatorShareBps: 6000,
+    operatorSessionTtlSeconds: 1200,
+    trustedProxyHopCount: 0,
+    secureCookies: false,
+    rateLimits: unlimitedRateLimits,
   };
   const settlementService = new SettlementService({
     store: new MemorySettlementStore(),
@@ -33,8 +46,8 @@ before(async () => {
   };
   const logger = { info() {}, error() {} };
   const agentDecisionService = {
-    async decide(input, idempotencyKey) {
-      capturedAgentDecision = { input, idempotencyKey };
+    async decideOperator(input) {
+      capturedAgentDecision = input;
       return {
         record: { id: 'agent-api-1', state: 'DENIED', policy: { approved: false, reasons: [] } },
         replayed: false,
@@ -66,47 +79,61 @@ before(async () => {
     arcRpc,
     agentDecisionService,
     appKitGateway,
+    operatorAuthService: createTestOperatorAuthService(),
     logger,
   });
   server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
+  ({ cookie } = await signInOperator(baseUrl));
 });
 
 after(async () => {
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
 
-test('health verifies the Arc RPC chain', async () => {
+test('health verifies the Arc RPC chain and exposes only public readiness', async () => {
   const response = await fetch(`${baseUrl}/api/health`);
   const payload = await response.json();
 
   assert.equal(response.status, 200);
   assert.equal(payload.status, 'ok');
   assert.equal(payload.arc.chainId, 5042002);
-  assert.equal(payload.circle.configured, false);
+  assert.equal(payload.circle.ready, false);
+  assert.equal(payload.operatorAuth.configured, true);
+  assert.equal('missing' in payload.circle, false);
+  assert.equal(JSON.stringify(payload).includes('CIRCLE_API_KEY'), false);
 });
 
-test('quote and prepare form an idempotent API path', async () => {
+test('quote and prepare form an idempotent authenticated API path', async () => {
   const body = JSON.stringify({
     recipient: '0x2222222222222222222222222222222222222222',
     requestedAmount: '20.00',
     viralityScore: 90,
     reference: 'API-PAYOUT-001',
   });
-  const headers = { 'content-type': 'application/json', 'idempotency-key': 'api-key-0001' };
+  const headers = authorizedHeaders(cookie, { 'idempotency-key': 'api-key-0001' });
   const first = await fetch(`${baseUrl}/api/v1/settlements/quote`, { method: 'POST', headers, body });
   const firstPayload = await first.json();
   const replay = await fetch(`${baseUrl}/api/v1/settlements/quote`, { method: 'POST', headers, body });
   const replayPayload = await replay.json();
   const prepared = await fetch(
     `${baseUrl}/api/v1/settlements/${firstPayload.data.id}/prepare`,
-    { method: 'POST' },
+    { method: 'POST', headers: authorizedHeaders(cookie) },
   );
   const preparedPayload = await prepared.json();
+  const authorization = await fetch(
+    `${baseUrl}/api/v1/settlements/${firstPayload.data.id}/execution-authorization`,
+    { method: 'POST', headers: authorizedHeaders(cookie) },
+  );
+  const authorizationPayload = await authorization.json();
   const execute = await fetch(
     `${baseUrl}/api/v1/settlements/${firstPayload.data.id}/execute`,
-    { method: 'POST' },
+    {
+      method: 'POST',
+      headers: authorizedHeaders(cookie),
+      body: JSON.stringify({ authorizationId: authorizationPayload.data.authorizationId }),
+    },
   );
   const executePayload = await execute.json();
 
@@ -115,12 +142,16 @@ test('quote and prepare form an idempotent API path', async () => {
   assert.equal(replayPayload.meta.replayed, true);
   assert.equal(replayPayload.data.id, firstPayload.data.id);
   assert.equal(preparedPayload.data.state, 'AWAITING_SIGNATURE');
+  assert.equal(authorization.status, 201);
+  assert.equal(authorizationPayload.data.binding.settlementId, firstPayload.data.id);
   assert.equal(execute.status, 503);
   assert.equal(executePayload.error.code, 'CIRCLE_NOT_CONFIGURED');
 });
 
 test('Circle wallet and webhook routes fail closed when integration is absent', async () => {
-  const walletResponse = await fetch(`${baseUrl}/api/v1/circle/wallet`);
+  const walletResponse = await fetch(`${baseUrl}/api/v1/circle/wallet`, {
+    headers: authorizedHeaders(cookie),
+  });
   const walletPayload = await walletResponse.json();
   const webhookResponse = await fetch(`${baseUrl}/api/webhooks/circle`, {
     method: 'POST',
@@ -138,7 +169,7 @@ test('Circle wallet and webhook routes fail closed when integration is absent', 
 test('API exposes stable validation errors', async () => {
   const response = await fetch(`${baseUrl}/api/v1/settlements/quote`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'idempotency-key': 'api-key-0002' },
+    headers: authorizedHeaders(cookie, { 'idempotency-key': 'api-key-0002' }),
     body: JSON.stringify({ recipient: 'invalid' }),
   });
   const payload = await response.json();
@@ -148,10 +179,10 @@ test('API exposes stable validation errors', async () => {
   assert.ok(response.headers.get('x-request-id'));
 });
 
-test('agent endpoint validates structured signal evidence and forwards idempotency', async () => {
+test('agent endpoint validates signal values and forwards the authenticated operator', async () => {
   const response = await fetch(`${baseUrl}/api/v1/agent/decisions`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'idempotency-key': 'agent-api-key-0001' },
+    headers: authorizedHeaders(cookie, { 'idempotency-key': 'agent-api-key-0001' }),
     body: JSON.stringify({
       recipient: '0x2222222222222222222222222222222222222222',
       requestedAmount: '1.00',
@@ -162,9 +193,7 @@ test('agent endpoint validates structured signal evidence and forwards idempoten
         liquidityDepth: 88,
         fraudRisk: 5,
         confidence: 95,
-        observedAt: '2026-08-02T13:00:00.000Z',
-        source: 'ANALYTICS_PIPELINE',
-        sourceReference: 'batch-100',
+        sourceReference: 'operator-batch-100',
       },
     }),
   });
@@ -173,7 +202,9 @@ test('agent endpoint validates structured signal evidence and forwards idempoten
   assert.equal(response.status, 201);
   assert.equal(payload.data.id, 'agent-api-1');
   assert.equal(capturedAgentDecision.idempotencyKey, 'agent-api-key-0001');
-  assert.equal(capturedAgentDecision.input.signals.source, 'ANALYTICS_PIPELINE');
+  assert.equal(capturedAgentDecision.operator.address.startsWith('0x'), true);
+  assert.equal('source' in capturedAgentDecision.input.signals, false);
+  assert.equal('observedAt' in capturedAgentDecision.input.signals, false);
 });
 
 test('App Kit routes expose runtime status and a server-side swap estimate', async () => {
@@ -181,7 +212,7 @@ test('App Kit routes expose runtime status and a server-side swap estimate', asy
   const capabilities = await capabilitiesResponse.json();
   const estimateResponse = await fetch(`${baseUrl}/api/v1/app-kit/swap/estimate`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: originHeaders(),
     body: JSON.stringify({ tokenIn: 'USDC', tokenOut: 'EURC', amountIn: '1.00' }),
   });
   const estimate = await estimateResponse.json();

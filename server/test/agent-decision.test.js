@@ -46,6 +46,12 @@ function fixture() {
   return { service, store };
 }
 
+const operator = { address: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8', sessionId: 'session-1' };
+
+function decideAsOperator(service, input, idempotencyKey) {
+  return service.decideOperator({ input, operator, idempotencyKey });
+}
+
 function request(overrides = {}) {
   return {
     recipient: '0x1111111111111111111111111111111111111111',
@@ -57,8 +63,6 @@ function request(overrides = {}) {
       liquidityDepth: 90,
       fraudRisk: 8,
       confidence: 96,
-      observedAt: '2026-08-02T12:59:30.000Z',
-      source: 'ANALYTICS_PIPELINE',
       sourceReference: 'analytics-batch-100',
       ...overrides,
     },
@@ -67,7 +71,7 @@ function request(overrides = {}) {
 
 test('agent derives a confidence-adjusted score and may prepare but never execute', async () => {
   const { service } = fixture();
-  const result = await service.decide(request(), 'agent-key-0001');
+  const result = await decideAsOperator(service, request(), 'agent-key-0001');
 
   assert.equal(result.record.state, 'AWAITING_SIGNATURE');
   assert.equal(result.record.agentDecision.weightedScore, 92);
@@ -80,23 +84,20 @@ test('agent derives a confidence-adjusted score and may prepare but never execut
 
 test('agent fails closed on stale or high-risk evidence', async () => {
   const { service } = fixture();
-  const result = await service.decide(request({
-    fraudRisk: 40,
-    observedAt: '2026-08-02T12:00:00.000Z',
-  }), 'agent-key-0002');
+  const result = await decideAsOperator(service, request({ fraudRisk: 40 }), 'agent-key-0002');
 
   assert.equal(result.record.state, 'DENIED');
   assert.deepEqual(
     result.record.policy.reasons.map((reason) => reason.code),
-    ['SIGNAL_STALE', 'FRAUD_RISK_TOO_HIGH'],
+    ['FRAUD_RISK_TOO_HIGH'],
   );
   assert.equal(result.record.reservation, null);
 });
 
 test('agent daily payout cap is transactionally enforced', async () => {
   const { service, store } = fixture();
-  await service.decide(request(), 'agent-key-0003');
-  await service.decide({ ...request(), reference: 'AGENT-SIGNAL-002' }, 'agent-key-0004');
+  await decideAsOperator(service, request(), 'agent-key-0003');
+  await decideAsOperator(service, { ...request(), reference: 'AGENT-SIGNAL-002' }, 'agent-key-0004');
   const records = await store.list();
   assert.equal(records.length, 2);
   assert.equal(records.reduce((sum, record) => sum + BigInt(record.reservation.units), 0n), 30_000_000n);
@@ -105,7 +106,7 @@ test('agent daily payout cap is transactionally enforced', async () => {
     [true, 'ACTIVE'],
   ]);
   await assert.rejects(
-    service.decide({
+    decideAsOperator(service, {
       ...request(), requestedAmount: '1', reference: 'AGENT-SIGNAL-003',
     }, 'agent-key-0005'),
     { code: 'AGENT_DAILY_CAP_EXCEEDED', status: 409 },

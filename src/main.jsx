@@ -9,6 +9,7 @@ import {
   useChainId,
   useConnect,
   useDisconnect,
+  useSignMessage,
   useSwitchChain,
 } from 'wagmi';
 import { injected } from 'wagmi/connectors';
@@ -25,14 +26,24 @@ import {
   transactionPhases,
 } from './transaction-lifecycle';
 import {
+  authorizeSettlementExecution,
   createIdempotencyKey,
   createAgentDecision,
+  endOperatorSession,
   estimateAppKitSwap,
   executeSettlement,
   getAppKitCapabilities,
   getApiHealth,
+  getOperatorSession,
   reconcileSettlement,
+  requestOperatorChallenge,
+  verifyOperatorSignature,
 } from './api';
+import {
+  marketAvailability,
+  marketSpotLabel,
+  marketSpotPerTokenLabel,
+} from './market-display';
 import {
   factoryAbi,
   formatTokenAmount,
@@ -586,6 +597,7 @@ function Markets() {
   const buy = useOnchainAction();
   const sell = useOnchainAction();
   const allowanceRequired = Boolean(selected && buyUnits > selected.usdcAllowance);
+  const availability = marketAvailability(selected);
 
   async function refreshMarketState() {
     await Promise.all([
@@ -652,7 +664,7 @@ function Markets() {
           <div className="market-list" role="group" aria-label="Onchain markets">
             {markets.data.map((market) => (
               <button key={market.address} type="button" className={selected?.address === market.address ? 'active' : ''} onClick={() => setSelectedAddress(market.address)}>
-                <span>{market.symbol}</span><strong>{market.name}</strong><small>{formatUsdc(market.spotPriceUsdc)} USDC / TOKEN</small><em>{market.soldTokenCount.toLocaleString()} / {market.totalSupplyTokens.toLocaleString()} SOLD</em>
+                <span>{market.symbol}</span><strong>{market.name}</strong><small>{marketSpotPerTokenLabel(market, formatUsdc)}</small><em>{market.soldTokenCount.toLocaleString()} / {market.totalSupplyTokens.toLocaleString()} SOLD</em>
               </button>
             ))}
           </div>
@@ -660,7 +672,7 @@ function Markets() {
             <section className="market-proof">
               <div><small>MARKET</small><strong>{selected.name} / ${selected.symbol}</strong><ExternalLink href={`${arcLinks.explorer}/address/${selected.address}`}>{shortAddress(selected.address)} ↗</ExternalLink></div>
               <dl>
-                <dt>SPOT QUOTE</dt><dd>{formatUsdc(selected.spotPriceUsdc)} USDC</dd>
+                <dt>SPOT QUOTE</dt><dd>{marketSpotLabel(selected, formatUsdc)}</dd>
                 <dt>CURVE RESERVE</dt><dd>{formatUsdc(selected.reserveUsdc)} USDC</dd>
                 <dt>SUPPLY SOLD</dt><dd>{selected.soldTokenCount.toLocaleString()} / {selected.totalSupplyTokens.toLocaleString()}</dd>
                 <dt>CREATOR</dt><dd>{shortAddress(selected.creator)}</dd>
@@ -672,7 +684,14 @@ function Markets() {
             </section>
             <section className="market-order">
               <div className="tabs"><button type="button" className={side === 'BUY' ? 'active' : ''} onClick={() => setSide('BUY')}>BUY</button><button type="button" className={side === 'SELL' ? 'active sell' : ''} onClick={() => setSide('SELL')}>SELL</button></div>
-              {side === 'BUY' ? <form onSubmit={buyTokens}>
+              {side === 'BUY' && availability.soldOut ? (
+                <div className="trade-review sold-out" role="status">
+                  <span>BUY AVAILABILITY <b>SOLD OUT</b></span>
+                  <span>SUPPLY <b>{selected.soldTokenCount.toLocaleString()} / {selected.totalSupplyTokens.toLocaleString()} SOLD</b></span>
+                  <span>CURVE RESERVE <b>{formatUsdc(selected.reserveUsdc)} USDC</b></span>
+                  <span>The complete fixed supply is circulating, so this market has no next token to price. Selling back to the curve reserve remains available.</span>
+                </div>
+              ) : side === 'BUY' ? <form onSubmit={buyTokens}>
                 <label>MAXIMUM USDC INPUT<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="number" inputMode="decimal" min="0.000001" step="0.000001" required /><small>USDC</small></label>
                 <div className="trade-review">
                   <span>WALLET BALANCE <b>{onArc && usdcBalance.data !== undefined ? `${formatUsdc(usdcBalance.data)} USDC` : 'CONNECT ON ARC'}</b></span>
@@ -932,6 +951,94 @@ function Vault() {
   );
 }
 
+function useOperatorSession() {
+  const session = useQuery({
+    queryKey: ['operator-session'],
+    queryFn: getOperatorSession,
+    retry: 1,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+  return {
+    query: session,
+    authenticated: session.data?.data?.authenticated === true,
+    operatorAddress: session.data?.data?.operatorAddress ?? null,
+    expiresAt: session.data?.data?.expiresAt ?? null,
+  };
+}
+
+/**
+ * Layer 1 of the execution gate. The wallet signature proves control of the configured
+ * SETTLEMENT_OPERATOR_ADDRESS; the resulting session lives in an HttpOnly cookie this script
+ * can never read. Connecting an ordinary MemeVerse trading wallet grants nothing.
+ */
+function OperatorSessionPanel({ session }) {
+  const { address, isConnected } = useAccount();
+  const { connect, isPending: connectPending } = useConnect();
+  const { signMessageAsync } = useSignMessage();
+  const [state, setState] = useState({ status: 'idle', error: null });
+
+  async function signIn() {
+    setState({ status: 'loading', error: null });
+    try {
+      const challenge = (await requestOperatorChallenge(address)).data;
+      const signature = await signMessageAsync({ message: challenge.message });
+      await verifyOperatorSignature(challenge.challengeId, signature);
+      await session.query.refetch();
+      setState({ status: 'idle', error: null });
+    } catch (error) {
+      setState({
+        status: 'idle',
+        error: error.code === 'OPERATOR_AUTH_FAILED'
+          ? 'THIS WALLET IS NOT THE AUTHORIZED SETTLEMENT OPERATOR'
+          : `${error.code ?? 'SIGN_IN_FAILED'}: ${error.shortMessage ?? error.message}`,
+      });
+    }
+  }
+
+  async function signOut() {
+    setState({ status: 'loading', error: null });
+    try {
+      await endOperatorSession();
+    } finally {
+      await session.query.refetch();
+      setState({ status: 'idle', error: null });
+    }
+  }
+
+  return (
+    <div className={`operator-session ${session.authenticated ? 'authenticated' : ''}`} aria-label="Operator authentication">
+      <div className="operator-steps">
+        <span className={isConnected ? 'done' : ''}><b>01</b>CONNECT WALLET</span>
+        <span className={session.authenticated ? 'done' : ''}><b>02</b>SIGN OPERATOR SESSION</span>
+        <span className={session.authenticated ? 'done' : ''}><b>03</b>AUTHENTICATED OPERATOR</span>
+      </div>
+      {session.authenticated ? (
+        <div className="operator-identity">
+          <span>OPERATOR // {shortAddress(session.operatorAddress)}</span>
+          <span>SESSION EXPIRES // {new Date(session.expiresAt).toLocaleTimeString()}</span>
+          <button className="btn" type="button" onClick={signOut} disabled={state.status === 'loading'}>END OPERATOR SESSION</button>
+        </div>
+      ) : (
+        <div className="operator-identity">
+          <span>PRIVILEGED SETTLEMENT CONTROLS REQUIRE AN AUTHENTICATED OPERATOR WALLET.</span>
+          <span>ORDINARY MARKET TRADING IS UNAFFECTED AND NEEDS NO OPERATOR SESSION.</span>
+          {isConnected ? (
+            <button className="btn primary" type="button" onClick={signIn} disabled={state.status === 'loading'}>
+              {state.status === 'loading' ? 'AWAITING WALLET SIGNATURE…' : 'SIGN OPERATOR SESSION →'}
+            </button>
+          ) : (
+            <button className="btn primary" type="button" onClick={() => connect({ connector: injected() })} disabled={connectPending}>
+              {connectPending ? 'REQUESTING…' : 'CONNECT WALLET →'}
+            </button>
+          )}
+        </div>
+      )}
+      {state.error ? <p className="agent-error" role="alert">{state.error}</p> : null}
+    </div>
+  );
+}
+
 function Agent() {
   const [record, setRecord] = useState(null);
   const [form, setForm] = useState({
@@ -945,22 +1052,23 @@ function Agent() {
     reference: 'MEME-CREATOR-PAYOUT',
   });
   const [requestState, setRequestState] = useState({ status: 'idle', error: null, replayed: false });
-  const [executionReview, setExecutionReview] = useState({ open: false, confirmation: '' });
+  const [executionReview, setExecutionReview] = useState({ open: false, authorization: null });
   const lastAttempt = useRef(null);
+  const session = useOperatorSession();
   const health = useQuery({
     queryKey: ['api-health'],
     queryFn: getApiHealth,
     retry: 1,
     staleTime: 15_000,
   });
-  const circleConfigured = health.data?.circle?.configured === true;
+  const circleReady = health.data?.circle?.ready === true;
   const approved = record?.policy?.approved === true;
   const trace = [
     ['01', 'INGEST + WEIGHT SIGNALS', record?.agentDecision ? `SCORE ${record.agentDecision.confidenceAdjustedScore}` : 'PENDING'],
     ['02', 'CHECK SERVER POLICY', record ? (approved ? 'PASS / CAP OK' : 'DENIED') : 'PENDING'],
     ['03', 'CALCULATE CREATOR SHARE', record ? `${record.amount.creatorPayoutUsdc} USDC` : 'PENDING'],
     ['04', 'PERSIST MEMO REFERENCE', record ? 'MEMO ID READY' : 'PENDING'],
-    ['05', 'CIRCLE MEMO EXECUTION', record?.circle?.state ?? (record?.executionPlan ? 'AWAITING SIGNATURE' : record ? 'NOT PREPARED' : 'PENDING')],
+    ['05', 'CIRCLE MEMO EXECUTION', record?.circle?.state ?? (record?.executionPlan ? 'AWAITING HUMAN APPROVAL' : record ? 'NOT PREPARED' : 'PENDING')],
     ['06', 'VERIFY ARC EVENTS', record?.reconciliation?.status ?? (record?.transactionHash ? 'INDEXING' : 'PENDING')],
   ];
 
@@ -968,16 +1076,24 @@ function Agent() {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   }
 
+  function reportError(error, fallbackCode) {
+    setRequestState({
+      status: 'error',
+      error: error.status === 401
+        ? 'OPERATOR_AUTH_REQUIRED: The operator session expired. Sign in again.'
+        : `${error.code ?? fallbackCode}: ${error.message}${error.requestId ? ` // ${error.requestId}` : ''}`,
+      replayed: false,
+    });
+    if (error.status === 401) session.query.refetch();
+  }
+
   async function runPolicy(event) {
     event.preventDefault();
     const requestFingerprint = JSON.stringify(form);
     if (lastAttempt.current?.fingerprint !== requestFingerprint) {
-      lastAttempt.current = {
-        fingerprint: requestFingerprint,
-        key: createIdempotencyKey(),
-        observedAt: new Date().toISOString(),
-      };
+      lastAttempt.current = { fingerprint: requestFingerprint, key: createIdempotencyKey() };
     }
+    // Signal values only. The backend stamps provenance and the observation timestamp itself.
     const input = {
       recipient: form.recipient,
       requestedAmount: form.requestedAmount,
@@ -988,44 +1104,51 @@ function Agent() {
         liquidityDepth: Number(form.liquidityDepth),
         fraudRisk: Number(form.fraudRisk),
         confidence: Number(form.confidence),
-        observedAt: lastAttempt.current.observedAt,
-        source: 'MANUAL_DEMO',
         sourceReference: form.reference,
       },
     };
     setRequestState({ status: 'loading', error: null, replayed: false });
-    setExecutionReview({ open: false, confirmation: '' });
+    setExecutionReview({ open: false, authorization: null });
     setRecord(null);
     try {
       const quote = await createAgentDecision(input, lastAttempt.current.key);
       setRecord(quote.data);
-      if (!quote.data.policy.approved) {
-        setRequestState({ status: 'denied', error: null, replayed: quote.meta.replayed });
-        return;
-      }
-      setRequestState({ status: 'success', error: null, replayed: quote.meta.replayed });
-    } catch (error) {
       setRequestState({
-        status: 'error',
-        error: `${error.code ?? 'REQUEST_FAILED'}: ${error.message}${error.requestId ? ` // ${error.requestId}` : ''}`,
-        replayed: false,
+        status: quote.data.policy.approved ? 'success' : 'denied',
+        error: null,
+        replayed: quote.meta.replayed,
       });
+    } catch (error) {
+      reportError(error, 'REQUEST_FAILED');
+    }
+  }
+
+  async function reviewExecution() {
+    setRequestState({ status: 'loading', error: null, replayed: false });
+    try {
+      const authorization = (await authorizeSettlementExecution(record.id)).data;
+      setExecutionReview({ open: true, authorization });
+      setRequestState({ status: 'idle', error: null, replayed: false });
+    } catch (error) {
+      reportError(error, 'EXECUTION_AUTHORIZATION_FAILED');
     }
   }
 
   async function executeWithCircle() {
-    if (executionReview.confirmation !== 'EXECUTE') return;
+    if (!executionReview.authorization) return;
     setRequestState({ status: 'loading', error: null, replayed: false });
     try {
-      const response = await executeSettlement(record.id);
+      const response = await executeSettlement(
+        record.id,
+        executionReview.authorization.authorizationId,
+      );
       setRecord(response.data);
+      setExecutionReview({ open: false, authorization: null });
       setRequestState({ status: 'submitted', error: null, replayed: false });
     } catch (error) {
-      setRequestState({
-        status: 'error',
-        error: `${error.code ?? 'CIRCLE_EXECUTION_FAILED'}: ${error.message}${error.requestId ? ` // ${error.requestId}` : ''}`,
-        replayed: false,
-      });
+      // The authorization is single use, so a failure always returns to a fresh review.
+      setExecutionReview({ open: false, authorization: null });
+      reportError(error, 'CIRCLE_EXECUTION_FAILED');
     }
   }
 
@@ -1036,11 +1159,7 @@ function Agent() {
       setRecord(response.data);
       setRequestState({ status: 'submitted', error: null, replayed: false });
     } catch (error) {
-      setRequestState({
-        status: 'error',
-        error: `${error.code ?? 'CIRCLE_RECONCILIATION_FAILED'}: ${error.message}${error.requestId ? ` // ${error.requestId}` : ''}`,
-        replayed: false,
-      });
+      reportError(error, 'CIRCLE_RECONCILIATION_FAILED');
     }
   }
 
@@ -1048,32 +1167,37 @@ function Agent() {
     <section className="page agent-page">
       <Title n="01" t="AGENT-GUIDED SETTLEMENT" />
       <p className="lede">
-        The backend weights fresh engagement, retention, liquidity, fraud-risk, and confidence
-        signals against live Arc and Circle treasury evidence. The agent may quote and prepare,
-        but explicit human approval is always required before Arc Memo execution.
+        The backend weights engagement, retention, liquidity, fraud-risk, and confidence signals
+        against live Arc and Circle treasury evidence. Signal provenance and evidence timing are
+        assigned by the server, never by the browser. The agent may quote and prepare; every
+        Arc Memo execution requires an authenticated operator and a one-time approval bound to
+        that exact settlement.
       </p>
+      <OperatorSessionPanel session={session} />
       <div className="agent-grid">
         <form className="agent-rules" onSubmit={runPolicy}>
           <div className="form-section-label"><span>01</span> SETTLEMENT REQUEST</div>
           <div className="agent-fields identity-fields">
-            <label className="wide">RECIPIENT<input name="recipient" value={form.recipient} onChange={updateForm} spellCheck="false" required /></label>
-            <label>REQUESTED SPEND<input name="requestedAmount" type="number" inputMode="decimal" min="0.01" max="25" step="0.01" value={form.requestedAmount} onChange={updateForm} required /><small>{network.money}</small></label>
-            <label>REFERENCE<input name="reference" value={form.reference} onChange={updateForm} minLength="3" maxLength="120" spellCheck="false" required /></label>
+            <label className="wide">RECIPIENT<input name="recipient" value={form.recipient} onChange={updateForm} spellCheck="false" disabled={!session.authenticated} required /></label>
+            <label>REQUESTED SPEND<input name="requestedAmount" type="number" inputMode="decimal" min="0.01" max="25" step="0.01" value={form.requestedAmount} onChange={updateForm} disabled={!session.authenticated} required /><small>{network.money}</small></label>
+            <label>REFERENCE<input name="reference" value={form.reference} onChange={updateForm} minLength="3" maxLength="120" spellCheck="false" disabled={!session.authenticated} required /></label>
           </div>
-          <div className="form-section-label"><span>02</span> DECISION SIGNALS / 0—100</div>
+          <div className="form-section-label"><span>02</span> OPERATOR SIGNAL INPUT / 0—100</div>
           <div className="agent-fields signal-fields">
-            <label>ENGAGEMENT<input name="engagementVelocity" type="number" min="0" max="100" value={form.engagementVelocity} onChange={updateForm} required /><small>45% WT.</small></label>
-            <label>RETENTION<input name="holderRetention" type="number" min="0" max="100" value={form.holderRetention} onChange={updateForm} required /><small>25% WT.</small></label>
-            <label>LIQUIDITY<input name="liquidityDepth" type="number" min="0" max="100" value={form.liquidityDepth} onChange={updateForm} required /><small>30% WT.</small></label>
-            <label>FRAUD RISK<input name="fraudRisk" type="number" min="0" max="100" value={form.fraudRisk} onChange={updateForm} required /><small>MAX 20</small></label>
-            <label>CONFIDENCE<input name="confidence" type="number" min="0" max="100" value={form.confidence} onChange={updateForm} required /><small>MIN 80</small></label>
+            <label>ENGAGEMENT<input name="engagementVelocity" type="number" min="0" max="100" value={form.engagementVelocity} onChange={updateForm} disabled={!session.authenticated} required /><small>45% WT.</small></label>
+            <label>RETENTION<input name="holderRetention" type="number" min="0" max="100" value={form.holderRetention} onChange={updateForm} disabled={!session.authenticated} required /><small>25% WT.</small></label>
+            <label>LIQUIDITY<input name="liquidityDepth" type="number" min="0" max="100" value={form.liquidityDepth} onChange={updateForm} disabled={!session.authenticated} required /><small>30% WT.</small></label>
+            <label>FRAUD RISK<input name="fraudRisk" type="number" min="0" max="100" value={form.fraudRisk} onChange={updateForm} disabled={!session.authenticated} required /><small>MAX 20</small></label>
+            <label>CONFIDENCE<input name="confidence" type="number" min="0" max="100" value={form.confidence} onChange={updateForm} disabled={!session.authenticated} required /><small>MIN 80</small></label>
           </div>
           <div className="policy-caps" aria-label="Enforced policy limits">
             <span>MAX <b>25 USDC</b></span><span>SCORE <b>78+</b></span><span>SHARE <b>60%</b></span>
-            <span>DAILY <b>30 USDC</b></span><span>AUTH <b>HUMAN</b></span><span>RETRY <b>EXPLICIT</b></span>
+            <span>DAILY <b>30 USDC</b></span><span>AUTH <b>OPERATOR</b></span><span>MODE <b>MANUAL</b></span>
           </div>
-          <button className="btn primary full" type="submit" disabled={requestState.status === 'loading'}>
-            {requestState.status === 'loading' ? 'ENFORCING POLICY…' : 'REQUEST SETTLEMENT QUOTE →'}
+          <button className="btn primary full" type="submit" disabled={!session.authenticated || requestState.status === 'loading'}>
+            {!session.authenticated
+              ? 'OPERATOR SESSION REQUIRED'
+              : requestState.status === 'loading' ? 'ENFORCING POLICY…' : 'REQUEST SETTLEMENT QUOTE →'}
           </button>
           {requestState.error ? <p className="agent-error" role="alert">{requestState.error}</p> : null}
         </form>
@@ -1089,7 +1213,7 @@ function Agent() {
           <div className="agent-status">
             {record
               ? `${record.state} // ${record.reference}${requestState.replayed ? ' // IDEMPOTENT REPLAY' : ''}`
-              : 'AWAITING SIGNAL // BACKEND POLICY MODE'}
+              : session.authenticated ? 'OPERATOR AUTHENTICATED // AWAITING SIGNAL INPUT' : 'PUBLIC VIEW // PRIVILEGED CONTROLS LOCKED'}
           </div>
         </div>
       </div>
@@ -1102,9 +1226,11 @@ function Agent() {
           <span>TREASURY // {record.amount.treasuryRetainedUsdc} USDC</span>
           <span>MEMO // {record.memoId}</span>
           {record.agentDecision ? <span>AGENT SCORE // RAW {record.agentDecision.weightedScore} / ADJUSTED {record.agentDecision.confidenceAdjustedScore}</span> : null}
-          {record.agentDecision ? <span>AUTONOMY // QUOTE + PREPARE ONLY / HUMAN EXECUTION REQUIRED</span> : null}
+          {record.agentDecision ? <span>EVIDENCE // {record.agentDecision.signals.provenance} / {record.agentDecision.evidence.suppliedBy}</span> : null}
+          {record.agentDecision ? <span>AUTONOMY // QUOTE + PREPARE ONLY / HUMAN-APPROVED EXECUTION</span> : null}
           {record.reservation ? <span>RESERVATION // {Number(record.reservation.units) / 1e6} USDC / {record.reservation.status}</span> : null}
           {record.executionPlan?.targetContract ? <span>SETTLEMENT CONTRACT // {record.executionPlan.targetContract}</span> : null}
+          {record.executionAuthorization ? <span>AUTHORIZED BY // {record.executionAuthorization.mode} / {shortAddress(record.executionAuthorization.operatorAddress)}</span> : null}
           {record.expiresAt ? <span>QUOTE EXPIRY // {record.expiresAt}</span> : null}
           {record.policy.reasons.map((reason) => <span key={reason.code}>{reason.code} // {reason.message}</span>)}
           <span>BROADCAST // {String(record.broadcast).toUpperCase()}</span>
@@ -1113,36 +1239,37 @@ function Agent() {
           {record.transactionHash ? (
             <ExternalLink href={`${arcLinks.explorer}/tx/${record.transactionHash}`}>VERIFY ON ARCSCAN ↗</ExternalLink>
           ) : null}
-          {approved && record.state === 'AWAITING_SIGNATURE' ? (
+          {approved && record.state === 'AWAITING_SIGNATURE' && session.authenticated ? (
             executionReview.open ? (
               <div className="execution-review">
-                <strong>HUMAN EXECUTION GATE</strong>
-                <p>This broadcasts a testnet transaction through Circle. Verify the recipient, amount, memo, chain {arc.id}, and contract before proceeding.</p>
-                <label>TYPE EXECUTE TO AUTHORIZE
-                  <input
-                    value={executionReview.confirmation}
-                    onChange={(event) => setExecutionReview((current) => ({ ...current, confirmation: event.target.value }))}
-                    autoComplete="off"
-                    spellCheck="false"
-                  />
-                </label>
+                <strong>HUMAN EXECUTION GATE // SERVER-BOUND APPROVAL</strong>
+                <p>The server issued a single-use approval bound to the exact payload below. It expires shortly, cannot be reused, and cannot execute any other settlement.</p>
+                <dl>
+                  <dt>SETTLEMENT</dt><dd>{executionReview.authorization.binding.settlementId}</dd>
+                  <dt>RECIPIENT</dt><dd>{executionReview.authorization.binding.recipient}</dd>
+                  <dt>CREATOR PAYOUT</dt><dd>{Number(executionReview.authorization.binding.creatorPayoutUnits) / 1e6} USDC</dd>
+                  <dt>CHAIN</dt><dd>{executionReview.authorization.binding.chainId}</dd>
+                  <dt>CONTRACT</dt><dd>{executionReview.authorization.binding.settlementContract}</dd>
+                  <dt>MEMO ID</dt><dd>{executionReview.authorization.binding.memoId}</dd>
+                  <dt>APPROVAL EXPIRES</dt><dd>{new Date(executionReview.authorization.expiresAt).toLocaleTimeString()}</dd>
+                </dl>
                 <div>
-                  <button className="btn" type="button" onClick={() => setExecutionReview({ open: false, confirmation: '' })}>CANCEL</button>
-                  <button className="btn circle-action" type="button" disabled={executionReview.confirmation !== 'EXECUTE' || requestState.status === 'loading'} onClick={executeWithCircle}>EXECUTE VIA CIRCLE →</button>
+                  <button className="btn" type="button" onClick={() => setExecutionReview({ open: false, authorization: null })}>CANCEL</button>
+                  <button className="btn circle-action" type="button" disabled={requestState.status === 'loading'} onClick={executeWithCircle}>APPROVE + EXECUTE VIA CIRCLE →</button>
                 </div>
               </div>
             ) : (
               <button
                 className="btn circle-action"
                 type="button"
-                disabled={!circleConfigured || requestState.status === 'loading'}
-                onClick={() => setExecutionReview({ open: true, confirmation: '' })}
+                disabled={!circleReady || requestState.status === 'loading'}
+                onClick={reviewExecution}
               >
-                {circleConfigured ? 'REVIEW HUMAN EXECUTION →' : 'CIRCLE + SETTLEMENT CONTRACT REQUIRED'}
+                {circleReady ? 'REVIEW HUMAN EXECUTION →' : 'CIRCLE + SETTLEMENT CONTRACT REQUIRED'}
               </button>
             )
           ) : null}
-          {record.circle && !['COMPLETE', 'FAILED', 'DENIED', 'CANCELLED'].includes(record.state) ? (
+          {record.circle && session.authenticated && !['COMPLETE', 'FAILED', 'DENIED', 'CANCELLED'].includes(record.state) ? (
             <button
               className="btn circle-action"
               type="button"
@@ -1158,13 +1285,14 @@ function Agent() {
         <span>BUILT ON ARC</span>
         <span>USDC GAS</span>
         <span>ARC MEMO LIVE</span>
+        <span>WALLET-SIGNED OPERATOR SESSION</span>
+        <span>SERVER-STAMPED PROVENANCE</span>
+        <span>SETTLEMENT-BOUND APPROVAL</span>
         <span>VERIFIED SETTLEMENT CONTRACT</span>
         <span>POSTGRES TREASURY RESERVATIONS</span>
-        <span>EXPLICIT TX STATES</span>
+        <span>VERSIONED STATE WRITES</span>
         <span>NO BLIND RETRIES</span>
-        <span>CONDITIONAL SETTLEMENT</span>
         <span>CIRCLE DEV-CONTROLLED EOA</span>
-        <span>CIRCLE KIT QUOTES LIVE / FAIL-CLOSED</span>
         <span>SEPARATE LEASED WORKER</span>
       </div>
     </section>

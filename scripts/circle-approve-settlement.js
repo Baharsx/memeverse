@@ -4,6 +4,7 @@ import { arcTestnet } from 'viem/chains';
 import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
 import { usdcAbi } from '../server/infrastructure/arc-contracts.js';
+import { circleIdempotencyKey } from './circle-idempotency.js';
 
 loadLocalEnvironment();
 const config = loadServerConfig();
@@ -37,7 +38,15 @@ if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
     }
 
     const response = await client.createContractExecutionTransaction({
-      idempotencyKey: '1d8abfee-10f6-4689-864c-eb2ffbc76865',
+      // Bound to the exact allowance operation. Raising CIRCLE_SETTLEMENT_ALLOWANCE_USDC or
+      // repointing the settlement contract is a different approval, not a retry of this one.
+      idempotencyKey: circleIdempotencyKey('settlement-allowance-approve', [
+        'ARC-TESTNET',
+        config.circleWalletId,
+        config.arcUsdcAddress,
+        config.circleSettlementContractAddress,
+        amount.toString(),
+      ]),
       walletId: config.circleWalletId,
       contractAddress: config.arcUsdcAddress,
       abiFunctionSignature: 'approve(address,uint256)',

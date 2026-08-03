@@ -4,6 +4,7 @@ import { initiateSmartContractPlatformClient } from '@circle-fin/smart-contract-
 import { getAddress } from 'viem';
 import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
+import { circleIdempotencyKey } from './circle-idempotency.js';
 
 loadLocalEnvironment();
 const config = loadServerConfig();
@@ -28,15 +29,25 @@ if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
       throw new Error('Deployment wallet must be an ARC-TESTNET EOA.');
     }
 
+    const constructorParameters = [wallet.address, config.arcUsdcAddress];
+    // Bound to the artifact and constructor arguments: retrying the identical deployment reuses
+    // the Circle request, while a recompiled bytecode or changed operator produces a new key.
+    const artifactFingerprint = circleIdempotencyKey('settlement-artifact', [
+      artifact.bytecode,
+      'ARC-TESTNET',
+      config.circleWalletId,
+      ...constructorParameters,
+    ]);
+
     const deployment = await contractClient.deployContract({
-      idempotencyKey: 'e6d10131-f3b6-4ed4-aa4e-fcd2b8ad57f1',
+      idempotencyKey: circleIdempotencyKey('settlement-deploy', [artifactFingerprint]),
       name: 'MemeVerseSettlement',
       description: 'Idempotent creator USDC settlement contract built on Arc',
       blockchain: 'ARC-TESTNET',
       walletId: config.circleWalletId,
       abiJson: JSON.stringify(artifact.abi),
       bytecode: artifact.bytecode,
-      constructorParameters: [wallet.address, config.arcUsdcAddress],
+      constructorParameters,
       refId: 'memeverse-phase-3-settlement-v1',
       fee: { type: 'level', config: { feeLevel: config.circleFeeLevel } },
     });
@@ -67,6 +78,7 @@ if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
     console.log(`CIRCLE_SETTLEMENT_CONTRACT_ID=${contractId}`);
     console.log(`CIRCLE_SETTLEMENT_DEPLOYMENT_TX_ID=${transactionId}`);
     console.log(`CIRCLE_SETTLEMENT_CONTRACT_ADDRESS=${getAddress(contractAddress)}`);
+    console.log(`Artifact fingerprint: ${artifactFingerprint}`);
     console.log(`Deployment transaction: ${transaction.txHash}`);
   } catch (error) {
     console.error(`Settlement deployment failed: ${error?.response?.data?.message ?? error.message}`);

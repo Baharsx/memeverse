@@ -2,7 +2,9 @@
 
 **MemeVerse is a meme asset terminal built on Arc for launching, trading, minting, and agent-guided creator settlement in USDC.**
 
-The current release is a real Arc Public Testnet product for wallet-signed meme market launch and USDC trading. Markets, balances, quotes, positions, fees, and receipts come from deployed contracts and the Arc RPC; no market financial data is fabricated. NFT and legacy Vault presentation surfaces remain clearly labelled simulations for Phase 6B. The Circle Stablecoin Kits screen still provides a real authenticated USDC/EURC estimate without signing or broadcasting, and Agent Policy V2 preserves its separate human-approved settlement path.
+The current release is an Arc Public Testnet product with authenticated human-controlled Agent settlement and real onchain USDC markets. Markets, balances, quotes, positions, fees, and receipts come from deployed contracts and the Arc RPC; no market financial data is fabricated. Privileged Agent settlement requires a wallet-signed operator session plus a one-time approval bound to the exact settlement. NFT and legacy Vault presentation surfaces remain clearly labelled simulations for Phase 6B. The Circle Stablecoin Kits screen still provides a real authenticated USDC/EURC estimate without signing or broadcasting.
+
+MemeVerse is not independently audited, is not mainnet ready, and is not autonomous.
 
 ## Built on Arc
 
@@ -37,7 +39,11 @@ The product explores two Arc ecosystem tracks:
 - Independent Memo, SettlementExecuted, and USDC Transfer event reconciliation
 - Transactional treasury reservations that prevent concurrent overspend
 - Durable reconciliation worker for submitted Circle transactions
-- Multi-signal Agent Policy V2 with evidence freshness and provenance
+- Multi-signal Agent Policy V2 with evidence freshness and server-assigned provenance
+- Wallet-signed operator sessions with one-time expiring sign-in challenges
+- Settlement-bound, single-use execution approvals enforced server-side
+- Database-level optimistic concurrency for every settlement state write
+- Route-class rate limits, strict Content Security Policy, and explicit proxy trust
 - Transactional agent daily payout cap
 - Separately supervised reconciliation worker with expiring PostgreSQL leases
 - PostgreSQL webhook replay protection
@@ -138,19 +144,49 @@ The backend remains the authority for signal weighting, policy, recipient, amoun
 |---|---|---|
 | `GET` | `/api/health` | Verify API availability, Arc Chain ID, and current block |
 | `GET` | `/api/v1/config` | Return public network and policy settings |
-| `POST` | `/api/v1/settlements/quote` | Enforce policy and persist an approved or denied decision |
-| `POST` | `/api/v1/agent/decisions` | Weight fresh signals, capture operational evidence, quote, and conditionally prepare |
-| `POST` | `/api/v1/settlements/:id/prepare` | Move an approved live quote to `AWAITING_SIGNATURE` |
-| `POST` | `/api/v1/settlements/:id/execute` | Explicitly authorize and submit the Arc Memo contract call to Circle |
-| `POST` | `/api/v1/settlements/:id/reconcile` | Compare Circle state with the final Arc receipt and expected events |
-| `GET` | `/api/v1/settlements/:id` | Read one settlement and lazily apply expiry |
-| `GET` | `/api/v1/settlements` | List persisted settlements |
-| `GET` | `/api/v1/circle/wallet` | Check configured EOA state and Arc Testnet USDC balance |
+| `POST` | `/api/v1/auth/challenge` | Issue a one-time, expiring operator sign-in challenge |
+| `POST` | `/api/v1/auth/verify` | Verify the wallet signature and open an operator session |
+| `GET` | `/api/v1/auth/session` | Report sanitized operator session status |
+| `POST` | `/api/v1/auth/logout` | Revoke the presented operator session |
+| `POST` | `/api/v1/settlements/quote` | **Operator.** Enforce policy and persist an approved or denied decision |
+| `POST` | `/api/v1/agent/decisions` | **Operator.** Weight signals, capture operational evidence, quote, and conditionally prepare |
+| `POST` | `/api/v1/settlements/:id/prepare` | **Operator.** Move an approved live quote to `AWAITING_SIGNATURE` |
+| `POST` | `/api/v1/settlements/:id/execution-authorization` | **Operator.** Issue a single-use approval bound to this settlement |
+| `POST` | `/api/v1/settlements/:id/execute` | **Operator + approval.** Submit the Arc Memo contract call to Circle |
+| `POST` | `/api/v1/settlements/:id/reconcile` | **Operator.** Compare Circle state with the final Arc receipt and expected events |
+| `GET` | `/api/v1/settlements/:id` | **Operator.** Read one settlement and lazily apply expiry |
+| `GET` | `/api/v1/settlements` | **Operator.** List persisted settlements |
+| `GET` | `/api/v1/circle/wallet` | **Operator.** Check configured EOA state and Arc Testnet USDC balance |
 | `GET` | `/api/v1/app-kit/capabilities` | Report the server-side Circle Stablecoin Kits capability boundary and runtime audit status |
 | `POST` | `/api/v1/app-kit/swap/estimate` | Return a sanitized Circle Stablecoin Kits swap estimate; fail closed without the server Kit Key |
 | `POST` | `/api/webhooks/circle` | Verify and consume signed `transactions.outbound` notifications |
 
-`POST /quote` requires an `Idempotency-Key` header between 8 and 128 characters. Reusing the same key and body returns the original record; reusing it with a different body returns HTTP `409`.
+Routes marked **Operator** require a server-verified operator session and fail with `401` before any business logic, so an unauthorized caller cannot learn whether a settlement ID exists. Auth routes and every privileged mutation also require an exact `Origin` match. `POST /quote` requires an `Idempotency-Key` header between 8 and 128 characters. Reusing the same key and body returns the original record; reusing it with a different body returns HTTP `409`.
+
+### Operator authentication
+
+Privileged Agent settlement is controlled by one wallet, configured server-side as
+`SETTLEMENT_OPERATOR_ADDRESS`. It is entirely separate from the public wallets that launch and
+trade markets: connecting an ordinary wallet grants no privilege, and operator authentication
+never gates market activity.
+
+```text
+CONNECT WALLET → SIGN OPERATOR SESSION → OPERATOR AUTHENTICATED
+      → CREATE / REVIEW SETTLEMENT → FINAL EXECUTION APPROVAL → CIRCLE + ARC
+```
+
+The server issues a challenge binding the MemeVerse identity, `APP_ORIGIN` host, requested
+address, Arc chain ID `5042002`, scope, a random nonce, and explicit issue/expiry times. The
+challenge is consumed before the signature is checked, the signer is recovered from the
+signature, and only `SETTLEMENT_OPERATOR_ADDRESS` receives a session. Sessions are short-lived
+`HttpOnly`, `SameSite=Strict` cookies whose tokens are stored only as hashes.
+
+Execution then needs a second proof. `POST /:id/execution-authorization` returns a single-use,
+expiring approval bound to the settlement ID, chain, recipient, creator payout units, Memo ID,
+settlement contract, and encoded call-data hash. It is consumed atomically, cannot be replayed,
+cannot execute a different settlement, and is invalidated by any change to that payload. Only
+`MANUAL_OPERATOR` execution is implemented; `AUTONOMOUS_POLICY` is declared and fails closed.
+Full details are in [`docs/PHASE-6A2-TRUST-BOUNDARY.md`](./docs/PHASE-6A2-TRUST-BOUNDARY.md).
 
 ## Transaction and reconciliation model
 
@@ -205,6 +241,20 @@ Before an approved quote is persisted, active reservations are summed under a se
 
 Circle webhook receipts are deduplicated in PostgreSQL. The old JSON notification file is imported once when the database is empty. Continuous reconciliation runs in `server/worker.js`, not inside the HTTP process. Workers atomically claim records with `FOR UPDATE SKIP LOCKED` and an expiring lease, so multiple supervised instances do not process the same record concurrently.
 
+Every settlement update carries an optimistic-concurrency version. A write only lands when the
+row still holds the version its author read; a losing writer reloads the newest record and
+re-evaluates the mutation instead of overwriting it. This is a database-level mechanism, so it
+holds across multiple API and worker processes. Circle state may only advance, `COMPLETE` never
+regresses, and transaction hashes, Circle transaction IDs, provider failure details, and verified
+Arc reconciliation cannot be erased by a stale worker or webhook. Concurrency retries repeat only
+local persistence and never replay an external Circle call.
+
+Operator sign-in challenges, sessions, and execution approvals are stored in the same database as
+`operator_auth_challenges`, `operator_sessions`, and `operator_execution_authorizations`, so
+single-use enforcement is durable and multi-process safe. They are created by the same
+`RUN_DATABASE_MIGRATIONS` / `DATABASE_MIGRATION_URL` one-shot migration path as the rest of the
+schema.
+
 ## Agent Policy V2
 
 The current weighted score is deterministic:
@@ -214,7 +264,16 @@ raw score = 45% engagement velocity + 25% holder retention + 30% liquidity depth
 adjusted score = floor(raw score × confidence / 100)
 ```
 
-Evidence older than five minutes, confidence below 80, fraud risk above 20, an unverified Arc RPC, or a non-live Circle EOA fails closed. Each record persists the input provenance, evidence age, weighted score, live Arc block, Circle wallet state, treasury balance, applied thresholds, and denial reasons. `MANUAL_DEMO` is available for testnet demonstrations but is not a trusted production analytics source.
+Evidence older than five minutes, confidence below 80, fraud risk above 20, an unverified Arc RPC, or a non-live Circle EOA fails closed. Each record persists the provenance, evidence age, weighted score, live Arc block, Circle wallet state, treasury balance, applied thresholds, and denial reasons.
+
+Signal provenance is assigned by the server and never by the browser. The HTTP schema accepts
+signal values only and rejects `source`, `provenance`, `observedAt`, and any other unexpected
+field, so a browser cannot claim to be an onchain indexer or an analytics pipeline, and cannot
+backdate evidence. An authenticated operator's submission is stamped `OPERATOR_INPUT` with the
+server clock, and the operator address and session are persisted alongside it. `ONCHAIN_INDEXER`
+and `ANALYTICS_PIPELINE` are reserved for internal collectors behind
+`AgentDecisionService.decideTrusted`, which is not wired to any route; no code path fabricates
+them today.
 
 The authority boundary is explicit: the agent may quote and prepare; it may not sign, execute, retry blindly, raise limits, change recipients, or bypass human approval.
 
@@ -316,7 +375,8 @@ npm run circle:approve:settlement
 ```
 
 8. Save the non-secret contract and transaction IDs printed by those scripts in `.env.local`.
-9. Start MemeVerse, verify `/api/v1/circle/wallet`, then use the explicit Memo settlement button on the Agent receipt.
+9. Set `SETTLEMENT_OPERATOR_ADDRESS` in `.env.local` to the checksummed address of the wallet allowed to authorize settlement. It is server-only and must never use a `VITE_*` prefix. Production refuses to start when Circle execution credentials are configured without it.
+10. Start MemeVerse, open the Agent page, connect that wallet, sign the operator session, then review and approve the execution gate on the settlement receipt.
 
 ### Market contract operations
 
@@ -395,14 +455,27 @@ Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration
 - `npm run markets:audit:onchain` independently matches factory and market runtime bytecode, immutable configuration, registry membership, fixed-supply accounting, reserve solvency, and exact reserve balance.
 - The original Phase 6A deployment and identified limitation remain recorded in [`docs/PHASE-6A-ONCHAIN-MARKETS.md`](./docs/PHASE-6A-ONCHAIN-MARKETS.md).
 
+## Phase 6A.2 verification
+
+- Privileged settlement routes, settlement enumeration, and Circle wallet detail all require a server-verified operator session; anonymous callers are denied before any business logic.
+- Operator sign-in is a real wallet signature over a server-generated, single-use, expiring challenge bound to origin, chain, scope, and nonce.
+- Execution needs a second, settlement-bound, single-use approval that cannot be replayed or retargeted.
+- A browser can no longer assert `ONCHAIN_INDEXER`, `ANALYTICS_PIPELINE`, or an evidence timestamp.
+- Stale worker and webhook writes can no longer overwrite newer settlement state or evidence.
+- No new contract was deployed. `npm run markets:audit:onchain` continues to audit factory `0x363124490E953EEbB414eB4c3e2f03a40eef8F2C` and seed market `0xBe6E56a8B5ec8861aE1284dF3f60E27953f2d39D` with unchanged exact-spend economics.
+- The design and residual risks are documented in [`docs/PHASE-6A2-TRUST-BOUNDARY.md`](./docs/PHASE-6A2-TRUST-BOUNDARY.md).
+
 ## Not yet live
 
+- Autonomous Agent execution. `AUTONOMOUS_POLICY` is declared but fails closed; only `MANUAL_OPERATOR` execution is implemented.
+- Trusted internal signal collectors. `decideTrusted` exists as the Phase 6B seam and is not wired to any route.
 - NFT minting/listing/ownership and the legacy NFT archive are Phase 6B.
 - The legacy Vault presentation is still a labelled simulation; reusable wallet/USDC/market-position reads now exist for its Phase 6B replacement.
 
 ## Post-hackathon hardening
 
-- Connect an authenticated analytics/indexing pipeline and disable `MANUAL_DEMO` signals in production.
+- Connect an authenticated analytics/indexing pipeline behind `decideTrusted`.
+- Add multi-operator support, role separation, and a documented operator rotation procedure.
 - Deploy the API, worker, and managed PostgreSQL to a public testnet environment with backup and restore drills.
 - Add Send, Bridge, swap execution, and Unified Balance only after separate transaction-policy and dependency reviews; capability discovery currently reports them disabled.
 - Obtain an independent professional smart-contract audit before any mainnet consideration.

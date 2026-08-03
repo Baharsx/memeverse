@@ -26,7 +26,7 @@ This is an internal engineering review, not an independent professional audit. M
 | Unauthorized payout | Immutable operator check and fixed settlement contract | Circle credential compromise still requires incident response and allowance revocation |
 | Duplicate payout | Onchain `settled` mapping plus API idempotency | A different settlement ID is a distinct authorization; upstream evidence must remain unique |
 | Concurrent overspend | Transactional treasury and daily reservations | Circle balance can change outside MemeVerse between quote and execution |
-| Forged agent signal | Provenance, freshness, confidence and fraud-risk fields are persisted | `MANUAL_DEMO` evidence is not cryptographically trusted and must not be treated as production analytics |
+| Forged agent signal | Provenance, freshness, confidence and fraud-risk fields are persisted | Superseded by Phase 6A.2: provenance is now server-assigned and `MANUAL_DEMO` was removed |
 | Provider says complete but chain differs | Independent receipt and three-event verification | RPC availability can delay completion but cannot create a false success |
 | Duplicate workers | PostgreSQL `FOR UPDATE SKIP LOCKED` lease claim | A worker can retry after lease expiry; reconciliation remains idempotent |
 | Webhook replay | PostgreSQL primary key and advisory lock | Authentic notifications can arrive out of order; state transition rules still apply |
@@ -56,6 +56,6 @@ The onchain audit is read-only. It checks deployed bytecode, immutable operator 
 - Independent Solidity audit and remediation sign-off.
 - Rotation and incident-response runbook for Circle API credentials and entity secret.
 - Allowance revocation drill and treasury isolation.
-- Authenticated analytics pipeline; disable `MANUAL_DEMO` signals in production.
+- Authenticated analytics pipeline behind `decideTrusted`. (`MANUAL_DEMO` was removed in Phase 6A.2; see [`PHASE-6A2-TRUST-BOUNDARY.md`](./PHASE-6A2-TRUST-BOUNDARY.md).)
 - Managed PostgreSQL with encrypted transport, backups, point-in-time recovery, and least-privilege API/worker roles.
 - Separate allow/deny reviews before enabling App Kit Send, Bridge, swap execution, or Unified Balance.
