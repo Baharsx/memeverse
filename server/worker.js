@@ -16,6 +16,8 @@ const worker = new ReconciliationWorker({
   intervalMs: config.reconciliationIntervalMs,
   leaseSeconds: config.reconciliationLeaseSeconds,
   owner: `worker-${randomUUID()}`,
+  operatorAuthStore: runtime.operatorAuthStore,
+  authCleanupIntervalMs: config.authCleanupIntervalSeconds * 1000,
 });
 
 console.info(JSON.stringify({
@@ -23,6 +25,7 @@ console.info(JSON.stringify({
   persistence: config.databaseUrl ? 'POSTGRES' : 'PGLITE_POSTGRES',
   intervalMs: config.reconciliationIntervalMs,
   leaseSeconds: config.reconciliationLeaseSeconds,
+  authCleanupIntervalSeconds: config.authCleanupIntervalSeconds,
 }));
 
 if (process.env.WORKER_ONCE === 'true') {

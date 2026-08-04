@@ -130,6 +130,14 @@ separately obtained authorization.
 The resolved authority is persisted on the record as `executionAuthorization` **before** the
 Circle call, so the authority behind any broadcast survives a provider error or a crash.
 
+### Superseded by Phase 6A.2.1
+
+Steps 3 to 5 above describe a single-use approval, but a settlement could hold more than one valid
+approval at once, so the approval alone was not mutual exclusion. Submission now also passes
+through one atomic, database-level execution claim before Circle is contacted, and the winning
+authority is immutable. See
+[`PHASE-6A21-EXECUTION-CLAIM.md`](./PHASE-6A21-EXECUTION-CLAIM.md).
+
 ### Execution modes
 
 `server/domain/execution-mode.js` declares the authorization model explicitly:
@@ -278,6 +286,15 @@ next token to price. `src/market-display.js` renders `SOLD OUT` instead of `0 US
 both the market list and the spot quote, and replaces the buy form with an explanation of the
 supply and curve reserve. Selling stays available; the curve reserve still backs every
 circulating token. **No market contract was changed for this.**
+
+## Same-origin deployment
+
+Operator sessions are `HttpOnly`, `SameSite=Strict` cookies and the browser client sends
+`credentials: 'same-origin'`. Production must therefore serve the frontend and the API from one
+origin behind a reverse proxy (`https://app-domain.example/` and
+`https://app-domain.example/api/...`), with `APP_ORIGIN` set to that bare origin and
+`VITE_API_BASE_URL` left empty. A split-origin deployment would require `SameSite=None`, which
+weakens CSRF protection and is not supported.
 
 ## Remaining Phase 6B work
 

@@ -15,9 +15,36 @@ const checksummedAddress = z.string().refine((value) => {
   }
 }, { message: 'must be a checksummed EVM address' });
 
+/**
+ * APP_ORIGIN is compared byte for byte against the browser `Origin` header, so a configured
+ * trailing slash, path, query, or credential would silently break every privileged request.
+ * Canonicalize to a bare scheme://host[:port] and reject anything that is not an origin.
+ */
+export function canonicalizeAppOrigin(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`APP_ORIGIN must be an absolute http(s) origin, received "${value}".`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`APP_ORIGIN must use http or https, received "${url.protocol}".`);
+  }
+  if (url.username || url.password) {
+    throw new Error('APP_ORIGIN must not contain credentials.');
+  }
+  if (url.search || url.hash) {
+    throw new Error('APP_ORIGIN must not contain a query string or fragment.');
+  }
+  if (url.pathname !== '' && url.pathname !== '/') {
+    throw new Error(`APP_ORIGIN must not contain a path, received "${url.pathname}".`);
+  }
+  return url.origin;
+}
+
 const environmentSchema = z.object({
   API_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
-  APP_ORIGIN: z.string().url().default('http://127.0.0.1:5173'),
+  APP_ORIGIN: z.string().min(1).default('http://127.0.0.1:5173'),
   ARC_RPC_URL: z.string().url().default('https://rpc.testnet.arc.io'),
   SETTLEMENT_DATA_FILE: z.string().min(1).default('.data/settlements.json'),
   CIRCLE_NOTIFICATION_DATA_FILE: z.string().min(1).default('.data/circle-notifications.json'),
@@ -39,6 +66,8 @@ const environmentSchema = z.object({
   OPERATOR_SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(3600).default(1200),
   OPERATOR_CHALLENGE_TTL_SECONDS: z.coerce.number().int().min(60).max(900).default(300),
   OPERATOR_EXECUTION_TTL_SECONDS: z.coerce.number().int().min(30).max(600).default(180),
+  EXECUTION_CLAIM_LEASE_SECONDS: z.coerce.number().int().min(30).max(600).default(120),
+  AUTH_CLEANUP_INTERVAL_SECONDS: z.coerce.number().int().min(60).max(86400).default(3600),
   TRUSTED_PROXY_HOP_COUNT: z.coerce.number().int().min(0).max(5).default(0),
   CIRCLE_API_KEY: z.string().min(1).optional(),
   CIRCLE_ENTITY_SECRET: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
@@ -104,7 +133,7 @@ export function loadServerConfig(environment = process.env) {
 
   return Object.freeze({
     port: parsed.API_PORT,
-    appOrigin: parsed.APP_ORIGIN,
+    appOrigin: canonicalizeAppOrigin(parsed.APP_ORIGIN),
     arcRpcUrl: parsed.ARC_RPC_URL,
     dataFile: resolve(process.cwd(), parsed.SETTLEMENT_DATA_FILE),
     circleNotificationDataFile: resolve(process.cwd(), parsed.CIRCLE_NOTIFICATION_DATA_FILE),
@@ -130,6 +159,8 @@ export function loadServerConfig(environment = process.env) {
     operatorSessionTtlSeconds: parsed.OPERATOR_SESSION_TTL_SECONDS,
     operatorChallengeTtlSeconds: parsed.OPERATOR_CHALLENGE_TTL_SECONDS,
     operatorExecutionTtlSeconds: parsed.OPERATOR_EXECUTION_TTL_SECONDS,
+    executionClaimLeaseSeconds: parsed.EXECUTION_CLAIM_LEASE_SECONDS,
+    authCleanupIntervalSeconds: parsed.AUTH_CLEANUP_INTERVAL_SECONDS,
     trustedProxyHopCount: parsed.TRUSTED_PROXY_HOP_COUNT,
     secureCookies: parsed.NODE_ENV === 'production',
     rateLimits: createRateLimits(parsed.NODE_ENV),

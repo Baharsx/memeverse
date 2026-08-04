@@ -32,6 +32,12 @@ const app = createApp({
   appKitGateway,
   operatorAuthService,
 });
+// One best-effort sweep at boot; the supervised worker repeats it on an interval.
+runtime.purgeExpiredAuthRecords().catch((error) => console.error(JSON.stringify({
+  type: 'auth_cleanup_error',
+  message: error?.message ?? String(error),
+})));
+
 const server = app.listen(config.port, '127.0.0.1', () => {
   console.info(JSON.stringify({
     type: 'server_started',

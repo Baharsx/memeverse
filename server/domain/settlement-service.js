@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { getAddress, isAddress, keccak256, stringToHex } from 'viem';
 import { DomainError } from './errors.js';
+import { classifyProviderFailure, executionSubmissionStatuses } from './execution-claim.js';
 import { executionModes, isEnabledExecutionMode, isKnownExecutionMode } from './execution-mode.js';
+import { settlementExecutionBindingHash } from './settlement-binding.js';
 import { evaluateSettlementPolicy } from './policy.js';
 import { settlementStates, transitionSettlement } from './settlement-state.js';
 import {
@@ -25,6 +27,7 @@ export class SettlementService {
     now = () => new Date(),
     id = randomUUID,
     maxWriteAttempts = 6,
+    executionClaimLeaseSeconds = 120,
   }) {
     this.store = store;
     this.policy = policy;
@@ -35,6 +38,7 @@ export class SettlementService {
     this.now = now;
     this.id = id;
     this.maxWriteAttempts = maxWriteAttempts;
+    this.executionClaimLeaseSeconds = executionClaimLeaseSeconds;
   }
 
   normalizeRequest(input) {
@@ -129,6 +133,7 @@ export class SettlementService {
       transactionHash: null,
       executionPlan: null,
       executionAuthorization: null,
+      executionSubmission: null,
       circle: null,
       expiresAt: approved
         ? new Date(now.getTime() + this.quoteTtlSeconds * 1000).toISOString()
@@ -243,17 +248,128 @@ export class SettlementService {
     };
   }
 
+  notExecutable(state) {
+    return new DomainError(
+      'SETTLEMENT_NOT_EXECUTABLE',
+      `Settlement in ${state} state cannot be sent to Circle.`,
+      { status: 409, details: { currentState: state } },
+    );
+  }
+
+  /**
+   * Re-checks the approved payload against the settlement as it stands right now. The transport
+   * already validated the binding when it consumed the authorization; repeating it inside the
+   * claim closes the window between those two steps.
+   */
+  assertExecutionBinding(record, authority) {
+    if (authority.mode !== executionModes.MANUAL_OPERATOR) return;
+    const expected = settlementExecutionBindingHash(record);
+    if (authority.bindingHash !== expected) {
+      throw new DomainError(
+        'EXECUTION_BINDING_MISMATCH',
+        'The settlement changed after it was authorized. Review and authorize it again.',
+        { status: 409 },
+      );
+    }
+  }
+
+  buildExecutionClaim(current, authority, nowIso) {
+    const previous = current.executionSubmission ?? null;
+    const resuming = Boolean(previous?.claimId
+      && previous.status !== executionSubmissionStatuses.RELEASED);
+    return {
+      status: executionSubmissionStatuses.CLAIMED,
+      claimId: this.id(),
+      attempt: (previous?.attempt ?? 0) + 1,
+      executionMode: authority.mode,
+      authorizationRef: authority.authorizationRef,
+      bindingHash: authority.bindingHash,
+      operatorAddress: authority.operatorAddress,
+      sessionId: authority.sessionId,
+      // Derived from the settlement itself, so a resume can never mint a second provider
+      // operation identity and can never create a second payout.
+      providerOperationKey: current.id,
+      claimedAt: nowIso,
+      leaseExpiresAt: new Date(
+        new Date(nowIso).getTime() + this.executionClaimLeaseSeconds * 1000,
+      ).toISOString(),
+      resumedFromClaimId: resuming ? previous.claimId : null,
+      submittedAt: null,
+      failedAt: null,
+      lastError: null,
+    };
+  }
+
+  /**
+   * The durable, multi-process gate in front of Circle. Exactly one caller leaves this method
+   * holding a claim; every other caller is rejected or redirected to reconciliation, and the
+   * winner's authority is never overwritten while its claim is live.
+   */
+  async claimExecution(id, authorization) {
+    const authority = this.requireExecutionAuthority(authorization);
+    for (let attempt = 0; attempt < this.maxWriteAttempts; attempt += 1) {
+      const current = await this.requireRecord(id);
+      if (current.circle?.transactionId) return { outcome: 'ALREADY_SUBMITTED', record: current };
+      if (current.state !== settlementStates.AWAITING_SIGNATURE) {
+        throw this.notExecutable(current.state);
+      }
+      this.assertExecutionBinding(current, authority);
+
+      const nowIso = this.now().toISOString();
+      const submission = this.buildExecutionClaim(current, authority, nowIso);
+      const claimed = {
+        ...current,
+        executionAuthorization: authority,
+        executionSubmission: submission,
+        updatedAt: nowIso,
+        history: [...current.history, {
+          event: 'EXECUTION',
+          state: current.state,
+          at: nowIso,
+          reason: submission.resumedFromClaimId ? 'EXECUTION_CLAIM_RESUMED' : 'EXECUTION_CLAIMED',
+          claimId: submission.claimId,
+          attempt: submission.attempt,
+          executionMode: authority.mode,
+          authorizationRef: authority.authorizationRef,
+        }],
+      };
+      const result = await this.store.claimExecution({
+        record: claimed,
+        expectedVersion: current.version ?? 0,
+        nowIso,
+      });
+
+      if (result.outcome === 'CLAIMED') return result;
+      if (result.outcome === 'ALREADY_SUBMITTED') {
+        return { outcome: 'ALREADY_SUBMITTED', record: await this.requireRecord(id) };
+      }
+      if (result.outcome === 'ALREADY_CLAIMED') {
+        throw new DomainError(
+          'EXECUTION_ALREADY_CLAIMED',
+          'Another authorized execution of this settlement is already in progress.',
+          { status: 409, details: { claimExpiresAt: result.current?.claimUntil ?? null } },
+        );
+      }
+      if (result.outcome === 'NOT_EXECUTABLE') throw this.notExecutable(result.current.state);
+      if (result.outcome === 'NOT_FOUND') {
+        throw new DomainError('SETTLEMENT_NOT_FOUND', 'Settlement was not found.', { status: 404 });
+      }
+      // VERSION_CONFLICT: the row moved under us, so re-read and re-evaluate before retrying.
+    }
+    throw new DomainError(
+      'SETTLEMENT_CONCURRENT_UPDATE',
+      'The settlement is being updated concurrently. Read it again before retrying.',
+      { status: 409 },
+    );
+  }
+
   async execute(id, authorization) {
     const authority = this.requireExecutionAuthority(authorization);
     let record = await this.requireRecord(id);
     record = await this.expireIfNeeded(record);
     if (record.circle?.transactionId) return this.reconcile(id);
     if (record.state !== settlementStates.AWAITING_SIGNATURE) {
-      throw new DomainError(
-        'SETTLEMENT_NOT_EXECUTABLE',
-        `Settlement in ${record.state} state cannot be sent to Circle.`,
-        { status: 409, details: { currentState: record.state } },
-      );
+      throw this.notExecutable(record.state);
     }
     if (!this.circleGateway) {
       throw new DomainError('CIRCLE_NOT_CONFIGURED', 'Circle wallet gateway is unavailable.', {
@@ -261,27 +377,85 @@ export class SettlementService {
       });
     }
 
-    // Persisted before the external call so the authority behind a broadcast survives a
-    // provider error, a crash, or a later dispute.
-    record = await this.mutate(id, (current) => {
-      if (current.circle?.transactionId) return undefined;
-      if (current.state !== settlementStates.AWAITING_SIGNATURE) {
-        throw new DomainError(
-          'SETTLEMENT_NOT_EXECUTABLE',
-          `Settlement in ${current.state} state cannot be sent to Circle.`,
-          { status: 409, details: { currentState: current.state } },
-        );
-      }
+    const claim = await this.claimExecution(id, authority);
+    if (claim.outcome === 'ALREADY_SUBMITTED') return this.reconcile(id);
+    return this.submitClaimedExecution(claim.record);
+  }
+
+  /**
+   * Only the claim holder reaches Circle, and it does so outside any database transaction.
+   * A failure is classified before it is persisted so an undetermined outcome keeps its claim
+   * while a failure that never reached the provider frees the settlement immediately.
+   */
+  async submitClaimedExecution(record) {
+    const { claimId } = record.executionSubmission;
+    let transaction;
+    try {
+      transaction = await this.circleGateway.executeSettlement(record);
+    } catch (error) {
+      await this.recordSubmissionFailure(record.id, claimId, error);
+      throw error;
+    }
+    const submittedAt = this.now().toISOString();
+    return this.applyCircleTransaction(record.id, transaction, 'CIRCLE_TRANSFER_CREATED', {
+      decorate: (merged, current) => {
+        if (current.executionSubmission?.claimId !== claimId) return merged;
+        return {
+          ...merged,
+          executionSubmission: {
+            ...merged.executionSubmission,
+            status: executionSubmissionStatuses.SUBMITTED,
+            submittedAt,
+            leaseExpiresAt: null,
+            lastError: null,
+          },
+          history: [...merged.history, {
+            event: 'EXECUTION',
+            state: merged.state,
+            at: submittedAt,
+            reason: 'EXECUTION_SUBMITTED',
+            claimId,
+            circleTransactionId: transaction.id,
+          }],
+        };
+      },
+    });
+  }
+
+  async recordSubmissionFailure(id, claimId, error) {
+    const classification = classifyProviderFailure(error);
+    const released = classification === 'PRE_PROVIDER';
+    await this.mutate(id, (current) => {
+      // Ownership may already have moved on; a stale failure never rewrites another claim.
+      if (current.executionSubmission?.claimId !== claimId) return undefined;
+      const nowIso = this.now().toISOString();
       return {
         ...current,
-        executionAuthorization: authority,
-        updatedAt: this.now().toISOString(),
+        executionSubmission: {
+          ...current.executionSubmission,
+          status: released
+            ? executionSubmissionStatuses.RELEASED
+            : executionSubmissionStatuses.UNKNOWN_OUTCOME,
+          leaseExpiresAt: released ? null : current.executionSubmission.leaseExpiresAt,
+          failedAt: nowIso,
+          lastError: {
+            code: error?.code ?? 'CIRCLE_REQUEST_FAILED',
+            status: error?.status ?? null,
+            classification,
+          },
+        },
+        updatedAt: nowIso,
+        history: [...current.history, {
+          event: 'EXECUTION',
+          state: current.state,
+          at: nowIso,
+          reason: 'EXECUTION_SUBMISSION_FAILED',
+          claimId,
+          classification,
+          code: error?.code ?? 'CIRCLE_REQUEST_FAILED',
+        }],
       };
-    });
-    if (record.circle?.transactionId) return this.reconcile(id);
-
-    const transaction = await this.circleGateway.executeSettlement(record);
-    return this.applyCircleTransaction(id, transaction, 'CIRCLE_TRANSFER_CREATED');
+    }).catch(() => undefined);
   }
 
   async reconcile(id) {
@@ -381,10 +555,11 @@ export class SettlementService {
     };
   }
 
-  async applyCircleTransaction(id, transaction, reason) {
-    const updated = await this.mutate(id, (current) => (
-      this.mergeCircleTransaction(current, transaction, reason)
-    ));
+  async applyCircleTransaction(id, transaction, reason, { decorate } = {}) {
+    const updated = await this.mutate(id, (current) => {
+      const merged = this.mergeCircleTransaction(current, transaction, reason);
+      return decorate ? decorate(merged, current) : merged;
+    });
     return this.verifyOnchainIfReady(updated);
   }
 

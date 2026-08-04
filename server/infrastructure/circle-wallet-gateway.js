@@ -115,8 +115,11 @@ export class CircleWalletGateway {
     this.requireConfigured();
     try {
       const plan = record.executionPlan ?? this.createExecutionPlan(record);
+      // Deterministic per settlement, and reused verbatim when an execution claim resumes after
+      // an unknown outcome, so Circle replays the original transaction instead of paying twice.
+      const idempotencyKey = record.executionSubmission?.providerOperationKey ?? record.id;
       const response = await this.client.createContractExecutionTransaction({
-        idempotencyKey: record.id,
+        idempotencyKey,
         walletId: this.config.circleWalletId,
         contractAddress: plan.memoContract,
         callData: plan.memoCallData,

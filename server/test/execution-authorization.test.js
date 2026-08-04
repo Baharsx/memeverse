@@ -206,3 +206,90 @@ test('the domain rejects execution without an enabled, explicit authority', asyn
     await isolated.close();
   }
 });
+
+test('two concurrent HTTP executions produce one provider call and a stable 409 for the loser', async () => {
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let first = true;
+  const gateway = stubCircleGateway({
+    async onExecute() {
+      if (!first) return undefined;
+      first = false;
+      await held;
+      return undefined;
+    },
+  });
+  const raced = await startTestApp({ circleGateway: gateway });
+  try {
+    const session = await signInOperator(raced.baseUrl);
+    const settlement = await createAwaitingSettlement(raced, session.cookie);
+    // Two independently valid approvals for the same settlement.
+    const [authorizationA, authorizationB] = await Promise.all([
+      authorize(settlement.id, raced, session.cookie).then((response) => response.json()),
+      authorize(settlement.id, raced, session.cookie).then((response) => response.json()),
+    ]);
+
+    const attempts = Promise.all([
+      execute(settlement.id, authorizationA.data.authorizationId, raced, session.cookie),
+      new Promise((resolve) => setTimeout(resolve, 40)).then(() => (
+        execute(settlement.id, authorizationB.data.authorizationId, raced, session.cookie)
+      )),
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    release();
+    const [winner, loser] = await attempts;
+    const winnerBody = await winner.json();
+    const loserBody = await loser.json();
+
+    assert.equal(gateway.calls.filter(([action]) => action === 'execute').length, 1);
+    assert.equal(winner.status, 202);
+    assert.equal(loser.status, 409);
+    assert.equal(loserBody.error.code, 'EXECUTION_ALREADY_CLAIMED');
+    assert.equal(winnerBody.data.executionSubmission.status, 'SUBMITTED');
+    assert.equal(
+      winnerBody.data.executionAuthorization.authorizationRef,
+      winnerBody.data.executionSubmission.authorizationRef,
+    );
+
+    const persisted = await raced.store.get(settlement.id);
+    assert.equal(persisted.circle.transactionId, `circle-${settlement.id}`);
+    assert.equal(
+      persisted.executionAuthorization.authorizationRef,
+      winnerBody.data.executionAuthorization.authorizationRef,
+    );
+  } finally {
+    await raced.close();
+  }
+});
+
+test('a settlement mutated after approval is rejected by the claim as well as the transport', async () => {
+  const isolated = await startTestApp({ circleGateway: stubCircleGateway() });
+  try {
+    const session = await signInOperator(isolated.baseUrl);
+    const settlement = await createAwaitingSettlement(isolated, session.cookie);
+    const authorization = (await (
+      await authorize(settlement.id, isolated, session.cookie)
+    ).json()).data;
+
+    // The domain re-checks the binding at claim time, closing the window after the transport
+    // consumed the approval.
+    const stored = await isolated.store.get(settlement.id);
+    await isolated.store.update({
+      ...stored,
+      recipient: '0x3333333333333333333333333333333333333333',
+    });
+    await assert.rejects(
+      isolated.settlementService.execute(settlement.id, {
+        mode: executionModes.MANUAL_OPERATOR,
+        operatorAddress: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+        sessionId: 'session-1',
+        authorizationRef: authorization.authorizationId.slice(0, 32),
+        bindingHash: `0x${'99'.repeat(32)}`,
+      }),
+      { code: 'EXECUTION_BINDING_MISMATCH', status: 409 },
+    );
+    assert.deepEqual(isolated.circleGateway.calls, []);
+  } finally {
+    await isolated.close();
+  }
+});

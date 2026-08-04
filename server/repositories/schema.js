@@ -26,12 +26,16 @@ export const schemaSql = `
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
     reconciliation_lease_owner text,
-    reconciliation_lease_until timestamptz
+    reconciliation_lease_until timestamptz,
+    execution_claim_id text,
+    execution_claim_until timestamptz
   );
   ALTER TABLE settlements
     ADD COLUMN IF NOT EXISTS reconciliation_lease_owner text,
     ADD COLUMN IF NOT EXISTS reconciliation_lease_until timestamptz,
-    ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 0;
+    ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS execution_claim_id text,
+    ADD COLUMN IF NOT EXISTS execution_claim_until timestamptz;
   CREATE TABLE IF NOT EXISTS circle_notifications (
     notification_id text PRIMARY KEY,
     processed_at timestamptz NOT NULL,
@@ -77,4 +81,7 @@ export const schemaSql = `
   CREATE INDEX IF NOT EXISTS operator_sessions_expiry_idx ON operator_sessions (expires_at);
   CREATE INDEX IF NOT EXISTS operator_execution_authorizations_settlement_idx
     ON operator_execution_authorizations (settlement_id);
+  CREATE INDEX IF NOT EXISTS settlements_execution_claim_idx
+    ON settlements (execution_claim_until)
+    WHERE execution_claim_id IS NOT NULL;
 `;

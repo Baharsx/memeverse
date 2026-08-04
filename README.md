@@ -42,6 +42,8 @@ The product explores two Arc ecosystem tracks:
 - Multi-signal Agent Policy V2 with evidence freshness and server-assigned provenance
 - Wallet-signed operator sessions with one-time expiring sign-in challenges
 - Settlement-bound, single-use execution approvals enforced server-side
+- One durable execution claim per settlement, so only one caller can ever reach Circle
+- Bounded claim leases with safe resume and deterministic provider idempotency
 - Database-level optimistic concurrency for every settlement state write
 - Route-class rate limits, strict Content Security Policy, and explicit proxy trust
 - Transactional agent daily payout cap
@@ -186,7 +188,17 @@ expiring approval bound to the settlement ID, chain, recipient, creator payout u
 settlement contract, and encoded call-data hash. It is consumed atomically, cannot be replayed,
 cannot execute a different settlement, and is invalidated by any change to that payload. Only
 `MANUAL_OPERATOR` execution is implemented; `AUTONOMOUS_POLICY` is declared and fails closed.
-Full details are in [`docs/PHASE-6A2-TRUST-BOUNDARY.md`](./docs/PHASE-6A2-TRUST-BOUNDARY.md).
+
+Because a settlement can have more than one valid approval outstanding, submission also passes
+through a single durable execution claim: an atomic conditional update that requires the expected
+row version, `AWAITING_SIGNATURE`, no provider transaction, and no unexpired claim. Exactly one
+caller wins and contacts Circle; every other caller receives `409 EXECUTION_ALREADY_CLAIMED` or
+reconciles an already-known transaction, and the winner's authority can never be overwritten. A
+short claim lease (`EXECUTION_CLAIM_LEASE_SECONDS`) allows a crashed or undetermined attempt to be
+resumed later using the same deterministic Circle idempotency identity, so recovery never creates a
+second payout. Full details are in
+[`docs/PHASE-6A2-TRUST-BOUNDARY.md`](./docs/PHASE-6A2-TRUST-BOUNDARY.md) and
+[`docs/PHASE-6A21-EXECUTION-CLAIM.md`](./docs/PHASE-6A21-EXECUTION-CLAIM.md).
 
 ## Transaction and reconciliation model
 
@@ -253,7 +265,9 @@ Operator sign-in challenges, sessions, and execution approvals are stored in the
 `operator_auth_challenges`, `operator_sessions`, and `operator_execution_authorizations`, so
 single-use enforcement is durable and multi-process safe. They are created by the same
 `RUN_DATABASE_MIGRATIONS` / `DATABASE_MIGRATION_URL` one-shot migration path as the rest of the
-schema.
+schema. Long-expired rows are swept best-effort at API startup and then by the supervised worker
+on `AUTH_CLEANUP_INTERVAL_SECONDS`; deletion is idempotent and a cleanup failure never disturbs
+settlement reconciliation.
 
 ## Agent Policy V2
 
@@ -418,6 +432,23 @@ npm run build
 npm run preview
 ```
 
+### Same-origin deployment
+
+Operator sessions use an `HttpOnly`, `SameSite=Strict` cookie and the browser sends
+`credentials: 'same-origin'`, so production must serve the frontend and the API from one origin,
+normally behind a reverse proxy:
+
+```text
+https://app-domain.example/            → static frontend build
+https://app-domain.example/api/...     → MemeVerse API
+```
+
+Set `APP_ORIGIN=https://app-domain.example` (a bare origin: no trailing slash, path, query, or
+fragment — the value is canonicalized and validated at startup), leave `VITE_API_BASE_URL` empty
+so the browser calls same-origin paths, and set `TRUSTED_PROXY_HOP_COUNT` to the number of proxies
+actually in front of the API. A split-origin deployment would require `SameSite=None`, which
+weakens CSRF protection; same-origin is the supported architecture.
+
 Production refuses to start without managed PostgreSQL. Run the API and worker as separately supervised services:
 
 ```bash
@@ -454,6 +485,15 @@ Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration
 - Final state: 49 MMV6A1 held, 0.004911 USDC curve reserve, exactly 0.004911 USDC market balance, and 0.000145 USDC each recorded as creator and treasury fees.
 - `npm run markets:audit:onchain` independently matches factory and market runtime bytecode, immutable configuration, registry membership, fixed-supply accounting, reserve solvency, and exact reserve balance.
 - The original Phase 6A deployment and identified limitation remain recorded in [`docs/PHASE-6A-ONCHAIN-MARKETS.md`](./docs/PHASE-6A-ONCHAIN-MARKETS.md).
+
+## Phase 6A.2.1 verification
+
+- A settlement can hold more than one valid approval, so submission passes through one atomic, database-level execution claim. Before the patch, two concurrent authorizations produced two Circle calls and twenty concurrent callers produced six, against both the in-memory and PGlite stores; after it, every case produces exactly one.
+- The losing caller receives `409 EXECUTION_ALREADY_CLAIMED` and never reaches Circle. The winning authority is immutable.
+- A crashed or undetermined attempt is resumable only after its lease expires, and only by reusing the same deterministic Circle idempotency identity, so a lost response cannot become a second payout.
+- `APP_ORIGIN` is canonicalized to a bare origin and rejects a path, query, fragment, credential, or non-http(s) scheme.
+- Expired operator challenges, sessions, and approvals are swept at startup and on a worker interval.
+- The design is documented in [`docs/PHASE-6A21-EXECUTION-CLAIM.md`](./docs/PHASE-6A21-EXECUTION-CLAIM.md).
 
 ## Phase 6A.2 verification
 

@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { getAddress, isAddress, keccak256, recoverMessageAddress, stringToHex } from 'viem';
+import { getAddress, isAddress, recoverMessageAddress } from 'viem';
 import { DomainError } from './errors.js';
+import { settlementExecutionBinding, settlementExecutionBindingHash } from './settlement-binding.js';
 
 export const OPERATOR_SESSION_SCOPE = 'SETTLEMENT_OPERATOR_SESSION';
 const SIGNATURE_PATTERN = /^0x[0-9a-fA-F]{128,130}$/;
@@ -15,26 +16,7 @@ function authenticationFailed() {
   return new DomainError('OPERATOR_AUTH_FAILED', 'Operator authentication failed.', { status: 401 });
 }
 
-/**
- * The exact execution parameters an operator approves. Any later change to the recipient,
- * payout, chain, Memo ID, settlement contract, or encoded call invalidates the approval.
- */
-export function settlementExecutionBinding(record) {
-  return {
-    settlementId: record.id,
-    chainId: record.chainId,
-    recipient: record.recipient,
-    creatorPayoutUnits: record.amount?.creatorPayoutUnits ?? null,
-    memoId: record.memoId,
-    settlementContract: record.executionPlan?.targetContract ?? null,
-    memoContract: record.executionPlan?.memoContract ?? null,
-    callDataHash: record.executionPlan?.callDataHash ?? null,
-  };
-}
-
-export function settlementExecutionBindingHash(record) {
-  return keccak256(stringToHex(JSON.stringify(settlementExecutionBinding(record))));
-}
+export { settlementExecutionBinding, settlementExecutionBindingHash };
 
 export function buildOperatorChallengeMessage({
   domain, address, origin, chainId, scope, challengeId, nonce, issuedAt, expiresAt,

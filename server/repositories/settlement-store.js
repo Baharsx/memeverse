@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { DomainError } from '../domain/errors.js';
+import { activeExecutionClaim } from '../domain/execution-claim.js';
 
 function clone(value) {
   return value == null ? value : structuredClone(value);
@@ -149,6 +150,35 @@ export class MemorySettlementStore {
     return clone(stored);
   }
 
+  /**
+   * Mirrors the PostgreSQL claim contract. The read and the write are separated by no `await`,
+   * so the check-and-set is indivisible on the event loop exactly as the SQL statement is.
+   */
+  async claimExecution({ record, expectedVersion, nowIso }) {
+    const existing = this.records.get(record.id);
+    if (!existing) return { outcome: 'NOT_FOUND' };
+    const claim = activeExecutionClaim(existing);
+    const current = {
+      version: Number(existing.version ?? 0),
+      state: existing.state,
+      circleTransactionId: existing.circle?.transactionId ?? null,
+      claimId: claim?.claimId ?? null,
+      claimUntil: claim?.leaseExpiresAt ?? null,
+    };
+    if (current.circleTransactionId) return { outcome: 'ALREADY_SUBMITTED', current };
+    if (current.state !== 'AWAITING_SIGNATURE') return { outcome: 'NOT_EXECUTABLE', current };
+    if (current.claimUntil
+      && new Date(current.claimUntil).getTime() > new Date(nowIso).getTime()) {
+      return { outcome: 'ALREADY_CLAIMED', current };
+    }
+    if (current.version !== Number(expectedVersion ?? 0)) {
+      return { outcome: 'VERSION_CONFLICT', current };
+    }
+    const stored = { ...withUpdatedReservation(record), version: current.version + 1 };
+    this.records.set(stored.id, clone(stored));
+    return { outcome: 'CLAIMED', record: clone(stored) };
+  }
+
   async listReconciliationCandidates() {
     return [...this.records.values()]
       .filter((record) => record.circle?.transactionId && !['COMPLETE', 'FAILED', 'DENIED', 'CANCELLED'].includes(record.state))
@@ -242,6 +272,35 @@ export class JsonSettlementStore {
       this.records.set(stored.id, clone(stored));
       await this.persist();
       return clone(stored);
+    });
+  }
+
+  /** Serialized through the same write queue, so the check-and-set stays indivisible. */
+  async claimExecution({ record, expectedVersion, nowIso }) {
+    return this.mutate(async () => {
+      const existing = this.records.get(record.id);
+      if (!existing) return { outcome: 'NOT_FOUND' };
+      const claim = activeExecutionClaim(existing);
+      const current = {
+        version: Number(existing.version ?? 0),
+        state: existing.state,
+        circleTransactionId: existing.circle?.transactionId ?? null,
+        claimId: claim?.claimId ?? null,
+        claimUntil: claim?.leaseExpiresAt ?? null,
+      };
+      if (current.circleTransactionId) return { outcome: 'ALREADY_SUBMITTED', current };
+      if (current.state !== 'AWAITING_SIGNATURE') return { outcome: 'NOT_EXECUTABLE', current };
+      if (current.claimUntil
+        && new Date(current.claimUntil).getTime() > new Date(nowIso).getTime()) {
+        return { outcome: 'ALREADY_CLAIMED', current };
+      }
+      if (current.version !== Number(expectedVersion ?? 0)) {
+        return { outcome: 'VERSION_CONFLICT', current };
+      }
+      const stored = { ...withUpdatedReservation(record), version: current.version + 1 };
+      this.records.set(stored.id, clone(stored));
+      await this.persist();
+      return { outcome: 'CLAIMED', record: clone(stored) };
     });
   }
 

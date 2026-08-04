@@ -3,11 +3,32 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
+import { activeExecutionClaim } from '../domain/execution-claim.js';
 import { DomainError } from '../domain/errors.js';
 import { requiredTables, schemaSql } from './schema.js';
 
 const { Pool } = pg;
 const terminalStates = new Set(['COMPLETE', 'DENIED', 'EXPIRED', 'CANCELLED', 'FAILED']);
+
+/** Explains a lost claim from the row as it actually stands, never from the caller's snapshot. */
+export function claimRejection(row, expectedVersion, nowIso) {
+  if (!row) return { outcome: 'NOT_FOUND' };
+  const current = {
+    version: Number(row.version),
+    state: row.state,
+    circleTransactionId: row.circle_transaction_id ?? null,
+    claimId: row.execution_claim_id ?? null,
+    claimUntil: row.execution_claim_until ? new Date(row.execution_claim_until).toISOString() : null,
+  };
+  if (current.circleTransactionId) return { outcome: 'ALREADY_SUBMITTED', current };
+  if (current.state !== 'AWAITING_SIGNATURE') return { outcome: 'NOT_EXECUTABLE', current };
+  if (current.claimId && current.claimUntil
+    && new Date(current.claimUntil).getTime() > new Date(nowIso).getTime()) {
+    return { outcome: 'ALREADY_CLAIMED', current };
+  }
+  // The row is still claimable, so the caller simply read an older version of it.
+  return { outcome: 'VERSION_CONFLICT', current };
+}
 
 function clone(value) {
   return value == null ? value : structuredClone(value);
@@ -194,8 +215,10 @@ export class PostgresSettlementStore {
     await this.database.query(
       `INSERT INTO settlements (
         id, idempotency_key, circle_transaction_id, state,
-        reservation_units, reservation_status, record, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5::numeric, $6, $7::jsonb, $8::timestamptz, $9::timestamptz)
+        reservation_units, reservation_status, record, created_at, updated_at,
+        execution_claim_id, execution_claim_until
+      ) VALUES ($1, $2, $3, $4, $5::numeric, $6, $7::jsonb, $8::timestamptz, $9::timestamptz,
+                $10, $11::timestamptz)
       ON CONFLICT DO NOTHING`,
       this.values(stored),
     );
@@ -203,8 +226,10 @@ export class PostgresSettlementStore {
 
   values(record) {
     // The version lives in its own column; keeping it out of the document avoids two
-    // competing sources of truth.
+    // competing sources of truth. The claim columns are projected from the document so every
+    // write path keeps them consistent with the persisted submission.
     const { version: _version, ...persisted } = record;
+    const claim = activeExecutionClaim(record);
     return [
       record.id,
       record.idempotencyKey,
@@ -215,6 +240,8 @@ export class PostgresSettlementStore {
       JSON.stringify(persisted),
       record.createdAt,
       record.updatedAt,
+      claim?.claimId ?? null,
+      claim?.leaseExpiresAt ?? null,
     ];
   }
 
@@ -292,8 +319,10 @@ export class PostgresSettlementStore {
       await transaction.query(
         `INSERT INTO settlements (
           id, idempotency_key, circle_transaction_id, state,
-          reservation_units, reservation_status, record, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5::numeric, $6, $7::jsonb, $8::timestamptz, $9::timestamptz)`,
+          reservation_units, reservation_status, record, created_at, updated_at,
+          execution_claim_id, execution_claim_until
+        ) VALUES ($1, $2, $3, $4, $5::numeric, $6, $7::jsonb, $8::timestamptz, $9::timestamptz,
+                  $10, $11::timestamptz)`,
         this.values(stored),
       );
       return { record: { ...clone(stored), version: 0 }, created: true };
@@ -323,8 +352,10 @@ export class PostgresSettlementStore {
         record = $7::jsonb,
         created_at = $8::timestamptz,
         updated_at = $9::timestamptz,
+        execution_claim_id = $10,
+        execution_claim_until = $11::timestamptz,
         version = version + 1
-       WHERE id = $1 AND version = $10::bigint
+       WHERE id = $1 AND version = $12::bigint
        RETURNING record, version`,
       [...this.values(stored), expectedVersion],
     );
@@ -342,6 +373,48 @@ export class PostgresSettlementStore {
         details: { expectedVersion, currentVersion: Number(current.rows[0].version) },
       },
     );
+  }
+
+  /**
+   * The single atomic gate in front of the external Circle call.
+   *
+   * The write lands only when the row is still the exact one the caller read, is still awaiting
+   * signature, has no provider transaction, and carries no unexpired execution claim. Losers are
+   * told precisely why they lost so the domain can reconcile, reject, or retry deliberately.
+   * The provider call happens after this commits, never inside a transaction.
+   */
+  async claimExecution({ record, expectedVersion, nowIso }) {
+    const stored = updateReservation(record);
+    const result = await this.database.query(
+      `UPDATE settlements SET
+        idempotency_key = $2,
+        circle_transaction_id = $3,
+        state = $4,
+        reservation_units = $5::numeric,
+        reservation_status = $6,
+        record = $7::jsonb,
+        created_at = $8::timestamptz,
+        updated_at = $9::timestamptz,
+        execution_claim_id = $10,
+        execution_claim_until = $11::timestamptz,
+        version = version + 1
+       WHERE id = $1
+         AND version = $12::bigint
+         AND state = 'AWAITING_SIGNATURE'
+         AND circle_transaction_id IS NULL
+         AND (execution_claim_id IS NULL OR execution_claim_until <= $13::timestamptz)
+       RETURNING record, version`,
+      [...this.values(stored), Number(expectedVersion ?? 0), nowIso],
+    );
+    if (result.rows[0]) return { outcome: 'CLAIMED', record: recordFromRow(result.rows[0]) };
+
+    const current = await this.database.query(
+      `SELECT record, version, state, circle_transaction_id,
+              execution_claim_id, execution_claim_until
+       FROM settlements WHERE id = $1`,
+      [record.id],
+    );
+    return claimRejection(current.rows[0], expectedVersion, nowIso);
   }
 
   async listReconciliationCandidates() {

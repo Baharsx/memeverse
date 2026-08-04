@@ -29,6 +29,7 @@ export async function createSettlementRuntime(config) {
     quoteTtlSeconds: config.quoteTtlSeconds,
     circleGateway,
     arcIndexer,
+    executionClaimLeaseSeconds: config.executionClaimLeaseSeconds,
   });
   const agentDecisionService = new AgentDecisionService({
     settlementService,
@@ -37,8 +38,9 @@ export async function createSettlementRuntime(config) {
     policy: createAgentPolicy(config),
   });
   const appKitGateway = createCircleAppKitGateway(config, { circleGateway });
+  const operatorAuthStore = new PostgresOperatorAuthStore({ database: store.database });
   const operatorAuthService = new OperatorAuthService({
-    store: new PostgresOperatorAuthStore({ database: store.database }),
+    store: operatorAuthStore,
     operatorAddress: config.settlementOperatorAddress,
     appOrigin: config.appOrigin,
     chainId: config.arcChainId,
@@ -49,6 +51,7 @@ export async function createSettlementRuntime(config) {
 
   return {
     store,
+    operatorAuthStore,
     circleGateway,
     arcIndexer,
     arcRpc,
@@ -56,6 +59,14 @@ export async function createSettlementRuntime(config) {
     agentDecisionService,
     appKitGateway,
     operatorAuthService,
+    /**
+     * Deleting long-expired challenges, sessions, and approvals is idempotent and safe to run
+     * from any process. A failure is reported by the caller and never blocks startup or
+     * settlement reconciliation.
+     */
+    purgeExpiredAuthRecords() {
+      return operatorAuthStore.purgeExpired(new Date().toISOString());
+    },
     async close() { await store.close?.(); },
   };
 }

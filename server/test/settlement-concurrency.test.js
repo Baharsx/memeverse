@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 import { createSettlementPolicy } from '../domain/policy.js';
+import { settlementExecutionBindingHash } from '../domain/settlement-binding.js';
 import { SettlementService } from '../domain/settlement-service.js';
 import { PostgresSettlementStore } from '../repositories/postgres-settlement-store.js';
 import { MemorySettlementStore } from '../repositories/settlement-store.js';
@@ -30,6 +31,7 @@ class GatedSettlementStore {
   getByIdempotencyKey(key) { return this.inner.getByIdempotencyKey(key); }
   getByCircleTransactionId(id) { return this.inner.getByCircleTransactionId(id); }
   createIfAbsent(record, options) { return this.inner.createIfAbsent(record, options); }
+  claimExecution(request) { return this.inner.claimExecution(request); }
   listReconciliationCandidates() { return this.inner.listReconciliationCandidates(); }
   claimReconciliationCandidates(options) { return this.inner.claimReconciliationCandidates(options); }
   async releaseReconciliationLease() {}
@@ -72,11 +74,13 @@ async function fixture({ transactions = {}, reconciliation } = {}) {
     viralityScore: 90,
     reference: 'RACE-CASE',
   }, 'race-key-0001');
-  await service.prepare(quote.record.id);
+  const prepared = await service.prepare(quote.record.id);
   await service.execute(quote.record.id, {
     mode: 'MANUAL_OPERATOR',
     operatorAddress: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+    sessionId: 'session-1',
     authorizationRef: 'a'.repeat(32),
+    bindingHash: settlementExecutionBindingHash(prepared),
   });
   return { store, service, id: quote.record.id, setTransaction(value) { nextTransaction = value; } };
 }
@@ -219,12 +223,17 @@ test('duplicate and out-of-order notifications converge on one monotonic record'
     }));
   }
   const final = await service.get(id);
-  const observedStates = final.history.map((entry) => entry.state);
+  // Execution audit events carry an `event` discriminator; state transitions do not.
+  const transitions = final.history.filter((entry) => !entry.event).map((entry) => entry.state);
 
   assert.equal(final.state, 'CONFIRMED');
   assert.equal(final.circle.state, 'CONFIRMED');
   assert.equal(final.transactionHash, transactionHash);
-  assert.deepEqual(observedStates, ['PREPARED', 'AWAITING_SIGNATURE', 'INITIATED', 'SENT', 'CONFIRMED']);
+  assert.deepEqual(transitions, ['PREPARED', 'AWAITING_SIGNATURE', 'INITIATED', 'SENT', 'CONFIRMED']);
+  assert.deepEqual(
+    final.history.filter((entry) => entry.event === 'EXECUTION').map((entry) => entry.reason),
+    ['EXECUTION_CLAIMED', 'EXECUTION_SUBMITTED'],
+  );
 });
 
 test('simultaneous reconciliation workers and a webhook keep a single valid record', async () => {

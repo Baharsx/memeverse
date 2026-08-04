@@ -33,6 +33,7 @@ export function baseTestConfig(overrides = {}) {
     agentMinConfidence: 80,
     agentSignalMaxAgeSeconds: 300,
     operatorSessionTtlSeconds: 1200,
+    executionClaimLeaseSeconds: 120,
     trustedProxyHopCount: 0,
     secureCookies: false,
     rateLimits: unlimitedRateLimits,
@@ -64,8 +65,9 @@ export function stubCircleGateway({ transaction, onExecute } = {}) {
     },
     async executeSettlement(record) {
       calls.push(['execute', record.id]);
-      onExecute?.(record);
-      return transaction ?? { id: `circle-${record.id}`, state: 'INITIATED', walletId: 'wallet-1' };
+      const override = await onExecute?.(record, calls.length);
+      return override ?? transaction
+        ?? { id: `circle-${record.id}`, state: 'INITIATED', walletId: 'wallet-1' };
     },
     async getTransaction(id) {
       calls.push(['reconcile', id]);
@@ -95,6 +97,7 @@ export async function startTestApp({
     quoteTtlSeconds: config.quoteTtlSeconds,
     circleGateway,
     arcIndexer,
+    executionClaimLeaseSeconds: config.executionClaimLeaseSeconds,
   });
   const agentDecisionService = new AgentDecisionService({
     settlementService,

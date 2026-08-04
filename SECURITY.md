@@ -28,9 +28,21 @@ MemeVerse has two unrelated wallet roles and they must never be conflated.
 - `SETTLEMENT_OPERATOR_ADDRESS` must be an exact EIP-55 checksummed non-zero address, must be server-only, and must never use a `VITE_*` prefix. Production must refuse to start when Circle settlement execution credentials are present without it.
 - Sessions use a 256-bit random token; only its hash is persisted. The cookie is `HttpOnly`, `SameSite=Strict`, `Path=/`, `Secure` in production, and short lived. Raw tokens must never reach logs or JSON responses.
 - Authentication alone must never be sufficient to move funds. Execution additionally requires a one-time, expiring authorization bound to settlement ID, chain ID, recipient, creator payout units, Memo ID, settlement contract, Memo contract, and settlement call-data hash. It is consumed atomically, cannot be replayed, cannot execute another settlement, and is invalidated by any change to that payload.
+- A settlement may have more than one valid authorization outstanding, so a single-use approval is not by itself mutual exclusion. Submission must pass through one durable, database-level execution claim: an atomic conditional update requiring the expected row version, `AWAITING_SIGNATURE`, no provider transaction, and no unexpired claim. Only the winner may contact the provider.
+- The claim must be committed before the external call, and the external call must never run inside a database transaction. A losing caller must receive a stable `409` and must never reach the provider.
+- The winning execution authority is immutable. Operator address, session, authorization reference, binding hash, and execution mode must never be overwritten by a later approval, and last-write-wins on execution authority is forbidden.
+- The approval binding must be re-checked against the live settlement inside the claim, not only when the authorization is consumed.
+- Provider idempotency is defence in depth, never the primary lock. Application mutual exclusion must not depend on provider behaviour.
 - The resolved execution authority is persisted on the record before the provider call so the authority behind any broadcast survives a failure.
+- An execution claim must carry a short, bounded lease and must not be stealable before it expires. After expiry, a newly authorized operator may resume only by reusing the same deterministic provider operation identity; a new identity must never be generated for a resume.
+- Provider failures must be classified. A failure that provably never reached the provider releases the claim; any undetermined outcome keeps the claim until the lease expires so nothing retries into that window. Local persistence retries and external provider retries must remain separate, and the generic concurrency retry loop must never re-invoke the provider.
+- Once a provider transaction ID exists, execution must reconcile rather than submit again.
+- The audit trail must record which authorization won, the operator and session behind it, the claim identifier and attempt, the provider operation identity, submission time, and any failure classification. It must never contain raw authorization tokens, session tokens, cookies, or wallet signatures.
 - Execution authority is explicit and persisted. `MANUAL_OPERATOR` is the only enabled mode; `AUTONOMOUS_POLICY` is declared and fails closed. There is no hidden bypass flag.
 - Auth routes and every privileged mutation require an exact `Origin` match, and any foreign `Origin` is rejected before routing. CORS is never an authorization mechanism, and a client-side confirmation string is never a security control.
+- `APP_ORIGIN` is compared byte for byte with the browser `Origin` header and must be canonicalized to a bare `scheme://host[:port]`. A path, query, fragment, embedded credential, or non-http(s) scheme must be rejected at configuration load rather than silently breaking every privileged request.
+- Operator sessions use an `HttpOnly`, `SameSite=Strict` cookie with same-origin credentials, so production must serve the frontend and the API from one origin behind a reverse proxy. Switching to `SameSite=None` to enable a split-origin deployment is not an acceptable trade.
+- Expired challenges, sessions, and execution approvals must be swept on a schedule. Deletion must be idempotent and safe across processes, and a cleanup failure must be logged without disturbing settlement reconciliation.
 
 ## Application security requirements
 
@@ -73,7 +85,7 @@ MemeVerse has two unrelated wallet roles and they must never be conflated.
 - Public responses must never expose Circle API keys, entity secrets, Kit Keys, session tokens, challenge secrets, database or migration URLs, internal wallet identifiers, raw provider errors, authorization cookies, or stack traces. Logs must never contain cookies, wallet signatures, session tokens, or Circle credentials.
 - A market whose entire fixed supply is sold must be presented as sold out rather than as a zero price. Buying is disabled; selling against the curve reserve remains available.
 
-The Phase 4 threat model, residual risks, and onchain read-only checks are documented in [`docs/PHASE-4-SECURITY-REVIEW.md`](./docs/PHASE-4-SECURITY-REVIEW.md). The Phase 6A.2 trust boundaries, operator authentication, execution authorization, provenance model, and concurrency design are documented in [`docs/PHASE-6A2-TRUST-BOUNDARY.md`](./docs/PHASE-6A2-TRUST-BOUNDARY.md).
+The Phase 4 threat model, residual risks, and onchain read-only checks are documented in [`docs/PHASE-4-SECURITY-REVIEW.md`](./docs/PHASE-4-SECURITY-REVIEW.md). The Phase 6A.2 trust boundaries, operator authentication, execution authorization, provenance model, and concurrency design are documented in [`docs/PHASE-6A2-TRUST-BOUNDARY.md`](./docs/PHASE-6A2-TRUST-BOUNDARY.md). The Phase 6A.2.1 atomic execution claim, crash recovery, and same-origin deployment requirement are documented in [`docs/PHASE-6A21-EXECUTION-CLAIM.md`](./docs/PHASE-6A21-EXECUTION-CLAIM.md).
 
 ## Reporting a vulnerability
 

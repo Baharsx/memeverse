@@ -5,6 +5,9 @@ export class ReconciliationWorker {
     intervalMs = 5000,
     leaseSeconds = 30,
     owner = `worker-${process.pid}`,
+    operatorAuthStore = null,
+    authCleanupIntervalMs = 3_600_000,
+    now = () => Date.now(),
     logger = console,
   }) {
     this.store = store;
@@ -13,8 +16,36 @@ export class ReconciliationWorker {
     this.logger = logger;
     this.leaseSeconds = leaseSeconds;
     this.owner = owner;
+    this.operatorAuthStore = operatorAuthStore;
+    this.authCleanupIntervalMs = authCleanupIntervalMs;
+    this.now = now;
+    this.lastAuthCleanupAt = null;
     this.timer = null;
     this.running = null;
+  }
+
+  /**
+   * Expired operator challenges, sessions, and approvals are swept from the supervised worker
+   * rather than a job framework. Deletion is idempotent, so overlapping processes are harmless,
+   * and a cleanup failure is logged without disturbing settlement reconciliation.
+   */
+  async purgeExpiredAuthRecords() {
+    if (!this.operatorAuthStore) return false;
+    const now = this.now();
+    if (this.lastAuthCleanupAt !== null
+      && now - this.lastAuthCleanupAt < this.authCleanupIntervalMs) return false;
+    this.lastAuthCleanupAt = now;
+    try {
+      await this.operatorAuthStore.purgeExpired(new Date(now).toISOString());
+      return true;
+    } catch (error) {
+      this.logger.error?.(JSON.stringify({
+        type: 'auth_cleanup_error',
+        code: error?.code ?? 'AUTH_CLEANUP_FAILED',
+        message: error?.message ?? String(error),
+      }));
+      return false;
+    }
   }
 
   start() {
@@ -30,6 +61,7 @@ export class ReconciliationWorker {
   }
 
   async runOnce() {
+    await this.purgeExpiredAuthRecords();
     const records = this.store.claimReconciliationCandidates
       ? await this.store.claimReconciliationCandidates({
         owner: this.owner,
