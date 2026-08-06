@@ -430,8 +430,25 @@ gone from `main.jsx`.
 Transaction state is rendered from the real lifecycle (`WAITING FOR WALLET` → `PENDING ON ARC` →
 `CONFIRMED`/`FAILED`); nothing is shown as complete before its receipt. Wallet disconnected, wrong
 network, unconfigured contract, RPC failure, empty collection, and no-position all render explicit
-states instead of placeholder data. The views are lazy-loaded into a separate 24 kB chunk, and the
-brutalist pixel-grid identity (`#0B0B0D`, `#C6F432`, `#F4F3EF`) is preserved.
+states instead of placeholder data. The brutalist pixel-grid identity (`#0B0B0D`, `#C6F432`,
+`#F4F3EF`) is preserved.
+
+The Stage 2 views are lazy-loaded into their own chunk so they cost nothing to a visitor who never
+opens them. Measured from a clean production build at the closeout commit:
+
+| Chunk | Raw | Gzip |
+| --- | --- | --- |
+| `stage2-views` (lazy) | 24.92 kB | 7.58 kB |
+| `index` (application entry) | 54.73 kB | 16.05 kB |
+| `wallet` (wagmi, react-query) | 68.14 kB | 20.36 kB |
+| `react` | 192.49 kB | 60.35 kB |
+| `chain` (viem and crypto primitives) | 268.62 kB | 82.75 kB |
+| `vendor` | 5.38 kB | 2.16 kB |
+| CSS | 38.43 kB | 7.59 kB |
+
+No chunk exceeds Vite's 500 kB warning threshold. These figures are reproducible: three
+consecutive clean builds at this commit produced byte-identical output, down to the same content
+hash.
 
 ---
 
@@ -444,6 +461,27 @@ production start fails fast rather than breaking on first write:
 * `agent_payout_epochs` — PK `(market_address, policy_version, epoch)`; the cooldown and the
   duplicate-payout guard are the same constraint. `amount_units` records the **creator payout**.
 * `agent_collector_checkpoints` — monotonic scan cursors; a stale worker cannot rewind them.
+* `agent_spend_reservations` — durable admission control for autonomous spending, and the reason
+  the global daily cap cannot be oversubscribed across different markets.
+
+  Identity is deterministic per `policyVersion:market:epoch`, so a restart or resumed evaluation
+  finds its own prior admission instead of reserving twice. Each row carries a status:
+
+  | Status | Occupies daily capacity | Reached when |
+  | --- | --- | --- |
+  | `RESERVED` | yes | admitted |
+  | `CONSUMED` | yes | a settlement exists; records the creator payout |
+  | `RELEASED` | no | the payout provably never reached the provider |
+
+  A denial writes no row at all, so it consumes nothing. Admission happens inside one transaction
+  holding an exclusive lock — a transaction-scoped advisory lock on PostgreSQL, and the
+  corresponding serialised single-connection transaction path on PGlite — so reading current
+  commitments and writing the row that extends them cannot interleave between markets.
+
+  An undetermined provider outcome does **not** release capacity: the money may already be moving.
+  Only a `PRE_PROVIDER` classification (or a settlement-policy denial, which occurs before any
+  provider call) may return it. This bounds spending; it is not a delivery guarantee, and nothing
+  here claims exactly-once payment.
 
 The one-shot migration identity model is preserved; no runtime production DDL was added.
 

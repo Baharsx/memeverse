@@ -195,11 +195,14 @@ signature, and only `SETTLEMENT_OPERATOR_ADDRESS` receives a session. Sessions a
 Execution then needs a second proof. `POST /:id/execution-authorization` returns a single-use,
 expiring approval bound to the settlement ID, chain, recipient, creator payout units, Memo ID,
 settlement contract, and encoded call-data hash. It is consumed atomically, cannot be replayed,
-cannot execute a different settlement, and is invalidated by any change to that payload. Only
+cannot execute a different settlement, and is invalidated by any change to that payload.
+
 Both execution modes are implemented and physically isolated. `MANUAL_OPERATOR` executes from the
-Circle Developer-Controlled Wallet through Arc Memo. `AUTONOMOUS_POLICY` executes from the Circle
-Agent Wallet through its own settlement contract, and is only reachable with an authority minted
-in-process — a request body naming the mode is rejected.
+Circle Developer-Controlled Wallet through the Arc Memo route, and requires an authenticated human
+operator session plus that settlement-bound execution authorization. `AUTONOMOUS_POLICY` executes
+from the Circle Agent Wallet through a separate autonomous settlement contract, is only reachable
+with an authority minted in-process — a request body naming the mode is rejected — and has no
+fallback to the manual Developer-Controlled Wallet.
 
 Because a settlement can have more than one valid approval outstanding, submission also passes
 through a single durable execution claim: an atomic conditional update that requires the expected
