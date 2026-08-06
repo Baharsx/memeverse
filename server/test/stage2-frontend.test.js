@@ -161,8 +161,10 @@ test('no simulated NFT or vault data remains in the browser bundle sources', asy
 
 test('the agent surface exposes no account identity', async () => {
   const stage2 = await readFile('src/stage2-views.jsx', 'utf8');
-  // The Circle account email is a personal identifier and must never be rendered.
-  for (const banned of ['sohiwn', '@gmail', 'email', 'apiKey', 'entitySecret']) {
+  // The Circle account email is a personal identifier and must never be rendered. The operator's
+  // actual address is deliberately not written here either — asserting on the generic shapes is
+  // enough, and embedding it would put a personal identifier in the repository.
+  for (const banned of ['@gmail', '@googlemail', 'mailto:', 'email', 'apiKey', 'entitySecret']) {
     assert.equal(
       stage2.toLowerCase().includes(banned.toLowerCase()),
       false,

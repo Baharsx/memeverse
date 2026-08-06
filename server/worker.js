@@ -26,7 +26,7 @@ const worker = new ReconciliationWorker({
  * configured. Absent either, the worker keeps doing reconciliation and simply never creates
  * autonomous work — it does not silently fall back to spending from the manual treasury.
  */
-const agentWorker = config.agentAutonomousEnabled && runtime.autonomousSettlementService
+const agentWorker = config.agentAutonomousEnabled && runtime.autonomousAgentService
   ? new AutonomousAgentWorker({
     autonomousAgentService: runtime.autonomousAgentService,
     autonomyStore: runtime.autonomyStore,

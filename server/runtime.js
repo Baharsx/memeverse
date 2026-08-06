@@ -28,6 +28,7 @@ export async function createSettlementRuntime(config) {
     rpcUrl: config.arcRpcUrl,
     settlementContractAddress: config.circleSettlementContractAddress,
     agentSettlementContractAddress: config.agentSettlementContractAddress,
+    agentWalletAddress: config.agentWalletAddress,
   });
   const arcRpc = new ArcRpcClient({
     rpcUrl: config.arcRpcUrl,
@@ -92,11 +93,19 @@ export async function createSettlementRuntime(config) {
     metricConfig: defaultMetricConfig,
     policyVersion: AUTONOMOUS_POLICY_VERSION,
   });
-  const autonomousAgentService = new AutonomousAgentService({
+  /**
+   * Autonomy exists only when the Circle Agent Wallet route exists.
+   *
+   * There is deliberately no fallback to the Developer-Controlled Wallet. AUTONOMOUS_POLICY means
+   * "the Agent Wallet paid this, through the autonomous settlement contract"; letting it quietly
+   * mean "the manual treasury paid this with no human approval" would be a different and far
+   * worse thing wearing the same name. Without the Agent Wallet the service is simply not
+   * constructed, so no caller — worker, script, transport, or future code — can reach it.
+   */
+  const autonomousAgentService = autonomousSettlementService ? new AutonomousAgentService({
     collector: signalCollector,
     autonomyStore,
-    // Falls back to the Developer-Controlled path only when no Agent Wallet is configured.
-    settlementService: autonomousSettlementService ?? settlementService,
+    settlementService: autonomousSettlementService,
     agentPolicy: createAgentPolicy(config),
     payoutPolicy: createPayoutPolicy({
       maxPayoutUsdc: config.agentAutonomousMaxPayoutUsdc,
@@ -106,13 +115,13 @@ export async function createSettlementRuntime(config) {
       scoreFloor: config.agentAutonomousScoreFloor,
     }),
     arcRpc,
-    circleGateway: autonomousSettlementService ? agentWalletGateway : circleGateway,
+    circleGateway: agentWalletGateway,
     cooldownSeconds: config.agentMarketCooldownSeconds,
     decisionTtlSeconds: config.agentDecisionTtlSeconds,
     creatorShareBps: config.creatorShareBps,
     // Identifies which process owns an epoch claim. Never surfaced publicly.
     workerId: `${hostname()}:${process.pid}`,
-  });
+  }) : null;
 
   return {
     store,

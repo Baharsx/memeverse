@@ -1,7 +1,8 @@
 import { getAddress } from 'viem';
 import {
-  applySpendCaps, derivePayoutUnits, grossForCreatorPayout, payoutEpoch,
+  derivePayoutUnits, grossForCreatorPayout, payoutEpoch,
 } from './agent-payout.js';
+import { classifyProviderFailure } from './execution-claim.js';
 import { evaluateAgentSignals } from './agent-policy.js';
 import {
   assertAutonomousAuthorityFresh, mintAutonomousAuthority,
@@ -24,13 +25,6 @@ import { signalProvenance } from './signal-provenance.js';
  */
 
 export const AUTONOMOUS_POLICY_VERSION = 'AGENT_AUTONOMOUS_POLICY_V1';
-
-/** Start of the current UTC day, the window every daily cap is measured over. */
-function startOfUtcDay(now) {
-  return new Date(Date.UTC(
-    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
-  )).toISOString();
-}
 
 export class AutonomousAgentService {
   constructor({
@@ -131,21 +125,9 @@ export class AutonomousAgentService {
       }], { marketAddress, evidence, decision });
     }
 
-    const sinceIso = startOfUtcDay(this.now());
-    const spent = await this.autonomyStore.spentTodayUnits({
-      marketAddress: evidence.marketAddress, sinceIso,
-    });
-    const capped = applySpendCaps(derived, this.payoutPolicy, {
-      marketSpentTodayUnits: spent.marketUnits,
-      globalSpentTodayUnits: spent.globalUnits,
-    });
-    if (!capped.approved) {
-      return this.#denied('SPEND_CAP_EXCEEDED', capped.reasons, {
-        marketAddress, evidence, decision, capped,
-      });
-    }
-
-    // 5. Cooldown. The epoch is derived from chain time, so every worker computes the same one.
+    // 5. Cooldown, claimed before admission so exactly one worker per market and epoch ever
+    //    reaches the spend gate. The epoch comes from chain time, so every worker computes the
+    //    same one independently.
     const epoch = payoutEpoch(evidence.observedAtSeconds, this.cooldownSeconds);
     const claim = await this.autonomyStore.claimPayoutEpoch({
       marketAddress: evidence.marketAddress,
@@ -166,9 +148,46 @@ export class AutonomousAgentService {
       });
     }
 
-    // From here a durable claim exists, so every exit must resolve it.
+    // 6. Atomic spend admission. The epoch key above only serialises contenders on *this* market;
+    //    the global daily cap spans every market, so the read of what is already committed and
+    //    the write that extends it must happen together under one lock. Two workers evaluating
+    //    different markets can no longer both see an empty budget and both approve a full payout.
+    const admission = await this.autonomyStore.reserveDailySpend({
+      marketAddress: evidence.marketAddress,
+      policyVersion: AUTONOMOUS_POLICY_VERSION,
+      epoch,
+      requestedUnits: derived,
+      policy: this.payoutPolicy,
+      now: this.now(),
+    });
+    if (admission.outcome === 'DENIED') {
+      // No reservation row was written, so a denial consumes no capacity.
+      await this.autonomyStore.resolvePayoutEpoch({
+        marketAddress: evidence.marketAddress,
+        policyVersion: AUTONOMOUS_POLICY_VERSION,
+        epoch,
+        outcome: 'DENIED',
+      });
+      return this.#denied('SPEND_CAP_EXCEEDED', admission.reasons, {
+        marketAddress, evidence, decision, epoch,
+      });
+    }
+
+    const capped = {
+      approved: true,
+      amountUnits: admission.amountUnits,
+      amountUsdc: formatUsdc(admission.amountUnits),
+      derivedUnits: derived,
+      derivedUsdc: formatUsdc(derived),
+      reasons: admission.reasons ?? [],
+    };
+
+    // From here a durable claim and a durable reservation both exist, so every exit must resolve
+    // them. Capacity is released only when the payout provably did not reach the provider.
     try {
-      return await this.#executeClaimedEpoch({ evidence, decision, capped, epoch });
+      return await this.#executeClaimedEpoch({
+        evidence, decision, capped, epoch, reservationId: admission.reservationId,
+      });
     } catch (error) {
       await this.autonomyStore.resolvePayoutEpoch({
         marketAddress: evidence.marketAddress,
@@ -176,11 +195,17 @@ export class AutonomousAgentService {
         epoch,
         outcome: 'FAILED',
       });
+      // An undetermined provider outcome keeps holding the budget: the money may already be
+      // moving, and freeing capacity on uncertainty is how an agent overspends during an
+      // incident. Only a provably pre-provider failure returns the reservation.
+      if (classifyProviderFailure(error) === 'PRE_PROVIDER') {
+        await this.autonomyStore.releaseDailySpend({ reservationId: admission.reservationId });
+      }
       throw error;
     }
   }
 
-  async #executeClaimedEpoch({ evidence, decision, capped, epoch }) {
+  async #executeClaimedEpoch({ evidence, decision, capped, epoch, reservationId }) {
     // 6. Quote and prepare through the existing Stage 1 settlement pipeline.
     //
     //    The caps above are expressed in what the creator actually receives, which is also
@@ -224,6 +249,8 @@ export class AutonomousAgentService {
         epoch,
         outcome: 'DENIED',
       });
+      // Denied before any provider call existed, so the budget was provably not spent.
+      await this.autonomyStore.releaseDailySpend({ reservationId });
       return this.#denied('SETTLEMENT_POLICY_DENIED', quote.record.policy.reasons, {
         marketAddress: evidence.marketAddress, evidence, decision, settlement: quote.record,
       });
@@ -276,6 +303,10 @@ export class AutonomousAgentService {
       // request. Daily caps therefore track actual money movement.
       amountUnits: capped.amountUnits,
       outcome: 'EXECUTED',
+    });
+    // The admitted capacity is now genuinely spent rather than merely held.
+    await this.autonomyStore.consumeDailySpend({
+      reservationId, settlementId: executed.id,
     });
 
     return Object.freeze({

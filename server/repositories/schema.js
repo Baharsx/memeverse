@@ -55,6 +55,17 @@ export const requiredColumns = Object.freeze({
   agent_collector_checkpoints: Object.freeze([
     'market_address', 'last_scanned_block', 'last_block_hash', 'updated_at',
   ]),
+  // Durable admission control for autonomous spending.
+  //
+  // The payout-epoch key only serialises workers racing on the *same* market and epoch. The
+  // global daily cap spans every market, so two workers evaluating different markets could both
+  // read the same "spent so far" and both approve a full payout. Admission is therefore recorded
+  // here as an explicit reservation, taken under a lock, so the global total can be checked and
+  // extended in one atomic step.
+  agent_spend_reservations: Object.freeze([
+    'id', 'spend_day', 'market_address', 'policy_version', 'epoch',
+    'amount_units', 'status', 'settlement_id', 'created_at', 'updated_at',
+  ]),
 });
 
 export const requiredTables = Object.freeze(Object.keys(requiredColumns));
@@ -144,6 +155,22 @@ export const schemaSql = `
     last_block_hash text,
     updated_at timestamptz NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS agent_spend_reservations (
+    id text PRIMARY KEY,
+    spend_day text NOT NULL,
+    market_address text NOT NULL,
+    policy_version text NOT NULL,
+    epoch bigint NOT NULL,
+    amount_units numeric(78, 0) NOT NULL DEFAULT 0,
+    status text NOT NULL,
+    settlement_id text,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS agent_spend_reservations_day_idx
+    ON agent_spend_reservations (spend_day, status);
+  CREATE INDEX IF NOT EXISTS agent_spend_reservations_market_idx
+    ON agent_spend_reservations (spend_day, market_address, status);
   CREATE INDEX IF NOT EXISTS agent_payout_epochs_settlement_idx
     ON agent_payout_epochs (settlement_id)
     WHERE settlement_id IS NOT NULL;

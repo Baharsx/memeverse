@@ -61,7 +61,7 @@ The product explores two Arc ecosystem tracks:
 - Fail-closed Circle Stablecoin Kits quote boundary and capability discovery
 - Presentation UI for live server-authenticated Circle Stablecoin Kits estimates
 - USDC-native gas and settlement presentation
-- Clearly labelled NFT archive and legacy Vault simulations for Phase 6B
+- Simulated NFT archive and legacy Vault screens (removed in Stage 2, replaced by real contracts)
 - Reconciliation reference and deterministic `bytes32` Memo ID generation
 - Safety center with verified Arc resources, contract links, and transaction lifecycle
 - Responsive tactile-brutalist interface
@@ -196,7 +196,10 @@ Execution then needs a second proof. `POST /:id/execution-authorization` returns
 expiring approval bound to the settlement ID, chain, recipient, creator payout units, Memo ID,
 settlement contract, and encoded call-data hash. It is consumed atomically, cannot be replayed,
 cannot execute a different settlement, and is invalidated by any change to that payload. Only
-`MANUAL_OPERATOR` execution is implemented; `AUTONOMOUS_POLICY` is declared and fails closed.
+Both execution modes are implemented and physically isolated. `MANUAL_OPERATOR` executes from the
+Circle Developer-Controlled Wallet through Arc Memo. `AUTONOMOUS_POLICY` executes from the Circle
+Agent Wallet through its own settlement contract, and is only reachable with an authority minted
+in-process — a request body naming the mode is rejected.
 
 Because a settlement can have more than one valid approval outstanding, submission also passes
 through a single durable execution claim: an atomic conditional update that requires the expected
@@ -236,7 +239,7 @@ Blind retries are forbidden. A pre-broadcast rejection may be safely retried aft
 
 ### Transaction Memo guardrails
 
-- Memo is used only by the separate Agent settlement flow. Market launch/trading is directly wallet-signed onchain; NFT and legacy Vault surfaces remain simulations. The Circle Stablecoin Kits screen returns a live estimate but never prepares or broadcasts its transaction.
+- Memo is used only by the manual operator settlement flow; the autonomous Agent Wallet route calls its settlement contract directly because Arc's Memo `CallFrom` does not accept a smart contract account. Market launch/trading is directly wallet-signed onchain. NFT, marketplace, and Vault surfaces read deployed Arc contracts. The Circle Stablecoin Kits screen returns a live estimate but never prepares or broadcasts its transaction.
 - The direct caller must be an externally owned account (EOA).
 - Smart contract accounts, ERC-4337 wallets, Safe, and intermediary contracts are not supported as direct callers.
 - Memo events are indexed by `memoId`, sender, and target; the original calldata should be retained when exact call reconstruction is required.
@@ -298,7 +301,7 @@ raw score = 45% engagement velocity + 25% holder retention + 30% liquidity depth
 adjusted score = floor(raw score × confidence / 100)
 ```
 
-Evidence older than five minutes, confidence below 80, fraud risk above 20, an unverified Arc RPC, or a non-live Circle EOA fails closed. Each record persists the provenance, evidence age, weighted score, live Arc block, Circle wallet state, treasury balance, applied thresholds, and denial reasons.
+Evidence older than five minutes, confidence below 80, fraud risk above 20, an unverified Arc RPC, or a non-live Circle wallet fails closed. Each record persists the provenance, evidence age, weighted score, live Arc block, Circle wallet state, treasury balance, applied thresholds, and denial reasons.
 
 Signal provenance is assigned by the server and never by the browser. The HTTP schema accepts
 signal values only and rejects `source`, `provenance`, `observedAt`, and any other unexpected
@@ -309,7 +312,12 @@ and `ANALYTICS_PIPELINE` are reserved for internal collectors behind
 `AgentDecisionService.decideTrusted`, which is not wired to any route; no code path fabricates
 them today.
 
-The authority boundary is explicit: the agent may quote and prepare; it may not sign, execute, retry blindly, raise limits, change recipients, or bypass human approval.
+The authority boundary is explicit and differs by route. On the **manual** route the agent may
+quote and prepare only; signing requires an authenticated operator and a one-time approval bound
+to that settlement. On the **autonomous** route the agent does execute, but it may not choose its
+recipient, its amount, its observation time, or its execution mode — all four are derived from
+onchain evidence and policy — and it cannot exceed its transactionally enforced spend caps, its
+per-market cooldown, or the durable pause switch.
 
 ## Circle Stablecoin Kits boundary
 
@@ -487,7 +495,7 @@ Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration
 
 ## Phase 5 verification
 
-- Agent Policy V2 may only quote and prepare; execution remains human-only.
+- Agent Policy V2 governs both routes: quote-and-prepare only on the manual operator route, and bounded autonomous execution on the Agent Wallet route.
 - PostgreSQL daily-cap concurrency, webhook replay, and worker leasing are covered by automated tests.
 - `npm run contracts:audit:onchain` performs read-only rejection tests against the deployed Arc contract.
 - The internal review is documented in [`docs/PHASE-4-SECURITY-REVIEW.md`](./docs/PHASE-4-SECURITY-REVIEW.md).

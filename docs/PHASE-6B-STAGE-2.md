@@ -85,11 +85,19 @@ selects the mode from the execution plan and:
 
 * **MEMO route** — unchanged and still strict: `transaction.to` must be the Memo contract, and the
   Memo event's sender, target, calldata hash, and memo bytes are all verified.
-* **DIRECT route** — the settlement identity, operator, recipient, and amount are still proven by
-  `SettlementExecuted`, and the money movement is still proven by the USDC `Transfer`. Two extra
-  checks compensate for the missing Memo: the event must be emitted by the *configured* autonomous
-  contract (a look-alike emitting the same event shape is rejected), and the operator is taken from
-  the event rather than `transaction.from`, which for an ERC-4337 transaction is the bundler.
+* **DIRECT route** — the settlement identity, recipient, and amount are still proven by
+  `SettlementExecuted`, and the money movement is still proven by the USDC `Transfer`. The
+  expected operator comes from **configured `AGENT_WALLET_ADDRESS`**, never from the event being
+  verified: an earlier revision derived the expected operator from `SettlementExecuted.operator`
+  and then compared it to `SettlementExecuted.operator`, a self-comparison that would accept
+  whatever the event claimed. The route now requires all of: the event emitted by the configured
+  autonomous contract; `operator` equal to the configured Agent Wallet; `recipient` equal to the
+  persisted creator; `amount` equal to the persisted creator payout; a USDC `Transfer` from the
+  configured Agent Wallet to that recipient for exactly that amount; and any Circle-reported
+  source address not contradicting the configured wallet. `transaction.from` is never used as the
+  executor, because for an ERC-4337 transaction it is the bundler. With no configured Agent Wallet
+  a direct settlement cannot be verified at all and reconciliation refuses rather than trusting
+  the event.
 
 A regression test asserts that a Memo-routed record with no Memo event still fails, proving the
 Developer-Controlled path was not relaxed.
@@ -192,7 +200,21 @@ hash already minted. Provenance is anchored to onchain state, not to a caller's 
 that merely implements `creator()` is rejected, as is a market from a different factory. There is
 no owner and no privileged mint path, and provenance is immutable across transfers.
 
-**Content hash scheme:** `contentHash = keccak256(<exact media file bytes>)`. Metadata is a
+**Content hash scheme:** `contentHash` is the creator's onchain commitment to the media bytes —
+by convention `keccak256(<exact media file bytes>)`. What the contract enforces is that the
+commitment is unique across the collection and bound to a market the minter provably created. It
+does **not** fetch the metadata URI or the media, so it cannot attest that the bytes served at a
+URL match the digest; that is an offchain comparison anyone can perform against an immutable
+onchain commitment. The browser's file hashing is a convenience for producing the digest, not
+verification.
+
+The deployed contract's own NatSpec still uses the looser phrase "the keccak256 digest of the
+exact media bytes". It was deliberately left untouched: Solidity embeds a metadata hash in the
+runtime bytecode, so editing even a comment changes the deployed bytecode and would invalidate
+byte-for-byte verification against the already-deployed address. The precise wording therefore
+lives here and in the UI rather than triggering a redeployment for a comment.
+
+Metadata is a
 self-contained `data:application/json;base64` URI carrying the market, creator, hash, and scheme,
 so it needs no host to stay resolvable.
 
@@ -289,6 +311,43 @@ configured minimum is refused rather than paid as dust. All of these bound the *
 (§4). Committed defaults are production-safe: `MAX=0.10`, `MIN=0.01`, `MARKET_DAILY=0.30`,
 `SCORE_FLOOR=70`, `COOLDOWN=3600s`, `AGENT_AUTONOMOUS_ENABLED=false`.
 
+#### Spend caps are admitted transactionally, not checked in memory
+
+An earlier revision read "spent so far", applied the caps in application memory, and only then
+claimed the payout epoch. That is safe only while every contender collides on one database key.
+The epoch key `(market, policy version, epoch)` does exactly that for a single market — but the
+**global** daily cap spans every market. Two workers evaluating *different* markets could each
+read a global total of zero, each approve a full payout, and together spend twice the configured
+limit; their epoch keys differed, so nothing collided and nothing stopped them. Reproduced
+directly against the database, a `0.100000` global cap admitted `0.200000`.
+
+Admission is now a durable reservation taken inside one transaction that holds an exclusive lock
+(`pg_advisory_xact_lock` on PostgreSQL; a serialised queue on single-connection PGlite, which is
+the same pattern the settlement treasury reservation already uses). Reading current commitments
+and writing the row that extends them cannot interleave, so a loser always sees the winner's
+reservation already counted. The lock key is deliberately distinct from the treasury reservation's
+— the two are independent controls and must never be double-counted against each other.
+
+The lifecycle is explicit:
+
+| Transition | When | Effect on the day |
+| --- | --- | --- |
+| *(no row)* | admission denied | nothing written, no capacity consumed |
+| → `RESERVED` | admitted | capacity held |
+| `RESERVED` → `CONSUMED` | a settlement exists | capacity spent; total unchanged |
+| `RESERVED` → `RELEASED` | provably no provider call | capacity returned |
+| `RESERVED` (held) | **undetermined provider outcome** | capacity stays held |
+
+An `UNKNOWN_OUTCOME` never releases. The money may already be moving, and freeing budget on
+uncertainty is precisely how an agent overspends during an incident — so the reservation keeps
+holding, and only a `PRE_PROVIDER` classification (or a settlement-policy denial, which happens
+before any provider call) returns it. Capacity is scoped to the UTC day, so a payout stuck
+undetermined holds budget for at most the remainder of that day rather than forever.
+
+Reservation identity is `policyVersion:market:epoch`, so a restart or resumed evaluation finds its
+own prior admission instead of reserving a second time, and a restarted process cannot make
+already-spent budget look available again.
+
 ### Cooldown, authority, pause
 
 The payout epoch is `floor(anchorBlockTimestamp / cooldownSeconds)` — chain time, so every worker
@@ -311,6 +370,17 @@ The pause switch lives in `agent_runtime_control` and **defaults to paused** —
 as paused, so autonomy can never default itself into spending. `POST /api/v1/agent/autonomy`
 accepts only `{ paused, reason }`; naming a market, recipient, amount, mode, provenance, or
 timestamp is a 400.
+
+### Agent Wallet-only autonomy
+
+There is no fallback from the autonomous route to the manual Developer-Controlled Wallet. Without
+`AGENT_WALLET_ADDRESS` and `AGENT_SETTLEMENT_CONTRACT_ADDRESS` the autonomous settlement service
+and the autonomous agent service are simply **not constructed**, the worker refuses to start, and
+the public agent route answers `AGENT_NOT_CONFIGURED`. An earlier revision passed the manual
+settlement service as a fallback, which would have let `AUTONOMOUS_POLICY` quietly mean "the
+manual treasury paid this, with no human approval" — a different and far worse thing wearing the
+same name. The worker gated it in practice; the ambiguity has now been removed from the wiring
+itself.
 
 ### Supervised worker
 
@@ -455,15 +525,18 @@ proving the fix against the chain rather than only in tests:
 
 ## 13. Tests
 
-216 backend tests and 54 contract tests pass; `npm audit` reports 0 vulnerabilities.
+237 backend tests and 54 contract tests pass; `npm audit` reports 0 vulnerabilities.
 
 New coverage: 5 superseded-claim late-error regressions, 21 NFT/marketplace, 16 vault, 21
 autonomous agent (metrics, confidence-minimum semantics, risk heuristics, digest sensitivity,
 payout curve, cap boundaries, gross-versus-creator-payout round trips, epoch stability, authority
 unforgeability including a JSON round trip, pause fail-safe, 12-way epoch race, cap accounting,
 checkpoint monotonicity), 9 supervised worker, 13 Agent Wallet gateway and direct-route
-reconciliation, 5 route rejection, and 9 frontend helper tests including an ABI-versus-artifact
-drift check and a no-simulated-data assertion.
+reconciliation, 5 route rejection, 9 frontend helper tests including an ABI-versus-artifact drift
+check and a no-simulated-data assertion, 10 durable spend-admission tests covering the
+cross-market race, a twelve-way adversarial race, the per-market cap, pre-provider release,
+undetermined-outcome hold, restart persistence and re-admission, and 4 wiring tests proving
+autonomy cannot fall back to the Developer-Controlled Wallet.
 
 The original 17 Stage 1 market contract tests are unchanged and still pass.
 
@@ -472,8 +545,9 @@ The original 17 Stage 1 market contract tests are unchanged and still pass.
 ## 14. Residual risks and limitations
 
 1. **No Circle wallet-level spend limits on testnet.** `circle wallet limit` is mainnet only, so
-   every cap in force is application-level. Defence in depth is one layer thinner than it would be
-   on mainnet.
+   every cap in force is application-level — transactionally enforced in the database, but still
+   the application's own control rather than the wallet's. Defence in depth is one layer thinner
+   than it would be on mainnet.
 2. **`fraudRisk` is a heuristic.** It detects shape, not intent. A patient, well-funded adversary
    can trade a market into a passing profile; the caps bound the damage rather than preventing the
    manipulation.
@@ -489,4 +563,8 @@ The original 17 Stage 1 market contract tests are unchanged and still pass.
 7. **The CLI is a subprocess dependency.** Autonomous execution requires the `circle` binary on
    `PATH` in the worker's environment; it is not a library call.
 8. **The E2E scripts spend real testnet USDC** and leave a funded counterparty wallet in existence.
-9. **Not independently audited.** No third-party security review has been performed.
+9. **An undetermined payout holds budget for the rest of the UTC day.** That is the safe
+   direction — capacity is never freed on uncertainty — but a payout stuck in `UNKNOWN_OUTCOME`
+   does reduce the day's remaining autonomous budget until reconciliation resolves it or the day
+   rolls over.
+10. **Not independently audited.** No third-party security review has been performed.

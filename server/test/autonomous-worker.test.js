@@ -58,21 +58,42 @@ function recordingService({ onEvaluate } = {}) {
     async evaluateMarket(market) {
       calls.push(market);
       if (onEvaluate) return onEvaluate(market, calls.length);
-      return {
-        outcome: 'EXECUTED',
-        marketAddress: market,
-        creatorAddress: CREATOR,
-        epoch: 1,
-        payout: { amountUsdc: '0.100000' },
-        settlementId: `settlement-${calls.length}`,
-        executionMode: 'AUTONOMOUS_POLICY',
-        transactionHash: `0x${'ab'.repeat(32)}`,
-      };
+      return executedResult({ market, settlementId: `settlement-${calls.length}` });
     },
   };
 }
 
 const silentLogger = { info() {}, error() {} };
+
+/**
+ * The real `AutonomousAgentService` success shape.
+ *
+ * Kept faithful on purpose: an earlier drift where the worker read `payout.amountUsdc` while the
+ * service emitted `payout.creatorPayoutUsdc` survived precisely because the worker tests used an
+ * invented shape. Mocks here mirror the service, so that class of bug fails the suite.
+ */
+function executedResult({ market, settlementId = 'settlement-1', creatorPayoutUsdc = '0.100000' }) {
+  return {
+    outcome: 'EXECUTED',
+    marketAddress: market,
+    creatorAddress: CREATOR,
+    epoch: 1,
+    payout: {
+      creatorPayoutUsdc,
+      creatorPayoutUnits: '100000',
+      grossRequestUsdc: '0.166667',
+      grossRequestUnits: '166667',
+      treasuryRetainedUsdc: '0.066667',
+      derivedUsdc: creatorPayoutUsdc,
+      capReasons: [],
+    },
+    settlementId,
+    executionMode: 'AUTONOMOUS_POLICY',
+    circleTransactionId: 'circle-tx-1',
+    transactionHash: `0x${'ab'.repeat(32)}`,
+    state: 'COMPLETE',
+  };
+}
 
 test('a tick discovers registered markets and pays each eligible creator with no human step', async () => {
   const fixture = await autonomyDatabase();
@@ -95,7 +116,10 @@ test('a tick discovers registered markets and pays each eligible creator with no
     assert.equal(summary.denied, 0);
     assert.equal(summary.failed, 0);
     assert.equal(summary.payouts.length, 2);
-    assert.equal(summary.payouts[0].amountUsdc, '0.100000');
+    // The canonical figure is what the creator received, never the Stage 1 gross request.
+    assert.equal(summary.payouts[0].creatorPayoutUsdc, '0.100000');
+    assert.equal(summary.payouts[0].grossRequestUsdc, '0.166667');
+    assert.equal(summary.payouts[0].amountUsdc, undefined, 'the ambiguous field is gone');
   } finally {
     await fixture.close();
   }
@@ -141,16 +165,7 @@ test('one failing market never starves the rest of the sweep', async () => {
         if (market === MARKET_A) {
           throw new DomainError('ARC_ANCHOR_UNAVAILABLE', 'anchor unavailable', { status: 503 });
         }
-        return {
-          outcome: 'EXECUTED',
-          marketAddress: market,
-          creatorAddress: CREATOR,
-          epoch: 1,
-          payout: { amountUsdc: '0.100000' },
-          settlementId: 'settlement-b',
-          executionMode: 'AUTONOMOUS_POLICY',
-          transactionHash: `0x${'cd'.repeat(32)}`,
-        };
+        return executedResult({ market, settlementId: 'settlement-b' });
       },
     });
     const worker = new AutonomousAgentWorker({
@@ -205,16 +220,7 @@ test('ticks never overlap, so a slow sweep cannot evaluate a market twice', asyn
     const service = recordingService({
       async onEvaluate(market) {
         await held;
-        return {
-          outcome: 'EXECUTED',
-          marketAddress: market,
-          creatorAddress: CREATOR,
-          epoch: 1,
-          payout: { amountUsdc: '0.100000' },
-          settlementId: 'settlement-slow',
-          executionMode: 'AUTONOMOUS_POLICY',
-          transactionHash: null,
-        };
+        return executedResult({ market, settlementId: 'settlement-slow' });
       },
     });
     const worker = new AutonomousAgentWorker({
@@ -267,16 +273,7 @@ test('ten concurrent workers on one epoch produce exactly one payout', async () 
           amountUnits: 100_000n,
           outcome: 'EXECUTED',
         });
-        return {
-          outcome: 'EXECUTED',
-          marketAddress: market,
-          creatorAddress: CREATOR,
-          epoch: 900,
-          payout: { amountUsdc: '0.100000' },
-          settlementId: `settlement-${workerId}`,
-          executionMode: 'AUTONOMOUS_POLICY',
-          transactionHash: null,
-        };
+        return executedResult({ market, settlementId: `settlement-${workerId}` });
       },
     });
 
@@ -342,7 +339,7 @@ test('a restarted worker resumes without re-paying an already settled epoch', as
             return { outcome: 'MARKET_IN_COOLDOWN', marketAddress: market, reasons: [] };
           }
           paid.push(market);
-          return { outcome: 'EXECUTED', marketAddress: market, creatorAddress: CREATOR, epoch: 42, payout: { amountUsdc: '0.1' }, settlementId: 'x', executionMode: 'AUTONOMOUS_POLICY', transactionHash: null };
+          return executedResult({ market, settlementId: 'x' });
         },
       },
       autonomyStore: fixture.store,
@@ -420,5 +417,32 @@ test('a tick never evaluates more markets than its per-tick bound', async () => 
     assert.equal(service.calls.length, 5);
   } finally {
     await fixture.close();
+  }
+});
+
+test('the worker logs the creator payout, not the gross request', async () => {
+  const context = await autonomyDatabase();
+  try {
+    await context.store.setAutonomyPaused({ paused: false, changedBy: 'test' });
+    const lines = [];
+    const worker = new AutonomousAgentWorker({
+      autonomousAgentService: recordingService(),
+      autonomyStore: context.store,
+      collector: { async listRegisteredMarkets() { return [MARKET_A]; } },
+      scheduler: manualScheduler(),
+      logger: { info(line) { lines.push(JSON.parse(line)); }, error() {} },
+    });
+
+    await worker.tick();
+
+    const payout = lines.find((entry) => entry.type === 'agent_worker_payout');
+    assert.ok(payout, 'a payout must be logged');
+    assert.equal(payout.creatorPayoutUsdc, '0.100000', 'the real amount that left the wallet');
+    assert.equal(payout.grossRequestUsdc, '0.166667');
+    // The old ambiguous field would previously have logged `undefined` here.
+    assert.equal(payout.amountUsdc, undefined);
+    assert.equal(payout.executionMode, 'AUTONOMOUS_POLICY');
+  } finally {
+    await context.close();
   }
 });

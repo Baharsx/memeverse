@@ -1,6 +1,21 @@
 # Security Policy
 
-MemeVerse is an Arc Public Testnet product with authenticated human-controlled Agent settlement and real onchain USDC markets. Its backend can authorize a Circle Developer-Controlled EOA call through Arc Memo only after server credentials and the verified settlement contract are configured, an authorized operator wallet has authenticated by signature, and that operator has consumed a one-time approval bound to the exact settlement. It is not independently audited, is not mainnet ready, and is not autonomous. It does not accept mainnet assets, provide financial advice, or offer support through unsolicited direct messages.
+MemeVerse is an Arc Public Testnet product with real onchain USDC markets and two physically
+isolated settlement routes.
+
+The **manual operator route** authorizes a Circle Developer-Controlled EOA call through Arc Memo,
+and only after server credentials and the verified settlement contract are configured, an
+authorized operator wallet has authenticated by signature, and that operator has consumed a
+one-time approval bound to the exact settlement.
+
+The **autonomous route** pays creators without per-payout human approval. It executes from a
+Circle Agent Wallet through a separate settlement contract whose immutable operator is that
+wallet, driven by confirmed Arc evidence and deterministic policy under transactionally enforced
+spend caps, a per-market cooldown, and a durable pause switch. The pause switch is an operational
+safety control, not approval of an individual payout.
+
+MemeVerse is not independently audited and is not mainnet ready. It does not accept mainnet
+assets, provide financial advice, or offer support through unsolicited direct messages.
 
 ## User safety
 
@@ -8,7 +23,7 @@ MemeVerse is an Arc Public Testnet product with authenticated human-controlled A
 - Confirm Arc Testnet chain ID `5042002` before signing.
 - Never share a seed phrase, private key, one-time code, or wallet backup with MemeVerse, Circle, Arc community members, or anyone claiming to provide support.
 - Treat unsolicited support messages, token claims, role offers, and requests to install unknown software as hostile.
-- Inspect the wallet simulation and destination before signing. A transaction hash is not a receipt until the transaction is confirmed successfully.
+- Inspect the wallet's transaction preview and destination before signing. A transaction hash is not a receipt until the transaction is confirmed successfully.
 - Arc Testnet assets have no real-world value.
 
 ## Wallet roles
@@ -43,7 +58,7 @@ MemeVerse has two unrelated wallet roles and they must never be conflated.
 - Provider failures must be classified. A failure that provably never reached the provider releases the claim; any undetermined outcome keeps the claim until the lease expires so nothing retries into that window. Local persistence retries and external provider retries must remain separate, and the generic concurrency retry loop must never re-invoke the provider.
 - Once a provider transaction ID exists, execution must reconcile rather than submit again.
 - The audit trail must record which authorization won, the operator and session behind it, the claim identifier and attempt, the provider operation identity, submission time, and any failure classification. It must never contain raw authorization tokens, session tokens, cookies, or wallet signatures.
-- Execution authority is explicit and persisted. `MANUAL_OPERATOR` is the only enabled mode; `AUTONOMOUS_POLICY` is declared and fails closed. There is no hidden bypass flag.
+- Execution authority is explicit and persisted. Both `MANUAL_OPERATOR` and `AUTONOMOUS_POLICY` are enabled, and each is bound to its own wallet and settlement contract. Enabling the autonomous mode grants nothing on its own: an authority carrying it is accepted only when it also carries the module-private brand minted in-process, which no request body can express. There is no hidden bypass flag and no fallback from the autonomous route to the manual treasury.
 - Auth routes and every privileged mutation require an exact `Origin` match, and any foreign `Origin` is rejected before routing. CORS is never an authorization mechanism, and a client-side confirmation string is never a security control.
 - `APP_ORIGIN` is compared byte for byte with the browser `Origin` header and must be canonicalized to a bare `scheme://host[:port]`. A path, query, fragment, embedded credential, or non-http(s) scheme must be rejected at configuration load rather than silently breaking every privileged request.
 - Operator sessions use an `HttpOnly`, `SameSite=Strict` cookie with same-origin credentials, so production must serve the frontend and the API from one origin behind a reverse proxy. Switching to `SameSite=None` to enable a split-origin deployment is not an acceptable trade.
@@ -63,7 +78,7 @@ MemeVerse has two unrelated wallet roles and they must never be conflated.
 - Circle `COMPLETE` alone is not application completion. The Arc receipt must succeed and contain the expected Memo, SettlementExecuted, and USDC Transfer events with matching sender, target, recipient, amount, memo ID, and calldata hash.
 - Treasury capacity must be reserved transactionally before an approved quote is returned. Expired and pre-broadcast failed reservations must be released; verified settlements must be consumed.
 - A post-broadcast failure or event mismatch must hold its reservation for manual resolution; it must never silently return uncertain funds to available capacity.
-- Agent decisions must enforce evidence freshness, confidence, fraud-risk, treasury capacity, and a UTC daily payout cap in the backend. The agent may quote and prepare but may never execute.
+- Agent decisions must enforce evidence freshness, confidence, fraud-risk, treasury capacity, and UTC daily payout caps in the backend. On the manual route the agent may quote and prepare but never execute. On the autonomous route it may execute, but only within caps admitted atomically in the database, and never with a caller-supplied recipient, amount, observation time, or execution mode.
 - Signal provenance is assigned by the server and never by an HTTP client. Clients may submit signal values only; the request schema must reject `source`, `provenance`, `observedAt`, and any other unexpected field.
 - The browser can only produce `OPERATOR_INPUT`, and only through an authenticated operator session. `ONCHAIN_INDEXER` and `ANALYTICS_PIPELINE` are reserved for internal server collectors and must not be fabricated.
 - Operator-supplied evidence is timestamped by the server clock, and the operator address and session are persisted in the decision evidence.
@@ -93,7 +108,10 @@ MemeVerse has two unrelated wallet roles and they must never be conflated.
 - **Autonomous execution authority is unforgeable over HTTP.** `AUTONOMOUS_POLICY` is an enabled execution mode, but an authority carrying it is accepted only when it also carries a module-private `Symbol` brand minted in-process by `autonomous-authority.js`. JSON cannot represent a Symbol-keyed property, so no request body — including a byte-perfect copy of a genuine authority — can execute an autonomous payout. Enabling the mode and being allowed to wield it are separate, independently tested checks.
 - **The autonomous path accepts nothing from a caller.** Signal provenance is assigned internally as `ONCHAIN_INDEXER`; the recipient is read from `market.creator()` of a factory-registered market; the amount is derived from the decided score by formula; and the observation timestamp comes from the evidence anchor block, never the host clock. No route exposes any of these as an input, and the `/execute` and autonomy-control schemas are strict, so naming a market, recipient, amount, mode, provenance, or timestamp is a 400 rather than a silently ignored field.
 - **Autonomy must fail safe and be stoppable durably.** The pause switch lives in PostgreSQL, not in environment configuration, because a multi-process deployment needs one authoritative answer. A missing control row is read as paused, so autonomy can never default itself into spending. It is re-checked immediately before the execution claim is taken, and pausing never disturbs an already-broadcast transaction or erases evidence.
-- **Autonomous spending must be bounded transactionally.** Per-execution, per-market-daily, and global-daily caps are applied in widening order with exact integer USDC arithmetic, and a remainder below the configured minimum is refused rather than paid as dust. Cooldown is a deterministic chain-time epoch enforced by a database primary key on `(market, policy version, epoch)`, so concurrent workers collide on one row and exactly one payout can exist per epoch. Only epochs that resolved into a real settlement consume cap.
+- **Autonomous spending must be bounded transactionally, including across different markets.** Per-execution, per-market-daily, and global-daily caps are applied in widening order with exact integer USDC arithmetic, and a remainder below the configured minimum is refused rather than paid as dust. Reading current commitments and writing the reservation that extends them must happen inside one locked transaction: a per-market key alone cannot bound a *global* cap, because two workers on different markets collide on nothing. Cooldown remains a deterministic chain-time epoch enforced by a database primary key on `(market, policy version, epoch)`, so exactly one payout can exist per market epoch.
+- **Autonomous capacity is released only on proof, never on uncertainty.** A denial writes no reservation and consumes nothing. A payout that provably never reached the provider returns its capacity. An undetermined provider outcome keeps holding it until reconciliation resolves, because the money may already be moving and freeing budget on uncertainty is how an agent overspends during an incident.
+- **Autonomous reconciliation must verify the executor against configuration, not against itself.** For a direct settlement the expected operator is the configured Agent Wallet address; deriving it from the `SettlementExecuted` event and then comparing it to that same event would prove nothing. The transaction sender is never treated as the executor, because an ERC-4337 payout is submitted by a bundler. Absent a configured Agent Wallet, a direct settlement is refused rather than verified.
+- **`AUTONOMOUS_POLICY` means the Agent Wallet, or nothing.** There is no fallback to the Developer-Controlled Wallet. Without Agent Wallet configuration the autonomous services are not constructed at all, so no worker, script, or future caller can execute an autonomous payout through the manual treasury.
 - **Evidence must be confirmed and still canonical.** Signals are read from a window that ends a configured confirmation depth behind the head, with the anchor block hash recorded. Before money moves, the pause switch, the decision's freshness, the anchor hash, the market's registration, and the creator address are all re-asserted; any drift fails closed. A rate-limited or partial log read must never be reported as an absence of trading — it collapses confidence to zero and marks the evidence incomplete.
 - **Fraud risk is a heuristic score, not a fraud detector.** It measures onchain shape and cannot prove intent. A low score is not a statement that a market is honest; the spend caps, not the score, are what bound the damage.
 - **Onchain asset contracts must expose no privileged surface.** The media NFT has no owner and no privileged mint path; provenance is enforced from factory registration and `market.creator()`, so a wallet cannot mint an asset claiming a market it did not create. The NFT marketplace and the USDC vault have no owner, pauser, upgrade path, fee recipient, or withdrawal function, and the vault's ERC-4626 rounding is directed against the user so it can never owe more USDC than it holds.

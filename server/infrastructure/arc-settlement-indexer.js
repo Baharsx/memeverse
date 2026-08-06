@@ -35,13 +35,23 @@ export class ArcSettlementIndexer {
    * @param agentSettlementContractAddress The contract whose immutable operator is the Circle
    *   Agent Wallet, used by the autonomous path. Optional; absent means autonomy is unconfigured.
    */
-  constructor({ rpcUrl, settlementContractAddress, agentSettlementContractAddress, client }) {
+  constructor({
+    rpcUrl,
+    settlementContractAddress,
+    agentSettlementContractAddress,
+    agentWalletAddress,
+    client,
+  }) {
     this.settlementContractAddress = settlementContractAddress
       ? getAddress(settlementContractAddress)
       : null;
     this.agentSettlementContractAddress = agentSettlementContractAddress
       ? getAddress(agentSettlementContractAddress)
       : null;
+    // The autonomous executor, taken from trusted configuration. Reconciliation compares the
+    // onchain operator against *this*, never against a value read out of the very event it is
+    // trying to verify.
+    this.agentWalletAddress = agentWalletAddress ? getAddress(agentWalletAddress) : null;
     this.client = client ?? createPublicClient({
       chain: arcTestnet,
       transport: http(rpcUrl),
@@ -53,6 +63,7 @@ export class ArcSettlementIndexer {
       configured: Boolean(this.settlementContractAddress),
       settlementContract: this.settlementContractAddress,
       agentSettlementContract: this.agentSettlementContractAddress,
+      agentWallet: this.agentWalletAddress,
       memoContract: ARC_MEMO_ADDRESS,
     };
   }
@@ -74,18 +85,25 @@ export class ArcSettlementIndexer {
   routingFor(record) {
     const plan = record.executionPlan ?? {};
     if (plan.operation === 'ARC_DIRECT_SETTLEMENT') {
+      const contract = this.agentSettlementContractAddress
+        ?? (plan.targetContract ? getAddress(plan.targetContract) : null);
       return {
         mode: 'DIRECT',
-        contract: this.agentSettlementContractAddress
-          ?? (plan.targetContract ? getAddress(plan.targetContract) : null),
-        expectedTo: this.agentSettlementContractAddress
-          ?? (plan.targetContract ? getAddress(plan.targetContract) : null),
+        contract,
+        expectedTo: contract,
+        // Configuration, not evidence. Verifying the event's operator against the event's own
+        // operator would be a self-comparison that proves nothing.
+        expectedOperator: this.agentWalletAddress,
       };
     }
     return {
       mode: 'MEMO',
       contract: this.settlementContractAddress,
       expectedTo: ARC_MEMO_ADDRESS,
+      // The manual route's operator is the Developer-Controlled Wallet that Circle reports as the
+      // source, falling back to the transaction sender, which for a directly signing EOA is the
+      // same address. Unchanged from Stage 1.
+      expectedOperator: null,
     };
   }
 
@@ -103,6 +121,15 @@ export class ArcSettlementIndexer {
       throw new DomainError(
         'ARC_INDEXER_NOT_CONFIGURED',
         'The settlement contract for this execution route is not configured.',
+        { status: 503, details: { mode: routing.mode } },
+      );
+    }
+    if (routing.mode === 'DIRECT' && !routing.expectedOperator) {
+      // Without a configured Agent Wallet there is nothing independent to verify the operator
+      // against, so the only safe answer is to refuse rather than accept the event's own claim.
+      throw new DomainError(
+        'ARC_INDEXER_NOT_CONFIGURED',
+        'The autonomous executor address is not configured; a direct settlement cannot be verified.',
         { status: 503, details: { mode: routing.mode } },
       );
     }
@@ -140,12 +167,13 @@ export class ArcSettlementIndexer {
 
     const memo = memoEvents.find(({ args }) => args.memoId === record.memoId);
     const settlement = settlementEvents.find(({ args }) => args.settlementId === record.memoId);
-    // The operator is whoever the settlement contract recorded, which is the only authority the
-    // contract itself would accept. For an Agent Wallet the outer transaction is submitted by an
-    // ERC-4337 bundler, so `transaction.from` is the bundler and must never be used here.
-    const expectedOperator = settlement?.args?.operator
-      ?? record.circle?.sourceAddress
-      ?? transaction.from;
+    // For the autonomous route the expected operator comes from trusted configuration. Deriving
+    // it from the event under verification would be a self-comparison. For an Agent Wallet the
+    // outer transaction is submitted by an ERC-4337 bundler, so `transaction.from` is the bundler
+    // and must never be used as the executor on this route.
+    const expectedOperator = routing.mode === 'DIRECT'
+      ? routing.expectedOperator
+      : record.circle?.sourceAddress ?? transaction.from;
     const expectedAmount = BigInt(record.amount.creatorPayoutUnits);
     const transfer = transferEvents.find(({ args }) => (
       sameAddress(args.from, expectedOperator)
@@ -163,12 +191,19 @@ export class ArcSettlementIndexer {
         if (memo.args.callDataHash !== record.executionPlan.callDataHash) failures.push('MEMO_CALLDATA_HASH_MISMATCH');
         if (memo.args.memo !== record.executionPlan.memoData) failures.push('MEMO_DATA_MISMATCH');
       }
-    } else if (!sameAddress(transaction.to, routing.expectedTo)) {
-      // A direct settlement is submitted through the ERC-4337 EntryPoint, so the outer `to` is
-      // the EntryPoint rather than the settlement contract. The binding that matters is that the
-      // settlement contract itself emitted the event, which is asserted below and is not
-      // forgeable by anyone who is not its immutable operator.
-      if (settlementEvents.length === 0) failures.push('DIRECT_SETTLEMENT_TARGET_MISMATCH');
+    } else {
+      // A direct settlement is submitted through the ERC-4337 EntryPoint, so the outer `to` is the
+      // EntryPoint rather than the settlement contract. What binds the payout instead is that the
+      // configured autonomous contract emitted the event, and that its immutable operator is the
+      // configured Agent Wallet — neither of which anyone else can forge.
+      if (!sameAddress(transaction.to, routing.expectedTo) && settlementEvents.length === 0) {
+        failures.push('DIRECT_SETTLEMENT_TARGET_MISMATCH');
+      }
+      // Circle's reported source must not contradict the configured executor.
+      if (record.circle?.sourceAddress
+        && !sameAddress(record.circle.sourceAddress, routing.expectedOperator)) {
+        failures.push('DIRECT_SETTLEMENT_SOURCE_MISMATCH');
+      }
     }
 
     if (!settlement) failures.push('SETTLEMENT_EVENT_MISSING');

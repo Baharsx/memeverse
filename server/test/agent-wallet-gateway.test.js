@@ -248,15 +248,28 @@ function transferLog({ from = AGENT_WALLET, to = RECIPIENT, value = 60_000n } = 
   };
 }
 
-function indexerWith(receipt, transaction) {
+function indexerWith(receipt, transaction, overrides = {}) {
   return new ArcSettlementIndexer({
     settlementContractAddress: MEMO_SETTLEMENT,
     agentSettlementContractAddress: AGENT_SETTLEMENT,
+    // The autonomous executor comes from configuration, never from the event under verification.
+    agentWalletAddress: AGENT_WALLET,
     client: {
       async getTransactionReceipt() { return receipt; },
       async getTransaction() { return transaction; },
     },
+    ...overrides,
   });
+}
+
+function directReceipt(logs) {
+  return {
+    status: 'success',
+    blockNumber: 100n,
+    blockHash: `0x${'bb'.repeat(32)}`,
+    transactionIndex: 0,
+    logs,
+  };
 }
 
 test('a direct Agent Wallet settlement reconciles as VERIFIED without a Memo event', async () => {
@@ -365,4 +378,116 @@ test('the Memo route keeps every Memo assertion it had before', async () => {
   const result = await indexer.verify(record);
   assert.equal(result.status, 'MISMATCH');
   assert.ok(result.failures.includes('MEMO_EVENT_MISSING'), 'the Memo route still demands a Memo');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DIRECT route: the operator must be proven against configuration, not the event
+//
+// Deriving the expected operator from `SettlementExecuted.operator` and then comparing it to
+// `SettlementExecuted.operator` is a self-comparison that accepts whatever the event claims. On
+// the autonomous route the executor is known from configuration, so it is checked against that.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const IMPOSTOR = '0xdEAD00000000000000000000000000000000BEEF';
+
+test('a direct settlement whose operator is not the configured Agent Wallet is rejected', async () => {
+  const record = settlementRecord({ transactionHash: `0x${'ab'.repeat(32)}` });
+  // Everything else is internally consistent: the impostor emitted the event from the right
+  // contract and moved the right amount to the right recipient. Only the operator is wrong, and
+  // under a self-comparison this would have passed.
+  const receipt = directReceipt([
+    settlementLog({ settlementId: record.memoId, operator: IMPOSTOR }),
+    transferLog({ from: IMPOSTOR }),
+  ]);
+  const indexer = indexerWith(receipt, { to: ENTRY_POINT, from: BUNDLER });
+
+  const result = await indexer.verify(record);
+  assert.equal(result.status, 'MISMATCH');
+  assert.ok(
+    result.failures.includes('SETTLEMENT_OPERATOR_MISMATCH'),
+    `expected an operator mismatch, got ${JSON.stringify(result.failures)}`,
+  );
+});
+
+test('a direct settlement whose USDC came from another address is rejected', async () => {
+  const record = settlementRecord({ transactionHash: `0x${'ab'.repeat(32)}` });
+  // The event names the real Agent Wallet, but the money moved from somewhere else.
+  const receipt = directReceipt([
+    settlementLog({ settlementId: record.memoId }),
+    transferLog({ from: IMPOSTOR }),
+  ]);
+  const indexer = indexerWith(receipt, { to: ENTRY_POINT, from: BUNDLER });
+
+  const result = await indexer.verify(record);
+  assert.equal(result.status, 'MISMATCH');
+  assert.ok(result.failures.includes('USDC_TRANSFER_EVENT_MISSING'));
+});
+
+test('a direct settlement contradicting Circle reported source is rejected', async () => {
+  const record = settlementRecord({
+    transactionHash: `0x${'ab'.repeat(32)}`,
+    circle: { transactionId: 'circle-1', sourceAddress: IMPOSTOR },
+  });
+  const receipt = directReceipt([
+    settlementLog({ settlementId: record.memoId }),
+    transferLog(),
+  ]);
+  const indexer = indexerWith(receipt, { to: ENTRY_POINT, from: BUNDLER });
+
+  const result = await indexer.verify(record);
+  assert.equal(result.status, 'MISMATCH');
+  assert.ok(result.failures.includes('DIRECT_SETTLEMENT_SOURCE_MISMATCH'));
+});
+
+test('the bundler is never mistaken for the autonomous executor', async () => {
+  const record = settlementRecord({ transactionHash: `0x${'ab'.repeat(32)}` });
+  // A receipt whose event and transfer both name the *bundler* must fail, even though the bundler
+  // is `transaction.from`. Falling back to transaction.from would have accepted this.
+  const receipt = directReceipt([
+    settlementLog({ settlementId: record.memoId, operator: BUNDLER }),
+    transferLog({ from: BUNDLER }),
+  ]);
+  const indexer = indexerWith(receipt, { to: ENTRY_POINT, from: BUNDLER });
+
+  const result = await indexer.verify(record);
+  assert.equal(result.status, 'MISMATCH');
+  assert.ok(result.failures.includes('SETTLEMENT_OPERATOR_MISMATCH'));
+});
+
+test('a direct settlement from the configured Agent Wallet passes', async () => {
+  const record = settlementRecord({
+    transactionHash: `0x${'ab'.repeat(32)}`,
+    circle: { transactionId: 'circle-1', sourceAddress: AGENT_WALLET },
+  });
+  const receipt = directReceipt([
+    settlementLog({ settlementId: record.memoId }),
+    transferLog(),
+  ]);
+  const indexer = indexerWith(receipt, { to: ENTRY_POINT, from: BUNDLER });
+
+  const result = await indexer.verify(record);
+  assert.equal(result.status, 'VERIFIED');
+  assert.equal(result.route, 'DIRECT');
+  assert.equal(result.operator, AGENT_WALLET, 'the operator reported is the configured wallet');
+  assert.equal(result.settlementContract, AGENT_SETTLEMENT);
+});
+
+test('a direct settlement cannot be verified at all without a configured Agent Wallet', async () => {
+  const record = settlementRecord({ transactionHash: `0x${'ab'.repeat(32)}` });
+  const receipt = directReceipt([
+    settlementLog({ settlementId: record.memoId }),
+    transferLog(),
+  ]);
+  // No agentWalletAddress: there is nothing independent to check the operator against, so the
+  // only safe answer is refusal rather than trusting the event.
+  const indexer = new ArcSettlementIndexer({
+    settlementContractAddress: MEMO_SETTLEMENT,
+    agentSettlementContractAddress: AGENT_SETTLEMENT,
+    client: {
+      async getTransactionReceipt() { return receipt; },
+      async getTransaction() { return { to: ENTRY_POINT, from: BUNDLER }; },
+    },
+  });
+
+  await assert.rejects(() => indexer.verify(record), { code: 'ARC_INDEXER_NOT_CONFIGURED' });
 });

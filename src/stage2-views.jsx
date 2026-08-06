@@ -158,7 +158,7 @@ function MediaCard({ asset, wallet, onChanged }) {
           <div><dt>OWNER</dt><dd><ArcScanLink value={asset.owner} /></dd></div>
           <div><dt>MINTED</dt><dd>BLOCK {asset.mintedAtBlock}</dd></div>
           <div className="media-hash">
-            <dt>CONTENT HASH</dt>
+            <dt>CONTENT HASH (COMMITMENT)</dt>
             <dd title={asset.contentHash}>{shorten(asset.contentHash, 10, 8)}</dd>
           </div>
         </dl>
@@ -330,7 +330,10 @@ function MintMedia({ wallet, onMinted }) {
       <h3>MINT MEDIA ASSET</h3>
       <p className="mint-note">
         The contract verifies that the market is registered in the trusted factory and that you
-        are its <code>creator()</code>. Provenance cannot be forged from the browser.
+        are its <code>creator()</code>. Provenance cannot be forged from the browser. The content
+        hash is your onchain <em>commitment</em> to the media bytes — the contract stores and
+        de-duplicates it but cannot fetch the URL to check it, so anyone can recompute the digest
+        from the file and compare it against the commitment.
       </p>
       <label>
         MARKET

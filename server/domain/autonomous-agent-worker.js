@@ -121,14 +121,18 @@ export class AutonomousAgentWorker {
             summary.payouts.push({
               market: result.marketAddress,
               creator: result.creatorAddress,
-              amountUsdc: result.payout.amountUsdc,
+              // The canonical Stage 2 figure: what the creator actually received, which is also
+              // exactly what left the Agent Wallet. Never the Stage 1 gross request.
+              creatorPayoutUsdc: result.payout.creatorPayoutUsdc,
+              grossRequestUsdc: result.payout.grossRequestUsdc,
               settlementId: result.settlementId,
               transactionHash: result.transactionHash,
             });
             this.#log('agent_worker_payout', {
               market: result.marketAddress,
               creator: result.creatorAddress,
-              amountUsdc: result.payout.amountUsdc,
+              creatorPayoutUsdc: result.payout.creatorPayoutUsdc,
+              grossRequestUsdc: result.payout.grossRequestUsdc,
               settlementId: result.settlementId,
               epoch: result.epoch,
               executionMode: result.executionMode,
