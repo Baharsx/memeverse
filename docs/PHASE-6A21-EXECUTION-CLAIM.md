@@ -79,9 +79,13 @@ When it matches no row, the store re-reads the row as it actually stands and ret
 **Deployment note:** this release adds `settlements.execution_claim_id` and
 `settlements.execution_claim_until`. They are created by the existing one-shot migration
 (`ADD COLUMN IF NOT EXISTS`), so run `NODE_ENV=production npm run db:migrate` with the
-`DATABASE_MIGRATION_URL` identity **before** rolling out the new API and worker. The runtime
-readiness check verifies table existence only, so an un-migrated database would fail on the first
-write rather than at startup.
+`DATABASE_MIGRATION_URL` identity **before** rolling out the new API and worker.
+
+> **Corrected in Phase 6A.2.2.** This note originally warned that the runtime readiness check
+> verified table existence only, so an un-migrated database would fail on the first write rather
+> than at startup. Readiness now verifies every required column and refuses to start against an
+> outdated schema. See
+> [`PHASE-6A22-EXECUTION-LIFECYCLE.md`](./PHASE-6A22-EXECUTION-LIFECYCLE.md).
 
 Ownership is never inferred from an in-memory snapshot. The `execution_claim_id` and
 `execution_claim_until` columns are projected from the persisted `executionSubmission` on every
@@ -97,6 +101,12 @@ The winning `executionAuthorization` is written by the claim itself. While a cla
 other caller can reach the update at all, so `operatorAddress`, `sessionId`, `authorizationRef`,
 `bindingHash`, and `executionMode` cannot be replaced. Once a Circle transaction ID exists, every
 later `execute` reconciles instead of claiming, so the winner's authority survives permanently.
+
+> **Amended in Phase 6A.2.2.** That held only while a claim was live or a transaction existed. A
+> *resumed* claim, taken after a lease expired, did overwrite `executionAuthorization`, so the
+> root record attributed the provider operation to the recovering authority rather than the
+> originating one. `executionAuthorization` is now immutable for the settlement's whole lifetime,
+> and per-attempt authority lives in `executionAttempts`.
 
 ### Binding re-check
 
@@ -128,8 +138,15 @@ else — a timeout, a 5xx, a dropped connection — is an **unknown outcome** an
 until the lease expires. Nothing may retry into that window.
 
 `EXECUTION_CLAIM_LEASE_SECONDS` (default 120, range 30–600) bounds how long a claim survives. An
-active claim cannot be stolen before it expires. After expiry, a newly authorized operator may
-resume, and the resumed claim:
+active claim cannot be stolen before it expires.
+
+> **Extended in Phase 6A.2.2.** A bare lease cannot tell a dead claimant from a slow one, so a
+> Circle request outliving its lease could let a second caller in while the first was still alive.
+> The claim holder now renews its lease (`EXECUTION_CLAIM_HEARTBEAT_SECONDS`, default 30) for as
+> long as its provider call is outstanding. A process that dies stops renewing and its lease
+> lapses exactly as described below.
+
+After expiry, a newly authorized operator may resume, and the resumed claim:
 
 - records `resumedFromClaimId` and increments `attempt`
 - reuses `providerOperationKey` **verbatim** — it is derived from the settlement ID and is never
@@ -147,9 +164,9 @@ exists, no further claim can create another payout.
 
 ### Terminology
 
-This is **at-most-one active MemeVerse execution claimant, with deterministic provider
-idempotency and reconciliation**. It is not, and cannot be, mathematical exactly-once delivery
-against a third-party API. The application guarantees one claimant and one deterministic provider
+This is **at-most-one active provider-call owner while a healthy claimant renews its lease, plus
+deterministic provider idempotency and recovery after claimant loss**. It is not, and cannot be,
+mathematical exactly-once delivery against a third-party API. The application guarantees one claimant and one deterministic provider
 operation identity; Circle's idempotency and MemeVerse's reconciliation together turn that into a
 single settled transaction.
 

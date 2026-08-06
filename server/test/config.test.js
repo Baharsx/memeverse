@@ -44,6 +44,33 @@ test('production fails closed when settlement execution has no authorized operat
   assert.equal(config.settlementOperatorAddress, '0x70997970C51812dc3A010C7d01b50e0d17dc79C8');
 });
 
+test('a claim heartbeat too slow to protect its own lease refuses to boot', () => {
+  const defaults = loadServerConfig({});
+  assert.equal(defaults.executionClaimLeaseSeconds, 120);
+  assert.equal(defaults.executionClaimHeartbeatSeconds, 30);
+
+  for (const [heartbeat, lease] of [['60', '120'], ['61', '120'], ['30', '30'], ['200', '300']]) {
+    assert.throws(
+      () => loadServerConfig({
+        EXECUTION_CLAIM_HEARTBEAT_SECONDS: heartbeat,
+        EXECUTION_CLAIM_LEASE_SECONDS: lease,
+      }),
+      /EXECUTION_CLAIM_HEARTBEAT_SECONDS \(\d+\) must be less than half/,
+      `heartbeat ${heartbeat} against lease ${lease} must be rejected`,
+    );
+  }
+
+  const safe = loadServerConfig({
+    EXECUTION_CLAIM_HEARTBEAT_SECONDS: '10',
+    EXECUTION_CLAIM_LEASE_SECONDS: '60',
+  });
+  assert.equal(safe.executionClaimHeartbeatSeconds, 10);
+  assert.equal(safe.executionClaimLeaseSeconds, 60);
+  // A heartbeat below the floor, or above the ceiling, never reaches the ratio check.
+  assert.throws(() => loadServerConfig({ EXECUTION_CLAIM_HEARTBEAT_SECONDS: '4' }));
+  assert.throws(() => loadServerConfig({ EXECUTION_CLAIM_HEARTBEAT_SECONDS: '301' }));
+});
+
 test('the operator address must be a checksummed EVM address', () => {
   assert.throws(
     () => loadServerConfig({

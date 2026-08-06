@@ -171,7 +171,7 @@ function Marquee() {
       <div>
         {(items.length ? [...items, ...items] : [null, null]).map((market, index) => (
           <span key={market ? `${market.address}-${index}` : `empty-${index}`}>
-            {market ? <>{market.symbol} <b>{formatUsdc(market.spotPriceUsdc)} USDC</b>{' '}<em className="up">ONCHAIN</em></> : <b>NO ONCHAIN MARKETS YET // LAUNCH THE FIRST</b>}
+            {market ? <>{market.symbol} <b>{marketSpotLabel(market, formatUsdc)}</b>{' '}<em className="up">ONCHAIN</em></> : <b>NO ONCHAIN MARKETS YET // LAUNCH THE FIRST</b>}
           </span>
         ))}
       </div>

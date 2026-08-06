@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { DomainError } from '../domain/errors.js';
-import { activeExecutionClaim } from '../domain/execution-claim.js';
+import { activeExecutionClaim, isExecutionCommitted } from '../domain/execution-claim.js';
 
 function clone(value) {
   return value == null ? value : structuredClone(value);
@@ -78,12 +78,21 @@ function nextVersionOrConflict(existing, record) {
   return expectedVersion + 1;
 }
 
+/**
+ * Reservation accounting, and the last line of defence for treasury capacity.
+ *
+ * A terminal state normally returns the reservation to the treasury, but never while execution
+ * is committed: if Circle may already have accepted the payout, the capacity is spent whatever
+ * the application state says, so it is HELD for investigation instead of released. The domain
+ * already refuses to expire a committed settlement; this makes the invariant unconditional.
+ */
 function withUpdatedReservation(record) {
   if (!record.reservation) return record;
   let status = record.reservation.status;
   if (record.state === 'COMPLETE') status = 'CONSUMED';
-  else if (record.state === 'FAILED' && (record.broadcast || record.circle?.transactionId)) status = 'HELD';
-  else if (reservationTerminalStates.has(record.state)) status = 'RELEASED';
+  else if (reservationTerminalStates.has(record.state)) {
+    status = record.broadcast || isExecutionCommitted(record) ? 'HELD' : 'RELEASED';
+  }
   return {
     ...record,
     reservation: {
@@ -177,6 +186,22 @@ export class MemorySettlementStore {
     const stored = { ...withUpdatedReservation(record), version: current.version + 1 };
     this.records.set(stored.id, clone(stored));
     return { outcome: 'CLAIMED', record: clone(stored) };
+  }
+
+  /** Mirrors the PostgreSQL renewal contract; see the SQL for the ownership conditions. */
+  async renewExecutionClaim({ settlementId, claimId, leaseUntil }) {
+    const existing = this.records.get(settlementId);
+    if (!existing) return { outcome: 'NOT_FOUND' };
+    if (existing.circle?.transactionId) return { outcome: 'ALREADY_SUBMITTED' };
+    if (existing.state !== 'AWAITING_SIGNATURE') return { outcome: 'NOT_EXECUTABLE' };
+    if (activeExecutionClaim(existing)?.claimId !== claimId) return { outcome: 'OWNERSHIP_LOST' };
+    const stored = {
+      ...existing,
+      executionSubmission: { ...existing.executionSubmission, leaseExpiresAt: leaseUntil },
+      version: Number(existing.version ?? 0) + 1,
+    };
+    this.records.set(settlementId, clone(stored));
+    return { outcome: 'RENEWED', record: clone(stored) };
   }
 
   async listReconciliationCandidates() {
@@ -301,6 +326,25 @@ export class JsonSettlementStore {
       this.records.set(stored.id, clone(stored));
       await this.persist();
       return { outcome: 'CLAIMED', record: clone(stored) };
+    });
+  }
+
+  /** Mirrors the PostgreSQL renewal contract; see the SQL for the ownership conditions. */
+  async renewExecutionClaim({ settlementId, claimId, leaseUntil }) {
+    return this.mutate(async () => {
+      const existing = this.records.get(settlementId);
+      if (!existing) return { outcome: 'NOT_FOUND' };
+      if (existing.circle?.transactionId) return { outcome: 'ALREADY_SUBMITTED' };
+      if (existing.state !== 'AWAITING_SIGNATURE') return { outcome: 'NOT_EXECUTABLE' };
+      if (activeExecutionClaim(existing)?.claimId !== claimId) return { outcome: 'OWNERSHIP_LOST' };
+      const stored = {
+        ...existing,
+        executionSubmission: { ...existing.executionSubmission, leaseExpiresAt: leaseUntil },
+        version: Number(existing.version ?? 0) + 1,
+      };
+      this.records.set(settlementId, clone(stored));
+      await this.persist();
+      return { outcome: 'RENEWED', record: clone(stored) };
     });
   }
 

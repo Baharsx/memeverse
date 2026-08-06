@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { getAddress, isAddress, keccak256, stringToHex } from 'viem';
 import { DomainError } from './errors.js';
-import { classifyProviderFailure, executionSubmissionStatuses } from './execution-claim.js';
+import {
+  classifyProviderFailure,
+  executionAttemptFrom,
+  executionSubmissionStatuses,
+  isExecutionCommitted,
+  markExecutionAttempt,
+} from './execution-claim.js';
+import { ExecutionClaimHeartbeat, systemScheduler } from './execution-claim-heartbeat.js';
 import { executionModes, isEnabledExecutionMode, isKnownExecutionMode } from './execution-mode.js';
 import { settlementExecutionBindingHash } from './settlement-binding.js';
 import { evaluateSettlementPolicy } from './policy.js';
@@ -28,6 +35,9 @@ export class SettlementService {
     id = randomUUID,
     maxWriteAttempts = 6,
     executionClaimLeaseSeconds = 120,
+    executionClaimHeartbeatSeconds = 30,
+    scheduler = systemScheduler,
+    logger = console,
   }) {
     this.store = store;
     this.policy = policy;
@@ -39,6 +49,9 @@ export class SettlementService {
     this.id = id;
     this.maxWriteAttempts = maxWriteAttempts;
     this.executionClaimLeaseSeconds = executionClaimLeaseSeconds;
+    this.executionClaimHeartbeatSeconds = executionClaimHeartbeatSeconds;
+    this.scheduler = scheduler;
+    this.logger = logger;
   }
 
   normalizeRequest(input) {
@@ -134,6 +147,7 @@ export class SettlementService {
       executionPlan: null,
       executionAuthorization: null,
       executionSubmission: null,
+      executionAttempts: [],
       circle: null,
       expiresAt: approved
         ? new Date(now.getTime() + this.quoteTtlSeconds * 1000).toISOString()
@@ -282,7 +296,11 @@ export class SettlementService {
       claimId: this.id(),
       attempt: (previous?.attempt ?? 0) + 1,
       executionMode: authority.mode,
+      // The authority behind *this* attempt. The root `executionAuthorization` keeps the first
+      // one forever, so a recovery is attributable without rewriting who originated the payout.
       authorizationRef: authority.authorizationRef,
+      initialAuthorizationRef: current.executionAuthorization?.authorizationRef
+        ?? authority.authorizationRef,
       bindingHash: authority.bindingHash,
       operatorAddress: authority.operatorAddress,
       sessionId: authority.sessionId,
@@ -319,8 +337,14 @@ export class SettlementService {
       const submission = this.buildExecutionClaim(current, authority, nowIso);
       const claimed = {
         ...current,
-        executionAuthorization: authority,
+        // Written once, by the first claim that ever wins, and immutable from then on. A later
+        // recovery is recorded as its own attempt rather than replacing the audit root.
+        executionAuthorization: current.executionAuthorization ?? authority,
         executionSubmission: submission,
+        executionAttempts: [
+          ...(current.executionAttempts ?? []),
+          executionAttemptFrom(submission),
+        ],
         updatedAt: nowIso,
         history: [...current.history, {
           event: 'EXECUTION',
@@ -331,6 +355,7 @@ export class SettlementService {
           attempt: submission.attempt,
           executionMode: authority.mode,
           authorizationRef: authority.authorizationRef,
+          operatorAddress: authority.operatorAddress,
         }],
       };
       const result = await this.store.claimExecution({
@@ -382,16 +407,40 @@ export class SettlementService {
     return this.submitClaimedExecution(claim.record);
   }
 
+  /** A lease renewal loop bound to one claim, live only while that claim's provider call is. */
+  startExecutionHeartbeat(settlementId, claimId) {
+    return new ExecutionClaimHeartbeat({
+      store: this.store,
+      settlementId,
+      claimId,
+      leaseSeconds: this.executionClaimLeaseSeconds,
+      intervalSeconds: this.executionClaimHeartbeatSeconds,
+      now: this.now,
+      scheduler: this.scheduler,
+      logger: this.logger,
+    }).start();
+  }
+
   /**
    * Only the claim holder reaches Circle, and it does so outside any database transaction.
    * A failure is classified before it is persisted so an undetermined outcome keeps its claim
    * while a failure that never reached the provider frees the settlement immediately.
+   *
+   * The claim's lease is renewed for as long as this call is outstanding, so a slow provider
+   * cannot hand the settlement to a second caller while the first request is still alive. The
+   * heartbeat always stops before the result is persisted — on success, on failure, and when
+   * ownership can no longer be proven.
    */
   async submitClaimedExecution(record) {
     const { claimId } = record.executionSubmission;
+    const heartbeat = this.startExecutionHeartbeat(record.id, claimId);
     let transaction;
     try {
-      transaction = await this.circleGateway.executeSettlement(record);
+      try {
+        transaction = await this.circleGateway.executeSettlement(record);
+      } finally {
+        await heartbeat.stop();
+      }
     } catch (error) {
       await this.recordSubmissionFailure(record.id, claimId, error);
       throw error;
@@ -399,7 +448,27 @@ export class SettlementService {
     const submittedAt = this.now().toISOString();
     return this.applyCircleTransaction(record.id, transaction, 'CIRCLE_TRANSFER_CREATED', {
       decorate: (merged, current) => {
-        if (current.executionSubmission?.claimId !== claimId) return merged;
+        // Ownership may have moved on while the call was open. The transaction ID is persisted
+        // either way — losing it would be far worse than an ambiguous claim — but a superseded
+        // claimant never rewrites the current attempt's status or authority.
+        if (current.executionSubmission?.claimId !== claimId) {
+          return {
+            ...merged,
+            executionAttempts: markExecutionAttempt(merged.executionAttempts, claimId, {
+              status: executionSubmissionStatuses.SUBMITTED,
+              submittedAt,
+              circleTransactionId: transaction.id,
+            }),
+            history: [...merged.history, {
+              event: 'EXECUTION',
+              state: merged.state,
+              at: submittedAt,
+              reason: 'EXECUTION_SUBMITTED_BY_SUPERSEDED_CLAIM',
+              claimId,
+              circleTransactionId: transaction.id,
+            }],
+          };
+        }
         return {
           ...merged,
           executionSubmission: {
@@ -409,6 +478,11 @@ export class SettlementService {
             leaseExpiresAt: null,
             lastError: null,
           },
+          executionAttempts: markExecutionAttempt(merged.executionAttempts, claimId, {
+            status: executionSubmissionStatuses.SUBMITTED,
+            submittedAt,
+            circleTransactionId: transaction.id,
+          }),
           history: [...merged.history, {
             event: 'EXECUTION',
             state: merged.state,
@@ -429,13 +503,14 @@ export class SettlementService {
       // Ownership may already have moved on; a stale failure never rewrites another claim.
       if (current.executionSubmission?.claimId !== claimId) return undefined;
       const nowIso = this.now().toISOString();
+      const status = released
+        ? executionSubmissionStatuses.RELEASED
+        : executionSubmissionStatuses.UNKNOWN_OUTCOME;
       return {
         ...current,
         executionSubmission: {
           ...current.executionSubmission,
-          status: released
-            ? executionSubmissionStatuses.RELEASED
-            : executionSubmissionStatuses.UNKNOWN_OUTCOME,
+          status,
           leaseExpiresAt: released ? null : current.executionSubmission.leaseExpiresAt,
           failedAt: nowIso,
           lastError: {
@@ -444,6 +519,12 @@ export class SettlementService {
             classification,
           },
         },
+        executionAttempts: markExecutionAttempt(current.executionAttempts, claimId, {
+          status,
+          failedAt: nowIso,
+          failureClassification: classification,
+          failureCode: error?.code ?? 'CIRCLE_REQUEST_FAILED',
+        }),
         updatedAt: nowIso,
         history: [...current.history, {
           event: 'EXECUTION',
@@ -618,10 +699,19 @@ export class SettlementService {
     return record;
   }
 
+  /**
+   * A quote's TTL bounds when execution may *begin*, not how long it may take.
+   *
+   * Once a claim has been won, `expiresAt` can no longer invalidate the settlement: expiry
+   * releases the treasury reservation, and releasing capacity while Circle may already have
+   * accepted the payout would let the treasury be committed twice. Expiry therefore resumes only
+   * for a submission that provably never reached the provider and was released.
+   */
   isExpirable(record) {
     return Boolean(
       record.expiresAt
       && [settlementStates.PREPARED, settlementStates.AWAITING_SIGNATURE].includes(record.state)
+      && !isExecutionCommitted(record)
       && this.now().getTime() >= new Date(record.expiresAt).getTime(),
     );
   }

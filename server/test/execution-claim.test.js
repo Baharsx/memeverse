@@ -243,7 +243,9 @@ test('a crashed claim can be resumed only after the lease expires, reusing the p
   assert.equal(gateway.executeCalls[0].idempotencyKey, id);
   assert.equal(resumed.executionSubmission.attempt, 2);
   assert.equal(resumed.executionSubmission.resumedFromClaimId, claim.record.executionSubmission.claimId);
-  assert.equal(resumed.executionAuthorization.authorizationRef, authority('resumed').authorizationRef);
+  // The root authority records the first claim that ever won; the resume is attempt 2's authority.
+  assert.equal(resumed.executionAuthorization.authorizationRef, authority('crashed').authorizationRef);
+  assert.equal(resumed.executionSubmission.authorizationRef, authority('resumed').authorizationRef);
   assert.equal(resumed.circle.transactionId, `circle-${id}`);
   const history = (await store.get(id)).history.map((entry) => entry.reason);
   assert.ok(history.includes('EXECUTION_CLAIMED'));
@@ -310,7 +312,9 @@ test('a pre-provider failure releases the claim so a fresh approval can retry im
   const retried = await service.execute(id, authority('retry', { sessionId: 'session-retry' }));
   assert.equal(gateway.executeCalls.length, 2);
   assert.equal(retried.circle.transactionId, `circle-${id}`);
-  assert.equal(retried.executionAuthorization.authorizationRef, authority('retry').authorizationRef);
+  // Even a provably unreached first attempt keeps the audit root stable at the first claim.
+  assert.equal(retried.executionAuthorization.authorizationRef, authority('blocked').authorizationRef);
+  assert.equal(retried.executionSubmission.authorizationRef, authority('retry').authorizationRef);
 });
 
 test('an existing Circle transaction reconciles instead of submitting again', async () => {

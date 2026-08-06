@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
   SOLD_OUT_LABEL,
@@ -39,4 +41,27 @@ test('sold-out detection tolerates missing state and never blocks selling', () =
   assert.equal(isMarketSoldOut({}), false);
   assert.equal(marketAvailability(market(100_000n, 100_000n)).canSell, true);
   assert.equal(marketAvailability(undefined).canBuy, true);
+});
+
+test('every surface prices a market through the shared sold-out helper', async () => {
+  const source = await readFile(
+    fileURLToPath(new URL('../../src/main.jsx', import.meta.url)),
+    'utf8',
+  );
+  const marquee = source.slice(source.indexOf('function Marquee'), source.indexOf('function Wallet'));
+
+  // The global ticker formatted spotPriceUsdc directly, so a sold-out market read as "0 USDC"
+  // there while the Markets page correctly read SOLD OUT.
+  assert.ok(marquee.includes('marketSpotLabel(market, formatUsdc)'), 'the ticker uses the helper');
+  assert.equal(
+    /formatUsdc\(\s*market\.spotPriceUsdc\s*\)/.test(source),
+    false,
+    'no surface may format a raw spot price, which is 0 for a sold-out market',
+  );
+
+  const soldOut = market(100_000n, 100_000n, 0n);
+  assert.equal(marketSpotLabel(soldOut, formatUsdc), SOLD_OUT_LABEL);
+  assert.equal(marketSpotPerTokenLabel(soldOut, formatUsdc), SOLD_OUT_LABEL);
+  // Selling is still backed by the curve reserve, on every surface.
+  assert.equal(marketAvailability(soldOut).canSell, true);
 });

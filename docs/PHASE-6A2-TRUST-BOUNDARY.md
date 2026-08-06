@@ -138,6 +138,16 @@ through one atomic, database-level execution claim before Circle is contacted, a
 authority is immutable. See
 [`PHASE-6A21-EXECUTION-CLAIM.md`](./PHASE-6A21-EXECUTION-CLAIM.md).
 
+### Superseded by Phase 6A.2.2
+
+The sentence above — "the resolved authority is persisted as `executionAuthorization` before the
+Circle call" — is still true of the *first* claim, but a later recovery used to overwrite that
+field. `executionAuthorization` is now the immutable original authority, and each attempt's own
+authority is recorded separately in `executionAttempts`. The claim lease is also renewed by
+heartbeat while a provider call is alive, and a committed execution can no longer be expired by
+its quote TTL. See
+[`PHASE-6A22-EXECUTION-LIFECYCLE.md`](./PHASE-6A22-EXECUTION-LIFECYCLE.md).
+
 ### Execution modes
 
 `server/domain/execution-mode.js` declares the authorization model explicitly:

@@ -31,6 +31,16 @@ function authorize(settlementId, target = app, sessionCookie = cookie) {
   });
 }
 
+/** Resolves once the settlement's execution claim is durably held by the in-flight caller. */
+async function waitForClaim(store, settlementId, attempts = 200) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const record = await store.get(settlementId);
+    if (record?.executionSubmission?.status === 'CLAIMED') return record;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error('The execution claim was never observed.');
+}
+
 function execute(settlementId, authorizationId, target = app, sessionCookie = cookie) {
   return fetch(`${target.baseUrl}/api/v1/settlements/${settlementId}/execute`, {
     method: 'POST',
@@ -229,15 +239,17 @@ test('two concurrent HTTP executions produce one provider call and a stable 409 
       authorize(settlement.id, raced, session.cookie).then((response) => response.json()),
     ]);
 
-    const attempts = Promise.all([
-      execute(settlement.id, authorizationA.data.authorizationId, raced, session.cookie),
-      new Promise((resolve) => setTimeout(resolve, 40)).then(() => (
-        execute(settlement.id, authorizationB.data.authorizationId, raced, session.cookie)
-      )),
-    ]);
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    // Gate on the observed claim rather than on wall-clock delays: the loser must arrive while
+    // the winner's provider call is genuinely open, or the race being tested never happens.
+    const winnerAttempt = execute(
+      settlement.id, authorizationA.data.authorizationId, raced, session.cookie,
+    );
+    await waitForClaim(raced.store, settlement.id);
+    const loser = await execute(
+      settlement.id, authorizationB.data.authorizationId, raced, session.cookie,
+    );
     release();
-    const [winner, loser] = await attempts;
+    const winner = await winnerAttempt;
     const winnerBody = await winner.json();
     const loserBody = await loser.json();
 

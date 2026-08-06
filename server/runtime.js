@@ -30,6 +30,7 @@ export async function createSettlementRuntime(config) {
     circleGateway,
     arcIndexer,
     executionClaimLeaseSeconds: config.executionClaimLeaseSeconds,
+    executionClaimHeartbeatSeconds: config.executionClaimHeartbeatSeconds,
   });
   const agentDecisionService = new AgentDecisionService({
     settlementService,

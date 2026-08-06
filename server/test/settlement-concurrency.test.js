@@ -32,6 +32,7 @@ class GatedSettlementStore {
   getByCircleTransactionId(id) { return this.inner.getByCircleTransactionId(id); }
   createIfAbsent(record, options) { return this.inner.createIfAbsent(record, options); }
   claimExecution(request) { return this.inner.claimExecution(request); }
+  renewExecutionClaim(request) { return this.inner.renewExecutionClaim(request); }
   listReconciliationCandidates() { return this.inner.listReconciliationCandidates(); }
   claimReconciliationCandidates(options) { return this.inner.claimReconciliationCandidates(options); }
   async releaseReconciliationLease() {}

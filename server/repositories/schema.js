@@ -2,16 +2,46 @@
  * Single source of truth for the MemeVerse PostgreSQL schema.
  *
  * `npm run db:migrate` (and local PGlite bootstrap) applies `schemaSql`; a runtime start with
- * migrations disabled only asserts that every table in `requiredTables` already exists, so the
- * production one-shot migration identity remains the only DDL-capable identity.
+ * migrations disabled asserts against `requiredColumns` instead, so the production one-shot
+ * migration identity remains the only DDL-capable identity.
+ *
+ * Every column the running code reads or writes is listed here. Verifying tables alone let a
+ * database carrying an older `settlements` layout start cleanly and then fail on its first
+ * write — after a settlement was already in flight. Adding a column to `schemaSql` without
+ * adding it here would reopen exactly that gap.
  */
-export const requiredTables = Object.freeze([
-  'settlements',
-  'circle_notifications',
-  'operator_auth_challenges',
-  'operator_sessions',
-  'operator_execution_authorizations',
-]);
+export const requiredColumns = Object.freeze({
+  settlements: Object.freeze([
+    'id',
+    'idempotency_key',
+    'circle_transaction_id',
+    'state',
+    'version',
+    'reservation_units',
+    'reservation_status',
+    'record',
+    'created_at',
+    'updated_at',
+    'reconciliation_lease_owner',
+    'reconciliation_lease_until',
+    'execution_claim_id',
+    'execution_claim_until',
+  ]),
+  circle_notifications: Object.freeze(['notification_id', 'processed_at', 'outcome']),
+  operator_auth_challenges: Object.freeze([
+    'id', 'nonce_hash', 'message', 'address', 'origin', 'chain_id',
+    'issued_at', 'expires_at', 'consumed_at',
+  ]),
+  operator_sessions: Object.freeze([
+    'id', 'token_hash', 'address', 'challenge_id', 'created_at', 'expires_at', 'revoked_at',
+  ]),
+  operator_execution_authorizations: Object.freeze([
+    'id_hash', 'session_id', 'settlement_id', 'binding_hash', 'operator_address',
+    'created_at', 'expires_at', 'consumed_at',
+  ]),
+});
+
+export const requiredTables = Object.freeze(Object.keys(requiredColumns));
 
 export const schemaSql = `
   CREATE TABLE IF NOT EXISTS settlements (

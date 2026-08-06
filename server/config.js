@@ -67,6 +67,7 @@ const environmentSchema = z.object({
   OPERATOR_CHALLENGE_TTL_SECONDS: z.coerce.number().int().min(60).max(900).default(300),
   OPERATOR_EXECUTION_TTL_SECONDS: z.coerce.number().int().min(30).max(600).default(180),
   EXECUTION_CLAIM_LEASE_SECONDS: z.coerce.number().int().min(30).max(600).default(120),
+  EXECUTION_CLAIM_HEARTBEAT_SECONDS: z.coerce.number().int().min(5).max(300).default(30),
   AUTH_CLEANUP_INTERVAL_SECONDS: z.coerce.number().int().min(60).max(86400).default(3600),
   TRUSTED_PROXY_HOP_COUNT: z.coerce.number().int().min(0).max(5).default(0),
   CIRCLE_API_KEY: z.string().min(1).optional(),
@@ -130,6 +131,15 @@ export function loadServerConfig(environment = process.env) {
       'SETTLEMENT_OPERATOR_ADDRESS is required when privileged Circle settlement execution is configured.',
     );
   }
+  // A heartbeat only protects a live provider call if several beats fit inside one lease. At
+  // half the lease a single missed beat would already surrender the claim, so the combination
+  // must be rejected at load rather than silently degrade into the race it exists to prevent.
+  if (parsed.EXECUTION_CLAIM_HEARTBEAT_SECONDS * 2 >= parsed.EXECUTION_CLAIM_LEASE_SECONDS) {
+    throw new Error(
+      `EXECUTION_CLAIM_HEARTBEAT_SECONDS (${parsed.EXECUTION_CLAIM_HEARTBEAT_SECONDS}) must be less `
+      + `than half of EXECUTION_CLAIM_LEASE_SECONDS (${parsed.EXECUTION_CLAIM_LEASE_SECONDS}).`,
+    );
+  }
 
   return Object.freeze({
     port: parsed.API_PORT,
@@ -160,6 +170,7 @@ export function loadServerConfig(environment = process.env) {
     operatorChallengeTtlSeconds: parsed.OPERATOR_CHALLENGE_TTL_SECONDS,
     operatorExecutionTtlSeconds: parsed.OPERATOR_EXECUTION_TTL_SECONDS,
     executionClaimLeaseSeconds: parsed.EXECUTION_CLAIM_LEASE_SECONDS,
+    executionClaimHeartbeatSeconds: parsed.EXECUTION_CLAIM_HEARTBEAT_SECONDS,
     authCleanupIntervalSeconds: parsed.AUTH_CLEANUP_INTERVAL_SECONDS,
     trustedProxyHopCount: parsed.TRUSTED_PROXY_HOP_COUNT,
     secureCookies: parsed.NODE_ENV === 'production',

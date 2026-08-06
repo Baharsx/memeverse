@@ -3,9 +3,9 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
-import { activeExecutionClaim } from '../domain/execution-claim.js';
+import { activeExecutionClaim, isExecutionCommitted } from '../domain/execution-claim.js';
 import { DomainError } from '../domain/errors.js';
-import { requiredTables, schemaSql } from './schema.js';
+import { requiredColumns, requiredTables, schemaSql } from './schema.js';
 
 const { Pool } = pg;
 const terminalStates = new Set(['COMPLETE', 'DENIED', 'EXPIRED', 'CANCELLED', 'FAILED']);
@@ -93,12 +93,20 @@ function reservationForCreate(
   };
 }
 
+/**
+ * Reservation accounting, and the last line of defence for treasury capacity.
+ *
+ * A terminal state normally returns the reservation to the treasury, but never while execution
+ * is committed: if Circle may already have accepted the payout, the capacity is spent whatever
+ * the application state says, so it is HELD for investigation instead of released.
+ */
 function updateReservation(record) {
   if (!record.reservation) return record;
   let status = record.reservation.status;
   if (record.state === 'COMPLETE') status = 'CONSUMED';
-  else if (record.state === 'FAILED' && (record.broadcast || record.circle?.transactionId)) status = 'HELD';
-  else if (terminalStates.has(record.state)) status = 'RELEASED';
+  else if (terminalStates.has(record.state)) {
+    status = record.broadcast || isExecutionCommitted(record) ? 'HELD' : 'RELEASED';
+  }
   return {
     ...record,
     reservation: { ...record.reservation, status, updatedAt: record.updatedAt },
@@ -150,19 +158,52 @@ export class PostgresSettlementStore {
 
   async initialize({ migrate = true } = {}) {
     if (!migrate) {
-      const result = await this.database.query(
-        `SELECT count(*)::text AS ready FROM unnest($1::text[]) AS name
-         WHERE to_regclass('public.' || name) IS NOT NULL`,
-        [requiredTables],
-      );
-      if (Number(result.rows[0]?.ready ?? 0) !== requiredTables.length) {
-        throw new Error('Database schema is missing. Run npm run db:migrate first.');
-      }
+      await this.assertSchemaReady();
       return;
     }
     await this.database.exec(schemaSql);
     await this.importLegacyRecords();
     await this.importLegacyNotifications();
+  }
+
+  /**
+   * Startup readiness for a runtime that is not allowed to run DDL.
+   *
+   * Table existence alone is not readiness. A database carrying an older `settlements` layout
+   * satisfies `to_regclass` and then fails on the first write, which is the worst possible time
+   * to discover it — a settlement is already in flight. Every column the running code writes is
+   * therefore verified here, and a shortfall stops the process before it serves a request.
+   * This method only reads the catalog; the one-shot migration identity remains the sole writer
+   * of schema.
+   */
+  async assertSchemaReady() {
+    const result = await this.database.query(
+      `SELECT table_name, column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = ANY($1::text[])`,
+      [requiredTables],
+    );
+    const present = new Map();
+    for (const row of result.rows) {
+      if (!present.has(row.table_name)) present.set(row.table_name, new Set());
+      present.get(row.table_name).add(row.column_name);
+    }
+
+    const missing = [];
+    for (const table of requiredTables) {
+      const columns = present.get(table);
+      if (!columns) {
+        missing.push(table);
+        continue;
+      }
+      for (const column of requiredColumns[table]) {
+        if (!columns.has(column)) missing.push(`${table}.${column}`);
+      }
+    }
+    if (missing.length > 0) {
+      throw new Error(
+        `Database schema is outdated. Run npm run db:migrate. Missing: ${missing.join(', ')}.`,
+      );
+    }
   }
 
   async importLegacyNotifications() {
@@ -287,6 +328,9 @@ export class PostgresSettlementStore {
       );
       if (existing.rows[0]) return { record: recordFromRow(existing.rows[0]), created: false };
 
+      // A lapsed quote frees its capacity, but only while nothing has been executed against it.
+      // A settlement whose execution is claimed, undetermined, or submitted keeps counting no
+      // matter how old its quote is: Circle may already have accepted that payout.
       const aggregate = await transaction.query(
         `SELECT COALESCE(sum(reservation_units), 0)::text AS units
          FROM settlements
@@ -295,6 +339,9 @@ export class PostgresSettlementStore {
              state NOT IN ('PREPARED', 'AWAITING_SIGNATURE')
              OR NULLIF(record->>'expiresAt', '') IS NULL
              OR NULLIF(record->>'expiresAt', '')::timestamptz > now()
+             OR circle_transaction_id IS NOT NULL
+             OR record->'executionSubmission'->>'status'
+                  IN ('CLAIMED', 'UNKNOWN_OUTCOME', 'SUBMITTED')
            )`,
       );
       const dailyAggregate = agentDailyCapUnits === undefined
@@ -415,6 +462,46 @@ export class PostgresSettlementStore {
       [record.id],
     );
     return claimRejection(current.rows[0], expectedVersion, nowIso);
+  }
+
+  /**
+   * Extends a live claim's lease, and nothing else.
+   *
+   * Ownership is proven by the database, not by the caller: the write lands only when the row
+   * still carries this exact claim ID, still has no provider transaction, and is still awaiting
+   * signature. A process that has lost the claim cannot renew it, and no caller can renew a
+   * claim it never held.
+   *
+   * `version` is bumped so a concurrent writer holding an older snapshot loses its optimistic
+   * update and reloads instead of overwriting the fresh lease with a stale one. `updated_at` is
+   * deliberately untouched: a lease renewal is not a change to the settlement, and reconciliation
+   * ordering must not be disturbed by it. No history is appended, so a long provider call cannot
+   * flood the audit trail.
+   */
+  async renewExecutionClaim({ settlementId, claimId, leaseUntil }) {
+    const result = await this.database.query(
+      `UPDATE settlements SET
+        execution_claim_until = $3::text::timestamptz,
+        record = jsonb_set(record, '{executionSubmission,leaseExpiresAt}', to_jsonb($3::text)),
+        version = version + 1
+       WHERE id = $1
+         AND execution_claim_id = $2
+         AND circle_transaction_id IS NULL
+         AND state = 'AWAITING_SIGNATURE'
+       RETURNING record, version`,
+      [settlementId, claimId, leaseUntil],
+    );
+    if (result.rows[0]) return { outcome: 'RENEWED', record: recordFromRow(result.rows[0]) };
+
+    const current = await this.database.query(
+      'SELECT state, circle_transaction_id, execution_claim_id FROM settlements WHERE id = $1',
+      [settlementId],
+    );
+    const row = current.rows[0];
+    if (!row) return { outcome: 'NOT_FOUND' };
+    if (row.circle_transaction_id) return { outcome: 'ALREADY_SUBMITTED' };
+    if (row.state !== 'AWAITING_SIGNATURE') return { outcome: 'NOT_EXECUTABLE' };
+    return { outcome: 'OWNERSHIP_LOST' };
   }
 
   async listReconciliationCandidates() {

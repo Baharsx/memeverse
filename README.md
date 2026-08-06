@@ -43,7 +43,10 @@ The product explores two Arc ecosystem tracks:
 - Wallet-signed operator sessions with one-time expiring sign-in challenges
 - Settlement-bound, single-use execution approvals enforced server-side
 - One durable execution claim per settlement, so only one caller can ever reach Circle
-- Bounded claim leases with safe resume and deterministic provider idempotency
+- Bounded claim leases, renewed by heartbeat while a provider call is genuinely alive
+- Quote expiry frozen once execution is committed, so capacity is never released mid-payout
+- Immutable original execution authority with separately audited recovery attempts
+- Startup verification of every database column the runtime writes
 - Database-level optimistic concurrency for every settlement state write
 - Route-class rate limits, strict Content Security Policy, and explicit proxy trust
 - Transactional agent daily payout cap
@@ -196,9 +199,20 @@ caller wins and contacts Circle; every other caller receives `409 EXECUTION_ALRE
 reconciles an already-known transaction, and the winner's authority can never be overwritten. A
 short claim lease (`EXECUTION_CLAIM_LEASE_SECONDS`) allows a crashed or undetermined attempt to be
 resumed later using the same deterministic Circle idempotency identity, so recovery never creates a
-second payout. Full details are in
-[`docs/PHASE-6A2-TRUST-BOUNDARY.md`](./docs/PHASE-6A2-TRUST-BOUNDARY.md) and
-[`docs/PHASE-6A21-EXECUTION-CLAIM.md`](./docs/PHASE-6A21-EXECUTION-CLAIM.md).
+second payout.
+
+The quote lifecycle and the execution lifecycle are deliberately separate. A quote's `expiresAt`
+bounds only when execution may *begin*: once a claim is won, the settlement can no longer expire,
+because expiry releases the treasury reservation and Circle may already have accepted the payout.
+While the winning process waits on Circle it renews its own lease
+(`EXECUTION_CLAIM_HEARTBEAT_SECONDS`) through an ownership-conditional database write, so a slow
+provider call is never mistaken for a dead process — and a process that dies simply stops renewing,
+letting its lease lapse on schedule. The first authority ever to win a claim is recorded
+permanently as the settlement's execution authority; every later recovery is audited as its own
+attempt rather than overwriting it. Full details are in
+[`docs/PHASE-6A2-TRUST-BOUNDARY.md`](./docs/PHASE-6A2-TRUST-BOUNDARY.md),
+[`docs/PHASE-6A21-EXECUTION-CLAIM.md`](./docs/PHASE-6A21-EXECUTION-CLAIM.md), and
+[`docs/PHASE-6A22-EXECUTION-LIFECYCLE.md`](./docs/PHASE-6A22-EXECUTION-LIFECYCLE.md).
 
 ## Transaction and reconciliation model
 
@@ -457,7 +471,7 @@ NODE_ENV=production npm run start:api
 NODE_ENV=production npm run start:worker
 ```
 
-Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration identity. The API and worker use the lower-privilege `DATABASE_URL`; production runtime migration is forcibly disabled. Hardened service templates are under `ops/systemd/`. Credentials must come from a secret manager rather than Git.
+Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration identity, **before** rolling out the API and worker. The API and worker use the lower-privilege `DATABASE_URL`; production runtime migration is forcibly disabled. Startup verifies every table *and column* the runtime writes and refuses to start against an outdated schema with `Database schema is outdated. Run npm run db:migrate.`, naming what is missing — so a skipped migration fails immediately rather than on the first settlement write. The readiness check reads the catalog only and runs no DDL. Hardened service templates are under `ops/systemd/`. Credentials must come from a secret manager rather than Git.
 
 ## Phase 3 verification evidence
 
@@ -493,6 +507,16 @@ Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration
 - A crashed or undetermined attempt is resumable only after its lease expires, and only by reusing the same deterministic Circle idempotency identity, so a lost response cannot become a second payout.
 - `APP_ORIGIN` is canonicalized to a bare origin and rejects a path, query, fragment, credential, or non-http(s) scheme.
 - Expired operator challenges, sessions, and approvals are swept at startup and on a worker interval.
+
+## Phase 6A.2.2 verification
+
+- Quote expiry could invalidate an execution already under way. Reproduced against the pre-patch code, a settlement whose provider call outlived its quote became `EXPIRED`, released its treasury reservation, and then could not store the returning transaction at all (`Cannot transition settlement from EXPIRED to CONFIRMED`). Execution commitment now freezes expiry: a `CLAIMED`, `UNKNOWN_OUTCOME`, or `SUBMITTED` settlement never expires, and its reservation never releases.
+- A settlement whose execution is undetermined still consumes treasury capacity however old its quote is, proven against PGlite.
+- A claim lease could lapse under a healthy process, letting a second caller in while the first Circle request was alive. The claim holder now renews its lease through an ownership-conditional database write; a provider call held open for five full leases keeps its claim, rejects every rival with `409`, and yields exactly one Circle invocation. A claimant that stops beating is recoverable exactly as before, once its lease expires.
+- A renewal presenting the wrong claim ID writes nothing at all — no lease, no authority, no version bump.
+- Recovery no longer rewrites who originated a payout. `executionAuthorization` records the first authority ever to win a claim and is immutable; each attempt records its own authority, operator, session, claim ID, and outcome in `executionAttempts`. Across three recovery authorizations the provider operation identity stays byte-identical.
+- An outdated database schema fails at startup with the missing columns named, and the readiness path is asserted statement by statement to run no DDL.
+- A sold-out market reads `SOLD OUT` in the global ticker as well as on the Markets page; selling stays enabled on both.
 - The design is documented in [`docs/PHASE-6A21-EXECUTION-CLAIM.md`](./docs/PHASE-6A21-EXECUTION-CLAIM.md).
 
 ## Phase 6A.2 verification
