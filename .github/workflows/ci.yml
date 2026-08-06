@@ -15,8 +15,10 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      NODE_ENV: test
+    # NODE_ENV is deliberately not set for the whole job. A job-level `NODE_ENV: test` leaks into
+    # the Vite build, which then emits a React *development* bundle — so the step that claimed to
+    # verify the production build was validating something the project never ships. Each step
+    # below declares the environment it actually needs.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,10 +36,18 @@ jobs:
         run: npm run contracts:compile
 
       - name: Run backend, security, and contract tests
+        env:
+          NODE_ENV: test
         run: npm test
 
-      - name: Verify tests and production build
-        run: npm run check
+      # Deliberately `npm run build` rather than `npm run check`: check is `npm test && npm run
+      # build`, which would run the whole suite a second time and — worse — under whichever
+      # environment the build needs. Running the two halves as separate steps lets each have the
+      # environment it genuinely requires.
+      - name: Verify production build
+        env:
+          NODE_ENV: production
+        run: npm run build
 
       - name: Audit dependencies
         run: npm audit --audit-level=low
