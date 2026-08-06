@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { fallback, parseEventLogs } from 'viem';
 import {
@@ -25,6 +25,18 @@ import {
 import {
   transactionPhases,
 } from './transaction-lifecycle';
+
+/**
+ * The Stage 2 surfaces read several contracts and are only visited deliberately, so they are
+ * split out of the initial bundle rather than loaded for every visitor on the markets page.
+ */
+const MediaAssets = lazy(() => import('./stage2-views.jsx').then((module) => ({ default: module.MediaAssets })));
+const UsdcVault = lazy(() => import('./stage2-views.jsx').then((module) => ({ default: module.UsdcVault })));
+const AutonomousAgentPanel = lazy(() => import('./stage2-views.jsx').then((module) => ({ default: module.AutonomousAgentPanel })));
+
+function LazySection() {
+  return <div className="empty"><span>LOADING…</span></div>;
+}
 import {
   authorizeSettlementExecution,
   createIdempotencyKey,
@@ -128,18 +140,6 @@ const network = {
   chain: arc,
   money: 'USDC',
 };
-const demoCoins = [
-  ['PEPE.exe', 'PEPX', '$0.004218', '+18.4'],
-  ['GIGA BRAIN', 'GBRN', '$0.08801', '+9.7'],
-  ['RUG PROOF', 'RUGP', '$0.00091', '-4.2'],
-  ['404 DOG', 'DOG4', '$0.02024', '+6.9'],
-];
-const nfts = [
-  ['NO SIGNAL #033', '120 USDC'],
-  ['BASED SPECIMEN #19', '80 USDC'],
-  ['TERMINAL FROG #808', '210 USDC'],
-];
-
 function ExternalLink({ href, children, className = '', ...props }) {
   return (
     <a className={className} href={href} target="_blank" rel="noreferrer" {...props}>
@@ -245,9 +245,11 @@ function Shell() {
   const navItems = [
     ['01', 'MARKETS', '/markets'],
     ['02', 'LAUNCH', '/launch'],
-    ['03', 'AGENT', '/agent'],
-    ['04', 'QUOTE', '/quote'],
-    ['05', 'PROOF', '/safety'],
+    ['03', 'MEDIA', '/nft'],
+    ['04', 'VAULT', '/vault'],
+    ['05', 'AGENT', '/agent'],
+    ['06', 'QUOTE', '/quote'],
+    ['07', 'PROOF', '/safety'],
   ];
 
   return (
@@ -290,8 +292,14 @@ function Shell() {
           <Route path="/trade" element={<Markets />} />
           <Route path="/launch" element={<Launch />} />
           <Route path="/quote" element={<Quote />} />
-          <Route path="/nft" element={<NFT />} />
-          <Route path="/vault" element={<Vault />} />
+          <Route
+            path="/nft"
+            element={<Suspense fallback={<LazySection />}><MediaAssets /></Suspense>}
+          />
+          <Route
+            path="/vault"
+            element={<Suspense fallback={<LazySection />}><UsdcVault /></Suspense>}
+          />
           <Route path="/agent" element={<Agent />} />
           <Route path="/safety" element={<Safety />} />
         </Routes>
@@ -836,120 +844,11 @@ function Quote() {
   );
 }
 
-function NFTCard({ n, p, i, onPreview }) {
-  return (
-    <article className="nft-card">
-      <div className={`art art${i}`}><Mascot /></div>
-      <div>
-        <small>MEMEVERSE DEMO ARCHIVE</small>
-        <h3>{n}</h3>
-        <b>{p}</b>
-        {onPreview ? <button className="card-action" type="button" onClick={onPreview}>PREVIEW</button> : null}
-      </div>
-    </article>
-  );
-}
-
-function NFT() {
-  const [modal, setModal] = useState(false);
-  const [listingPreview, setListingPreview] = useState(false);
-  const [price, setPrice] = useState('');
-  const closeButton = useRef(null);
-  const opener = useRef(null);
-  const items = [
-    ...nfts,
-    ['LIQUIDITY GOBLIN #2', '160 USDC'],
-    ['EXIT SIGNAL #69', '110 USDC'],
-    ['DEGEN RELIC #404', '320 USDC'],
-  ];
-
-  useEffect(() => {
-    if (!modal) return undefined;
-    closeButton.current?.focus();
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        setModal(false);
-        opener.current?.focus();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [modal]);
-
-  function openPreview(event) {
-    opener.current = event.currentTarget;
-    setListingPreview(false);
-    setPrice('');
-    setModal(true);
-  }
-
-  function closePreview() {
-    setModal(false);
-    requestAnimationFrame(() => opener.current?.focus());
-  }
-
-  return (
-    <section className="page">
-      <Title n="LAB A" t="NFT ARCHIVE / DEMO" />
-      <div className="nft-grid">
-        {items.map((item, index) => (
-          <NFTCard key={item[0]} n={item[0]} p={item[1]} i={index % 3} onPreview={openPreview} />
-        ))}
-      </div>
-      {modal ? (
-        <div className="modal" onClick={closePreview}>
-          <div role="dialog" aria-modal="true" aria-labelledby="preview-dialog-title" onClick={(event) => event.stopPropagation()}>
-            <button ref={closeButton} className="x" type="button" onClick={closePreview} aria-label="Close preview dialog">×</button>
-            <div id="preview-dialog-title"><Title n="DEMO" t="PREVIEW ASK PRICE" as="h2" /></div>
-            <label>
-              PRICE
-              <input value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00" inputMode="decimal" />
-              <small>USDC</small>
-            </label>
-            <button className="btn primary full" type="button" onClick={() => setListingPreview(true)}>PREVIEW LISTING →</button>
-            {listingPreview ? <div className="receipt simulation-receipt" role="status"><b>SIMULATION READY // NO BROADCAST</b><span>{price ? `ASK PREVIEW: ${price} USDC` : 'ASK PREVIEW: NOT SET'}</span><span>NFT listings are not live in this Testnet MVP.</span></div> : null}
-          </div>
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function Vault() {
-  const [tab, setTab] = useState('TOKENS');
-
-  return (
-    <section className="page">
-      <Title n="LAB B" t="SIMULATED ASSETS" />
-      <div className="big-tabs" role="tablist" aria-label="Asset type">
-        <button type="button" role="tab" aria-selected={tab === 'TOKENS'} className={tab === 'TOKENS' ? 'active' : ''} onClick={() => setTab('TOKENS')}>TOKENS / 03</button>
-        <button type="button" role="tab" aria-selected={tab === 'NFTS'} className={tab === 'NFTS' ? 'active' : ''} onClick={() => setTab('NFTS')}>NFTS / 02</button>
-      </div>
-      {tab === 'TOKENS' ? (
-        <div className="assets">
-          {demoCoins.slice(0, 3).map((coin, index) => (
-            <div key={coin[0]}>
-              <b>{coin[0]} <small>${coin[1]}</small></b>
-              <strong>{[238400, 91420, 404808][index].toLocaleString()}</strong>
-              <span>{coin[2]} DEMO</span>
-              <span>DEMO ONLY</span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="nft-grid">
-          {nfts.slice(0, 2).map((item, index) => (
-            <NFTCard key={item[0]} n={item[0]} p={item[1]} i={index} />
-          ))}
-        </div>
-      )}
-      <div className="empty">
-        <Mascot small />
-        <span>ONCHAIN LISTINGS: 0<br />CURRENT DATA IS SIMULATED.</span>
-      </div>
-    </section>
-  );
-}
+/**
+ * The simulated NFT archive and Vault surfaces that stood here through Stage 1 have been
+ * removed. Both are now real Arc contracts, rendered by `MediaAssets` and `UsdcVault` in
+ * `stage2-views.jsx`, which read deployed state instead of a hard-coded demo list.
+ */
 
 function useOperatorSession() {
   const session = useQuery({
@@ -1165,13 +1064,24 @@ function Agent() {
 
   return (
     <section className="page agent-page">
-      <Title n="01" t="AGENT-GUIDED SETTLEMENT" />
+      {/*
+        The autonomous system comes first: it is the real agent, and it pays creators with no
+        human in the execution path. The operator-driven flow below it is the separate, manual
+        Developer-Controlled Wallet route and is deliberately presented as such.
+      */}
+      <Suspense fallback={<LazySection />}>
+        <AutonomousAgentPanel />
+      </Suspense>
+
+      <hr className="route-divider" />
+
+      <Title n="01" t="MANUAL OPERATOR SETTLEMENT" />
       <p className="lede">
-        The backend weights engagement, retention, liquidity, fraud-risk, and confidence signals
-        against live Arc and Circle treasury evidence. Signal provenance and evidence timing are
-        assigned by the server, never by the browser. The agent may quote and prepare; every
-        Arc Memo execution requires an authenticated operator and a one-time approval bound to
-        that exact settlement.
+        A separate, human-authorized route. The backend weights engagement, retention, liquidity,
+        fraud-risk, and confidence signals against live Arc and Circle treasury evidence. Signal
+        provenance and evidence timing are assigned by the server, never by the browser. On this
+        route the agent may quote and prepare only; every Arc Memo execution requires an
+        authenticated operator and a one-time approval bound to that exact settlement.
       </p>
       <OperatorSessionPanel session={session} />
       <div className="agent-grid">

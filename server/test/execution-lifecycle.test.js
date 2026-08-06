@@ -632,6 +632,264 @@ test('a superseded claimant still persists its provider transaction without stea
   assert.equal(final.reservation.status, 'ACTIVE');
 });
 
+/** A settlement whose first claim was superseded while its provider call was still open. */
+async function supersededFixture(failure) {
+  const provider = gate();
+  const gateway = recordingGateway({
+    async onExecute(record, callNumber) {
+      if (callNumber === 1) {
+        await provider.held;
+        throw failure;
+      }
+      return { id: `circle-${record.id}`, state: 'INITIATED', walletId: 'wallet-1' };
+    },
+  });
+  const fixture = await lifecycleFixture({
+    gateway, quoteTtlSeconds: 3600, executionClaimLeaseSeconds: 30,
+  });
+  const { service, store, id } = fixture;
+
+  const submission = service.execute(id, authority('alpha'));
+  await settle();
+  const alphaClaimId = (await store.get(id)).executionSubmission.claimId;
+
+  // No beats are fired, so the lease lapses exactly as it would for a dead process, and a
+  // second authorized operator takes the settlement over.
+  fixture.clock.advance(31);
+  const resumed = await service.claimExecution(id, authority('bravo', {
+    operatorAddress: otherOperator,
+  }));
+  assert.equal(resumed.outcome, 'CLAIMED');
+
+  // Only now does the original, long-superseded provider call come back — with an error.
+  provider.open();
+  return {
+    ...fixture, submission, alphaClaimId, bravo: resumed.record.executionSubmission,
+  };
+}
+
+test('a superseded claimant recording a late unknown outcome finalises only its own attempt', async () => {
+  const failure = new DomainError('CIRCLE_REQUEST_FAILED', 'Circle transfer request failed.', {
+    status: 502, details: { operation: 'transfer' },
+  });
+  const fixture = await supersededFixture(failure);
+  const { service, gateway, id, alphaClaimId, bravo } = fixture;
+
+  await assert.rejects(fixture.submission, { code: 'CIRCLE_REQUEST_FAILED' });
+  const final = await service.get(id);
+
+  // The current claim is untouched in every respect.
+  assert.equal(final.executionSubmission.claimId, bravo.claimId);
+  assert.equal(final.executionSubmission.status, 'CLAIMED', 'the live claim is not failed');
+  assert.equal(final.executionSubmission.failedAt, null);
+  assert.equal(final.executionSubmission.lastError, null);
+  assert.equal(
+    final.executionSubmission.leaseExpiresAt,
+    bravo.leaseExpiresAt,
+    'the live claim keeps its lease',
+  );
+  assert.equal(final.executionSubmission.authorizationRef, authority('bravo').authorizationRef);
+
+  // Neither the audit root, the state, nor the treasury reservation moves.
+  assert.equal(final.executionAuthorization.authorizationRef, authority('alpha').authorizationRef);
+  assert.equal(final.state, 'AWAITING_SIGNATURE');
+  assert.equal(final.reservation.status, 'ACTIVE', 'capacity is never released');
+
+  // The superseded attempt now records its real outcome instead of a stale CLAIMED.
+  const attempt = final.executionAttempts.find((entry) => entry.claimId === alphaClaimId);
+  assert.equal(attempt.status, 'UNKNOWN_OUTCOME');
+  assert.equal(attempt.failureClassification, 'UNKNOWN_OUTCOME');
+  assert.equal(attempt.failureCode, 'CIRCLE_REQUEST_FAILED');
+  assert.equal(attempt.attempt, 1, 'the original attempt number is preserved');
+  assert.equal(attempt.authorizationRef, authority('alpha').authorizationRef);
+  assert.equal(attempt.operatorAddress, operatorAddress);
+  assert.equal(attempt.supersededByClaimId, bravo.claimId);
+  assert.ok(attempt.failedAt);
+
+  const entry = final.history.findLast(
+    (item) => item.reason === 'EXECUTION_FAILURE_BY_SUPERSEDED_CLAIM',
+  );
+  assert.equal(entry.claimId, alphaClaimId);
+  assert.equal(entry.attempt, 1);
+  assert.equal(entry.classification, 'UNKNOWN_OUTCOME');
+  assert.equal(entry.supersededByClaimId, bravo.claimId);
+
+  // Above all: no retry and no second provider call were created.
+  assert.equal(gateway.executeCalls.length, 1);
+});
+
+test('a superseded pre-provider failure never releases the live claim or its capacity', async () => {
+  const failure = new DomainError('CIRCLE_NOT_CONFIGURED', 'Circle wallet gateway is unavailable.', {
+    status: 503,
+  });
+  const fixture = await supersededFixture(failure);
+  const { service, gateway, id, alphaClaimId, bravo } = fixture;
+
+  await assert.rejects(fixture.submission, { code: 'CIRCLE_NOT_CONFIGURED' });
+  const final = await service.get(id);
+
+  // A PRE_PROVIDER classification releases *that attempt*, and nothing else. Were it allowed to
+  // release the settlement, the live claimant's quote TTL would resume underneath it.
+  const attempt = final.executionAttempts.find((entry) => entry.claimId === alphaClaimId);
+  assert.equal(attempt.status, 'RELEASED');
+  assert.equal(attempt.failureClassification, 'PRE_PROVIDER');
+  assert.equal(attempt.supersededByClaimId, bravo.claimId);
+
+  assert.equal(final.executionSubmission.claimId, bravo.claimId);
+  assert.equal(final.executionSubmission.status, 'CLAIMED');
+  assert.equal(final.executionSubmission.leaseExpiresAt, bravo.leaseExpiresAt);
+  assert.equal(final.reservation.status, 'ACTIVE');
+  assert.equal(gateway.executeCalls.length, 1);
+
+  // The live claim still holds the settlement: a fresh contender is locked out for as long as
+  // bravo's lease runs, which is precisely what a wrongly-released claim would have broken.
+  fixture.clock.advance(1);
+  await assert.rejects(
+    service.execute(id, authority('charlie', { operatorAddress: otherOperator })),
+    { code: 'EXECUTION_ALREADY_CLAIMED' },
+  );
+  assert.equal(gateway.executeCalls.length, 1);
+
+  // Once that lease lapses on schedule, recovery proceeds under the original provider identity.
+  fixture.clock.advance(31);
+  const executed = await service.execute(id, authority('charlie', { operatorAddress: otherOperator }));
+  assert.equal(executed.circle.transactionId, `circle-${id}`);
+  assert.equal(gateway.executeCalls.length, 2);
+  assert.deepEqual(gateway.executeCalls.map((call) => call.idempotencyKey), [id, id]);
+  assert.equal(executed.executionAuthorization.authorizationRef, authority('alpha').authorizationRef);
+});
+
+test('a late failure naming a claim with no attempt history writes nothing at all', async () => {
+  const gateway = recordingGateway();
+  const fixture = await lifecycleFixture({ gateway, quoteTtlSeconds: 3600 });
+  const { service, store, id } = fixture;
+
+  const executed = await service.execute(id, authority('owner'));
+  const before = await store.get(id);
+
+  await service.recordSubmissionFailure(id, 'a-claim-that-never-existed', new DomainError(
+    'CIRCLE_REQUEST_FAILED', 'Circle transfer request failed.', { status: 502 },
+  ));
+
+  const after = await store.get(id);
+  assert.equal(after.version, before.version, 'an unrecognised claim burns no row version');
+  assert.deepEqual(after.executionAttempts, before.executionAttempts);
+  assert.equal(after.executionSubmission.status, 'SUBMITTED');
+  assert.equal(after.circle.transactionId, executed.circle.transactionId);
+  assert.equal(
+    after.history.some((entry) => entry.reason === 'EXECUTION_FAILURE_BY_SUPERSEDED_CLAIM'),
+    false,
+  );
+});
+
+test('a late failure never contradicts an attempt whose provider call already succeeded', async () => {
+  const provider = gate();
+  const gateway = recordingGateway({
+    async onExecute(record) {
+      await provider.held;
+      return { id: `circle-${record.id}`, state: 'INITIATED', walletId: 'wallet-1' };
+    },
+  });
+  const fixture = await lifecycleFixture({
+    gateway, quoteTtlSeconds: 3600, executionClaimLeaseSeconds: 30,
+  });
+  const { service, store, id } = fixture;
+
+  const submission = service.execute(id, authority('alpha'));
+  await settle();
+  const alphaClaimId = (await store.get(id)).executionSubmission.claimId;
+  fixture.clock.advance(31);
+  await service.claimExecution(id, authority('bravo', { operatorAddress: otherOperator }));
+  provider.open();
+  await submission;
+
+  // The superseded attempt already recorded SUBMITTED via the late-success path. A spurious
+  // late error for the same claim must not rewrite a provider success into a failure.
+  const before = await store.get(id);
+  assert.equal(
+    before.executionAttempts.find((entry) => entry.claimId === alphaClaimId).status,
+    'SUBMITTED',
+  );
+
+  await service.recordSubmissionFailure(id, alphaClaimId, new DomainError(
+    'CIRCLE_REQUEST_FAILED', 'Circle transfer request failed.', { status: 502 },
+  ));
+
+  const after = await store.get(id);
+  assert.equal(after.version, before.version, 'a resolved attempt is never rewritten');
+  assert.equal(
+    after.executionAttempts.find((entry) => entry.claimId === alphaClaimId).status,
+    'SUBMITTED',
+  );
+  assert.equal(after.circle.transactionId, `circle-${id}`);
+});
+
+test('PostgreSQL keeps the live claim and reservation after a superseded late error', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'memeverse-superseded-'));
+  const database = new PGlite(directory);
+  const store = new PostgresSettlementStore({ database });
+  try {
+    await store.initialize();
+    const provider = gate();
+    const gateway = recordingGateway({
+      treasuryAvailableUnits: 100_000_000n,
+      async onExecute(record, callNumber) {
+        if (callNumber === 1) {
+          await provider.held;
+          throw new DomainError('CIRCLE_REQUEST_FAILED', 'Circle transfer request failed.', {
+            status: 502,
+          });
+        }
+        return { id: `circle-${record.id}`, state: 'INITIATED', walletId: 'wallet-1' };
+      },
+    });
+    const fixture = await lifecycleFixture({
+      gateway, store, quoteTtlSeconds: 3600, executionClaimLeaseSeconds: 30,
+    });
+    const { service, id } = fixture;
+
+    const submission = service.execute(id, authority('alpha'));
+    await settle();
+    const alphaClaimId = (await store.get(id)).executionSubmission.claimId;
+    fixture.clock.advance(31);
+    const resumed = await service.claimExecution(id, authority('bravo', {
+      operatorAddress: otherOperator,
+    }));
+    const bravoClaimId = resumed.record.executionSubmission.claimId;
+
+    provider.open();
+    await assert.rejects(submission, { code: 'CIRCLE_REQUEST_FAILED' });
+
+    // The indexed claim gate — the column another worker races on — must still name the live
+    // claimant, and the reservation must still count against the treasury.
+    const row = await database.query(
+      `SELECT execution_claim_id, execution_claim_until, reservation_status, state
+       FROM settlements WHERE id = $1`,
+      [id],
+    );
+    assert.equal(row.rows[0].execution_claim_id, bravoClaimId);
+    assert.equal(row.rows[0].reservation_status, 'ACTIVE');
+    assert.equal(row.rows[0].state, 'AWAITING_SIGNATURE');
+    assert.ok(new Date(row.rows[0].execution_claim_until).getTime() > fixture.clock.now.getTime());
+
+    // A third contender is still locked out by the live lease.
+    await assert.rejects(
+      service.execute(id, authority('charlie', { operatorAddress: otherOperator })),
+      { code: 'EXECUTION_ALREADY_CLAIMED' },
+    );
+    assert.equal(gateway.executeCalls.length, 1);
+
+    const stored = await store.get(id);
+    assert.equal(
+      stored.executionAttempts.find((entry) => entry.claimId === alphaClaimId).status,
+      'UNKNOWN_OUTCOME',
+    );
+  } finally {
+    await database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Execution authority audit
 // ─────────────────────────────────────────────────────────────────────────────

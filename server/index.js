@@ -10,7 +10,8 @@ loadLocalEnvironment();
 const config = loadServerConfig();
 const runtime = await createSettlementRuntime(config);
 const { store, circleGateway, arcIndexer, settlementService, arcRpc,
-  agentDecisionService, appKitGateway, operatorAuthService } = runtime;
+  agentDecisionService, autonomousAgentService, autonomyStore,
+  appKitGateway, operatorAuthService } = runtime;
 const webhookVerifier = new CircleWebhookVerifier({
   circleGateway,
   cacheSeconds: config.circleWebhookKeyCacheSeconds,
@@ -29,6 +30,8 @@ const app = createApp({
   arcIndexer,
   store,
   agentDecisionService,
+  autonomousAgentService,
+  autonomyStore,
   appKitGateway,
   operatorAuthService,
 });

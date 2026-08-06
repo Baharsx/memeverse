@@ -2,9 +2,15 @@
 
 **MemeVerse is a meme asset terminal built on Arc for launching, trading, minting, and agent-guided creator settlement in USDC.**
 
-The current release is an Arc Public Testnet product with authenticated human-controlled Agent settlement and real onchain USDC markets. Markets, balances, quotes, positions, fees, and receipts come from deployed contracts and the Arc RPC; no market financial data is fabricated. Privileged Agent settlement requires a wallet-signed operator session plus a one-time approval bound to the exact settlement. NFT and legacy Vault presentation surfaces remain clearly labelled simulations for Phase 6B. The Circle Stablecoin Kits screen still provides a real authenticated USDC/EURC estimate without signing or broadcasting.
+The current release is an Arc Public Testnet product. Markets, balances, quotes, positions, fees, and receipts come from deployed contracts and the Arc RPC; no market financial data is fabricated.
 
-MemeVerse is not independently audited, is not mainnet ready, and is not autonomous.
+**Backend (Stage 2, Phase 6B):** real Arc media NFTs with onchain market provenance, a real USDC NFT marketplace, a real ERC-4626 USDC vault, and a genuinely autonomous creator-settlement agent that reads confirmed Arc evidence, decides by deterministic policy, and pays creators in USDC with no human approval in the execution path. All three contracts are deployed and verified on Arc Testnet, and each has been proven with live transactions — including one real autonomous payout. See [`docs/PHASE-6B-STAGE-2.md`](./docs/PHASE-6B-STAGE-2.md) for addresses, transaction hashes, and the full trust boundary.
+
+**Browser UI:** the NFT, marketplace, vault, and agent surfaces all read deployed Arc contracts and the sanitized backend status. The Stage 1 simulated NFT archive and Vault screens have been deleted, not merely unrouted. The manual operator settlement path is unchanged and still requires a wallet-signed session plus a one-time approval bound to the exact settlement.
+
+**Circle Agent Stack is integrated.** Autonomous payouts execute through a Circle **Agent Wallet** (`0x65da73c6d9300F3dAb1dF785219f76DeCA5e0FE3`), created with the official `@circle-fin/cli` on Arc Testnet. Because an Agent Wallet is an ERC-4337 smart contract account, and Arc's Memo `CallFrom` only preserves a directly signing EOA, the autonomous route calls its own settlement contract directly while the manual operator route keeps the Developer-Controlled Wallet and the Memo hop. The two routes share no wallet, contract, or allowance. Circle's wallet-level spending policies are mainnet-only, so on testnet every cap is application-level — see [`docs/PHASE-6B-STAGE-2.md`](./docs/PHASE-6B-STAGE-2.md).
+
+MemeVerse is not independently audited and is not mainnet ready.
 
 ## Built on Arc
 
@@ -529,12 +535,14 @@ Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration
 - No new contract was deployed. `npm run markets:audit:onchain` continues to audit factory `0x363124490E953EEbB414eB4c3e2f03a40eef8F2C` and seed market `0xBe6E56a8B5ec8861aE1284dF3f60E27953f2d39D` with unchanged exact-spend economics.
 - The design and residual risks are documented in [`docs/PHASE-6A2-TRUST-BOUNDARY.md`](./docs/PHASE-6A2-TRUST-BOUNDARY.md).
 
-## Not yet live
+## Known limitations
 
-- Autonomous Agent execution. `AUTONOMOUS_POLICY` is declared but fails closed; only `MANUAL_OPERATOR` execution is implemented.
-- Trusted internal signal collectors. `decideTrusted` exists as the Phase 6B seam and is not wired to any route.
-- NFT minting/listing/ownership and the legacy NFT archive are Phase 6B.
-- The legacy Vault presentation is still a labelled simulation; reusable wallet/USDC/market-position reads now exist for its Phase 6B replacement.
+- **No Circle wallet-level spend limits on Arc Testnet.** `circle wallet limit` is mainnet only, so every autonomous cap in force is application-level rather than enforced by the wallet itself.
+- **`fraudRisk` is a heuristic score, not a fraud detector.** It measures onchain shape and cannot prove intent; the spend caps bound the damage rather than preventing manipulation.
+- **The Agent Wallet session is time-bounded** (~28 days). When it lapses the agent reports `UNAVAILABLE` and stops paying until a human logs in again.
+- **Autonomous execution needs the `circle` CLI on `PATH`** in the worker's environment; it is a subprocess dependency, not a library call.
+- **Single Arc RPC** for the backend collector: a sustained outage means no autonomous decisions. The collector fails closed rather than guessing.
+- Not independently audited, and not mainnet ready.
 
 ## Post-hackathon hardening
 

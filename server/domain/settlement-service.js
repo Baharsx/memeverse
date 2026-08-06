@@ -9,6 +9,7 @@ import {
   markExecutionAttempt,
 } from './execution-claim.js';
 import { ExecutionClaimHeartbeat, systemScheduler } from './execution-claim-heartbeat.js';
+import { assertAutonomousAuthorityFresh, isAutonomousAuthority } from './autonomous-authority.js';
 import { executionModes, isEnabledExecutionMode, isKnownExecutionMode } from './execution-mode.js';
 import { settlementExecutionBindingHash } from './settlement-binding.js';
 import { evaluateSettlementPolicy } from './policy.js';
@@ -252,6 +253,19 @@ export class SettlementService {
         { status: 403 },
       );
     }
+    if (authorization.mode === executionModes.AUTONOMOUS_POLICY) {
+      // The mode being enabled is not permission to use it. Only an authority minted in-process
+      // by the autonomous pipeline carries the brand; anything reconstructed from a request
+      // body — including a byte-perfect copy of a real one — fails here.
+      if (!isAutonomousAuthority(authorization)) {
+        throw new DomainError(
+          'AUTONOMOUS_AUTHORITY_REQUIRED',
+          'Autonomous execution requires an internally minted, evidence-bound authority.',
+          { status: 403 },
+        );
+      }
+      assertAutonomousAuthorityFresh(authorization, this.now());
+    }
     return {
       mode: authorization.mode,
       operatorAddress: authorization.operatorAddress ?? null,
@@ -259,6 +273,7 @@ export class SettlementService {
       authorizationRef: authorization.authorizationRef,
       bindingHash: authorization.bindingHash ?? null,
       authorizedAt: authorization.authorizedAt ?? this.now().toISOString(),
+      agent: authorization.agent ?? null,
     };
   }
 
@@ -307,6 +322,9 @@ export class SettlementService {
       // Derived from the settlement itself, so a resume can never mint a second provider
       // operation identity and can never create a second payout.
       providerOperationKey: current.id,
+      // For an autonomous attempt this is the evidence that answers "why did the agent pay this
+      // creator this amount?" without needing any other record.
+      agent: authority.agent ?? null,
       claimedAt: nowIso,
       leaseExpiresAt: new Date(
         new Date(nowIso).getTime() + this.executionClaimLeaseSeconds * 1000,
@@ -407,6 +425,58 @@ export class SettlementService {
     return this.submitClaimedExecution(claim.record);
   }
 
+  /**
+   * The only entry point that can execute an autonomous payout.
+   *
+   * It is deliberately not reachable from the transport: `POST /execute` resolves a manual
+   * operator authority and nothing else, so no request can steer a settlement down this path.
+   *
+   * `preflight` runs in the last moment before the claim is taken, after all the slow work
+   * (evidence collection, policy, quoting) is already done. It re-asserts the things that can
+   * change underneath a long evaluation — the pause switch, the market's registration, the
+   * creator address, and the freshness of the block anchor — so a payout is never claimed on
+   * evidence that stopped being true while the agent was thinking.
+   */
+  async executeAutonomous(id, authority, { preflight } = {}) {
+    if (!isAutonomousAuthority(authority)) {
+      throw new DomainError(
+        'AUTONOMOUS_AUTHORITY_REQUIRED',
+        'Autonomous execution requires an internally minted, evidence-bound authority.',
+        { status: 403 },
+      );
+    }
+    const resolved = this.requireExecutionAuthority(authority);
+
+    let record = await this.requireRecord(id);
+    record = await this.expireIfNeeded(record);
+    if (record.circle?.transactionId) return this.reconcile(id);
+    if (record.state !== settlementStates.AWAITING_SIGNATURE) {
+      throw this.notExecutable(record.state);
+    }
+    if (!this.circleGateway) {
+      throw new DomainError('CIRCLE_NOT_CONFIGURED', 'Circle wallet gateway is unavailable.', {
+        status: 503,
+      });
+    }
+    // Re-checked here rather than only in the worker, so the window between deciding and
+    // claiming is as small as the database will allow.
+    if (preflight) await preflight(record);
+
+    const claim = await this.claimExecution(id, authority);
+    if (claim.outcome === 'ALREADY_SUBMITTED') return this.reconcile(id);
+    // The authority the claim recorded must be the one we minted; anything else means another
+    // writer took the settlement between the preflight and the claim.
+    if (claim.record.executionSubmission.executionMode !== executionModes.AUTONOMOUS_POLICY) {
+      throw new DomainError(
+        'EXECUTION_MODE_CONFLICT',
+        'The settlement was claimed under a different execution mode.',
+        { status: 409 },
+      );
+    }
+    void resolved;
+    return this.submitClaimedExecution(claim.record);
+  }
+
   /** A lease renewal loop bound to one claim, live only while that claim's provider call is. */
   startExecutionHeartbeat(settlementId, claimId) {
     return new ExecutionClaimHeartbeat({
@@ -500,8 +570,16 @@ export class SettlementService {
     const classification = classifyProviderFailure(error);
     const released = classification === 'PRE_PROVIDER';
     await this.mutate(id, (current) => {
-      // Ownership may already have moved on; a stale failure never rewrites another claim.
-      if (current.executionSubmission?.claimId !== claimId) return undefined;
+      // Ownership may already have moved on; a stale failure never rewrites another claim. It
+      // still has to close out its *own* attempt, though, or the audit trail would keep that
+      // attempt at `CLAIMED` forever and misreport a finished provider call as still running.
+      if (current.executionSubmission?.claimId !== claimId) {
+        return this.recordSupersededSubmissionFailure(current, claimId, {
+          classification,
+          released,
+          error,
+        });
+      }
       const nowIso = this.now().toISOString();
       const status = released
         ? executionSubmissionStatuses.RELEASED
@@ -537,6 +615,54 @@ export class SettlementService {
         }],
       };
     }).catch(() => undefined);
+  }
+
+  /**
+   * Closes out the history of an attempt whose claim was superseded while its provider call was
+   * still open, and does nothing else.
+   *
+   * This is an audit-trail repair, never a lifecycle event. The current `executionSubmission`,
+   * the root `executionAuthorization`, the settlement state, and the treasury reservation are all
+   * left exactly as the current claimant left them — a late error from a claimant that no longer
+   * owns the settlement must not release a claim, free capacity, or invite a retry. Only the
+   * superseded claimant's own `executionAttempts[]` entry is finalised, preserving its claim ID,
+   * attempt number, authority, and failure classification.
+   */
+  recordSupersededSubmissionFailure(current, claimId, { classification, released, error }) {
+    const attempts = current.executionAttempts ?? [];
+    const attempt = attempts.find((entry) => entry.claimId === claimId);
+    // An unknown claim, or one whose provider call already resolved, leaves the trail untouched
+    // rather than writing a contradictory outcome or burning a row version for nothing.
+    if (!attempt || attempt.status === executionSubmissionStatuses.SUBMITTED) return undefined;
+    if (attempt.failedAt) return undefined;
+
+    const nowIso = this.now().toISOString();
+    const status = released
+      ? executionSubmissionStatuses.RELEASED
+      : executionSubmissionStatuses.UNKNOWN_OUTCOME;
+    return {
+      ...current,
+      executionAttempts: markExecutionAttempt(attempts, claimId, {
+        status,
+        failedAt: nowIso,
+        failureClassification: classification,
+        failureCode: error?.code ?? 'CIRCLE_REQUEST_FAILED',
+        // Which claim had taken over by the time this attempt's call came back.
+        supersededByClaimId: current.executionSubmission?.claimId ?? null,
+      }),
+      updatedAt: nowIso,
+      history: [...current.history, {
+        event: 'EXECUTION',
+        state: current.state,
+        at: nowIso,
+        reason: 'EXECUTION_FAILURE_BY_SUPERSEDED_CLAIM',
+        claimId,
+        attempt: attempt.attempt,
+        classification,
+        code: error?.code ?? 'CIRCLE_REQUEST_FAILED',
+        supersededByClaimId: current.executionSubmission?.claimId ?? null,
+      }],
+    };
   }
 
   async reconcile(id) {

@@ -43,10 +43,17 @@ export function evaluateAgentSignals(signals, policy, { now, arc, circle, eviden
   if (arc.status !== 'verified') {
     reasons.push({ code: 'ARC_NOT_VERIFIED', message: 'Arc RPC health is not verified.' });
   }
-  if (!circle.configured || circle.wallet?.state !== 'LIVE' || circle.wallet?.accountType !== 'EOA') {
+  // Both Circle wallet models MemeVerse uses are accepted, and only those two. The manual
+  // operator path executes from a Developer-Controlled EOA, which must sign Arc's Memo CallFrom
+  // directly. The autonomous path executes from a Circle Agent Wallet, which is an ERC-4337
+  // smart contract account and therefore calls its own settlement contract directly. Anything
+  // reporting some other account type is not a wallet this system knows how to settle through.
+  const acceptedAccountTypes = ['EOA', 'SCA'];
+  if (!circle.configured || circle.wallet?.state !== 'LIVE'
+    || !acceptedAccountTypes.includes(circle.wallet?.accountType)) {
     reasons.push({
       code: 'CIRCLE_TREASURY_NOT_READY',
-      message: 'The Circle Arc Testnet EOA treasury is not ready.',
+      message: 'The Circle Arc Testnet treasury wallet is not ready.',
     });
   }
 

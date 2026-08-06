@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useWriteContract } from 'wagmi';
-import { marketPublicClient } from './market';
+import { marketPublicClient } from './market.js';
 
 export function useOnchainAction() {
   const { writeContractAsync } = useWriteContract();

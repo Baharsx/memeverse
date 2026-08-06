@@ -126,6 +126,26 @@ export async function getCircleWallet() {
   return request('/api/v1/circle/wallet');
 }
 
+/**
+ * Sanitized public view of the autonomous agent.
+ *
+ * Readable without an operator session: it carries policy versions, caps, and decision outcomes,
+ * but no Circle wallet identifiers or credentials.
+ */
+export async function getAgentAutonomy() {
+  const payload = await request('/api/v1/agent/autonomy');
+  return payload.data;
+}
+
+/** Operator-only emergency stop. Never required for an eligible payout to execute. */
+export async function setAgentAutonomyPaused(paused, reason) {
+  const payload = await request('/api/v1/agent/autonomy', {
+    method: 'POST',
+    body: JSON.stringify(reason ? { paused, reason } : { paused }),
+  });
+  return payload.data;
+}
+
 export function createIdempotencyKey() {
   return `memeverse-${crypto.randomUUID()}`;
 }

@@ -57,3 +57,85 @@ footer a{white-space:nowrap}footer .social-link:hover{color:var(--acid)}
 @media(max-width:500px){.market-proof,.market-order{padding:20px}.trade-review{grid-template-columns:1fr}.trade-review span,.trade-review span:nth-child(2n),.trade-review span:nth-last-child(-n+2){border-right:0;border-bottom:1px solid var(--line)}.trade-review span:last-child{border-bottom:0}.transaction-status{grid-template-columns:1fr}.transaction-status>a{text-align:left}.wallet{max-width:132px;font-size:8px;white-space:nowrap;overflow:hidden}.wallet-balance{display:none}}
 nav a:hover sup,nav a.active sup{color:var(--bg)}
 @media(max-width:720px){.operator-steps{grid-template-columns:1fr}.operator-steps span{border-right:0;border-bottom:1px solid var(--line)}.operator-steps span:last-child{border-bottom:0}.operator-identity .btn{width:100%}.execution-review dl{grid-template-columns:1fr}.execution-review dd{text-align:left}}
+
+/* ── Stage 2 surfaces: media assets, USDC vault, autonomous agent ──────────── */
+.stage2-header{padding:26px 26px 14px;border-bottom:1px solid var(--line)}
+.stage2-header h1,.stage2-header h2{margin:0;font:22px/1.1 var(--display);letter-spacing:.04em}
+.stage2-header sup{color:var(--mute);font:11px var(--mono);margin-right:9px}
+.stage2-meta{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:12px;font:11px var(--mono);color:var(--mute)}
+.arcscan-link{color:var(--acid);border-bottom:1px solid transparent}
+.arcscan-link:hover{border-bottom-color:var(--acid)}
+.stage2-unavailable{flex-direction:column;gap:10px;text-align:center}
+.stage2-unavailable b{color:var(--ink);font:13px var(--mono);letter-spacing:.05em}
+
+.tx-status{margin-top:12px;display:flex;flex-direction:column;gap:5px;font:11px var(--mono)}
+.tx-status b{letter-spacing:.05em}
+.tx-confirmed b{color:var(--acid)}
+.tx-failed b{color:var(--down)}
+.tx-error{color:var(--down);word-break:break-word}
+
+/* Media assets */
+.media-card{display:flex;flex-direction:column}
+.media-art{display:flex;align-items:center;justify-content:center;overflow:hidden;aspect-ratio:1;background:var(--bg-2)}
+.media-art img{width:100%;height:100%;object-fit:cover;display:block}
+.media-missing{font:11px var(--mono);color:var(--mute)}
+.media-body{padding:16px;display:flex;flex-direction:column;gap:10px}
+.media-body h3{margin:0;font:15px var(--display);letter-spacing:.03em}
+.media-body small{font:10px var(--mono);color:var(--mute);letter-spacing:.08em}
+.media-facts{margin:0;display:flex;flex-direction:column;gap:5px;font:10px var(--mono)}
+.media-facts>div{display:flex;justify-content:space-between;gap:12px}
+.media-facts dt{color:var(--mute)}
+.media-facts dd{margin:0;text-align:right;word-break:break-all}
+.media-listing{border:1px solid var(--line);padding:9px 11px;font:11px var(--mono);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.media-listing b{color:var(--acid);letter-spacing:.05em}
+.media-listing.stale b{color:var(--down)}
+.media-listing.stale small{flex-basis:100%;color:var(--mute)}
+.media-actions{display:flex;flex-direction:column;gap:9px;border-top:1px solid var(--line);padding-top:12px}
+.media-actions label{display:flex;flex-direction:column;gap:5px;font:10px var(--mono);color:var(--mute)}
+.media-actions input{background:var(--bg-2);border:1px solid var(--line);color:var(--ink);padding:9px 11px;font:12px var(--mono)}
+
+.mint-panel{border-top:1px solid var(--line);padding:26px;display:flex;flex-direction:column;gap:13px;max-width:560px}
+.mint-panel h3{margin:0;font:15px var(--display);letter-spacing:.04em}
+.mint-panel label{display:flex;flex-direction:column;gap:5px;font:10px var(--mono);color:var(--mute)}
+.mint-panel input,.mint-panel select{background:var(--bg-2);border:1px solid var(--line);color:var(--ink);padding:10px 12px;font:12px var(--mono)}
+.mint-note{margin:0;font:11px/1.6 var(--mono);color:var(--mute)}
+.mint-note code{color:var(--acid)}
+
+/* Vault */
+.vault-totals{border-top:1px solid var(--line)}
+.vault-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));border-top:1px solid var(--line)}
+.vault-panel{padding:26px;display:flex;flex-direction:column;gap:12px;border-right:1px solid var(--line)}
+.vault-panel h3{margin:0;font:15px var(--display);letter-spacing:.04em}
+.vault-panel label{display:flex;flex-direction:column;gap:5px;font:10px var(--mono);color:var(--mute)}
+.vault-panel input{background:var(--bg-2);border:1px solid var(--line);color:var(--ink);padding:10px 12px;font:12px var(--mono)}
+
+/* Autonomous agent */
+.agent-autonomy{border-bottom:1px solid var(--line)}
+.agent-state{padding:3px 10px;border:1px solid var(--line);letter-spacing:.09em}
+.agent-state.active{color:var(--bg);background:var(--acid);border-color:var(--acid)}
+.agent-state.paused{color:var(--down);border-color:var(--down)}
+.agent-summary{border-top:1px solid var(--line)}
+.agent-payouts{display:flex;flex-direction:column}
+.agent-payout{border-top:1px solid var(--line);padding:20px 26px;display:flex;flex-direction:column;gap:14px}
+.agent-payout.verified{border-left:3px solid var(--acid)}
+.agent-payout header{display:flex;flex-wrap:wrap;gap:12px 30px;align-items:baseline}
+.agent-payout header small{display:block;font:10px var(--mono);color:var(--mute);letter-spacing:.08em}
+.agent-amount b{font:20px var(--display);color:var(--acid)}
+.agent-chain{display:flex;flex-wrap:wrap;gap:10px 26px;padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.agent-step{display:flex;flex-direction:column;gap:3px;font:11px var(--mono)}
+.agent-step small{color:var(--mute);font-size:10px;letter-spacing:.08em}
+.agent-step b.ok{color:var(--acid)}
+.agent-step b.warn{color:var(--down)}
+.agent-metrics{margin:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px}
+.agent-metric{border:1px solid var(--line);padding:9px 11px;display:flex;flex-direction:column;gap:3px}
+.agent-metric dt{font:10px var(--mono);color:var(--mute);letter-spacing:.07em}
+.agent-metric dd{margin:0;font:17px var(--display)}
+.agent-metric small{font:9px var(--mono);color:var(--mute)}
+.agent-metric.pass dd{color:var(--acid)}
+.agent-metric.fail dd{color:var(--down)}
+.agent-reasons{margin:0;font:10px var(--mono);color:var(--mute);word-break:break-word}
+.agent-receipts{display:flex;flex-wrap:wrap;gap:8px 22px;font:10px var(--mono);color:var(--mute)}
+.agent-receipts .recon.ok{color:var(--acid)}
+.agent-receipts .recon.warn{color:var(--down)}
+.agent-digest{word-break:break-all}
+.route-divider{border:0;border-top:1px solid var(--line);margin:0}

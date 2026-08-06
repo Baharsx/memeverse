@@ -96,6 +96,8 @@ export function executionAttemptFrom(submission) {
     failureClassification: null,
     failureCode: null,
     circleTransactionId: null,
+    // Set only when this attempt's provider call resolved after another claim had taken over.
+    supersededByClaimId: null,
   };
 }
 

@@ -62,6 +62,25 @@ const environmentSchema = z.object({
   AGENT_MAX_FRAUD_RISK: z.coerce.number().int().min(0).max(100).default(20),
   AGENT_MIN_CONFIDENCE: z.coerce.number().int().min(0).max(100).default(80),
   AGENT_SIGNAL_MAX_AGE_SECONDS: z.coerce.number().int().min(30).max(86400).default(300),
+  // Autonomous execution. Committed defaults are deliberately production-safe: autonomy is off,
+  // the payout envelope is tiny, and the confirmation depth is conservative. A live testnet demo
+  // raises these through uncommitted local configuration, never by weakening the defaults here.
+  AGENT_AUTONOMOUS_ENABLED: z.enum(['true', 'false']).default('false'),
+  AGENT_MIN_CONFIRMATIONS: z.coerce.number().int().min(1).max(2000).default(12),
+  AGENT_SIGNAL_LOOKBACK_BLOCKS: z.coerce.number().int().min(10).max(500_000).default(50_000),
+  AGENT_AUTONOMOUS_MAX_PAYOUT_USDC: z.string().regex(/^\d+(?:\.\d{1,6})?$/).default('0.100000'),
+  AGENT_AUTONOMOUS_MIN_PAYOUT_USDC: z.string().regex(/^\d+(?:\.\d{1,6})?$/).default('0.010000'),
+  AGENT_MARKET_DAILY_CAP_USDC: z.string().regex(/^\d+(?:\.\d{1,6})?$/).default('0.300000'),
+  AGENT_MARKET_COOLDOWN_SECONDS: z.coerce.number().int().min(60).max(604_800).default(3600),
+  AGENT_AUTONOMOUS_SCORE_FLOOR: z.coerce.number().int().min(0).max(99).default(70),
+  AGENT_DECISION_TTL_SECONDS: z.coerce.number().int().min(30).max(3600).default(300),
+  AGENT_WORKER_INTERVAL_MS: z.coerce.number().int().min(5_000).max(3_600_000).default(60_000),
+  // Circle Agent Stack. The Agent Wallet is an ERC-4337 smart contract account created with the
+  // official Circle CLI; it executes autonomous payouts through its own settlement contract,
+  // whose immutable operator is that wallet. Absent values simply leave autonomy unconfigured.
+  AGENT_WALLET_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  AGENT_SETTLEMENT_CONTRACT_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  CIRCLE_AGENT_SETTLEMENT_CONTRACT_ID: z.string().uuid().optional(),
   SETTLEMENT_OPERATOR_ADDRESS: checksummedAddress.optional(),
   OPERATOR_SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(3600).default(1200),
   OPERATOR_CHALLENGE_TTL_SECONDS: z.coerce.number().int().min(60).max(900).default(300),
@@ -162,6 +181,21 @@ export function loadServerConfig(environment = process.env) {
     agentMaxFraudRisk: parsed.AGENT_MAX_FRAUD_RISK,
     agentMinConfidence: parsed.AGENT_MIN_CONFIDENCE,
     agentSignalMaxAgeSeconds: parsed.AGENT_SIGNAL_MAX_AGE_SECONDS,
+    agentAutonomousEnabled: parsed.AGENT_AUTONOMOUS_ENABLED === 'true',
+    agentMinConfirmations: parsed.AGENT_MIN_CONFIRMATIONS,
+    agentSignalLookbackBlocks: parsed.AGENT_SIGNAL_LOOKBACK_BLOCKS,
+    agentAutonomousMaxPayoutUsdc: parsed.AGENT_AUTONOMOUS_MAX_PAYOUT_USDC,
+    agentAutonomousMinPayoutUsdc: parsed.AGENT_AUTONOMOUS_MIN_PAYOUT_USDC,
+    agentMarketDailyCapUsdc: parsed.AGENT_MARKET_DAILY_CAP_USDC,
+    agentMarketCooldownSeconds: parsed.AGENT_MARKET_COOLDOWN_SECONDS,
+    agentAutonomousScoreFloor: parsed.AGENT_AUTONOMOUS_SCORE_FLOOR,
+    agentDecisionTtlSeconds: parsed.AGENT_DECISION_TTL_SECONDS,
+    agentWorkerIntervalMs: parsed.AGENT_WORKER_INTERVAL_MS,
+    agentWalletAddress: parsed.AGENT_WALLET_ADDRESS
+      ? getAddress(parsed.AGENT_WALLET_ADDRESS) : undefined,
+    agentSettlementContractAddress: parsed.AGENT_SETTLEMENT_CONTRACT_ADDRESS
+      ? getAddress(parsed.AGENT_SETTLEMENT_CONTRACT_ADDRESS) : undefined,
+    circleAgentSettlementContractId: parsed.CIRCLE_AGENT_SETTLEMENT_CONTRACT_ID,
     settlementOperatorAddress: parsed.SETTLEMENT_OPERATOR_ADDRESS
       ? getAddress(parsed.SETTLEMENT_OPERATOR_ADDRESS)
       : undefined,

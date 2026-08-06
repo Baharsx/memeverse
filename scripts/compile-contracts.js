@@ -1,6 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import solc from 'solc';
+
+const require = createRequire(import.meta.url);
 
 const builds = [
   {
@@ -13,7 +17,40 @@ const builds = [
     contractNames: ['MemeMarket', 'MemeVerseFactory'],
     viaIR: true,
   },
+  {
+    sourceName: 'MemeVerseMedia.sol',
+    contractNames: ['MemeVerseMediaNFT', 'MemeVerseNFTMarketplace'],
+    viaIR: true,
+  },
+  {
+    sourceName: 'MemeVerseVault.sol',
+    contractNames: ['MemeVerseVault'],
+    viaIR: true,
+  },
 ];
+
+/**
+ * Resolves `@openzeppelin/...` imports from the installed, version-pinned package rather than
+ * vendoring upstream sources into the repository.
+ *
+ * Every resolved file is recorded in the standard JSON input, so the emitted artifact still
+ * carries the complete, byte-exact source set the bytecode was produced from — which is what
+ * source verification and the onchain audit scripts compare against.
+ */
+function importResolver(sources) {
+  return (importPath) => {
+    try {
+      const filePath = importPath.startsWith('@')
+        ? require.resolve(importPath)
+        : resolve('contracts', importPath);
+      const contents = readFileSync(filePath, 'utf8');
+      sources[importPath] = { content: contents };
+      return { contents };
+    } catch (error) {
+      return { error: `Could not resolve import "${importPath}": ${error.message}` };
+    }
+  };
+}
 
 for (const build of builds) {
   const sourcePath = resolve('contracts', build.sourceName);
@@ -40,7 +77,9 @@ for (const build of builds) {
     },
   };
 
-  const output = JSON.parse(solc.compile(JSON.stringify(input)));
+  const output = JSON.parse(solc.compile(JSON.stringify(input), {
+    import: importResolver(input.sources),
+  }));
   const errors = (output.errors ?? []).filter((entry) => entry.severity === 'error');
   if (errors.length) throw new Error(errors.map((entry) => entry.formattedMessage).join('\n'));
 

@@ -116,6 +116,47 @@ export const usdcAbi = [
   },
 ];
 
+/**
+ * Execution plan for the autonomous path, which calls its settlement contract directly.
+ *
+ * Arc's Memo `CallFrom` extension preserves only a *directly signing EOA* as `msg.sender`, and
+ * empirically rejects the ERC-4337 smart contract account that Circle Agent Wallets use. The
+ * autonomous executor therefore calls `settle` on its own contract — the one whose immutable
+ * operator is the Agent Wallet — instead of routing through Memo.
+ *
+ * The settlement identity is unchanged: `record.memoId` is still the contract-level
+ * `settlementId`, so the contract's own replay guard (`settled[settlementId]`) protects the
+ * autonomous path exactly as it protects the manual one, and reconciliation still matches
+ * `SettlementExecuted` on that identity.
+ */
+export function createArcDirectSettlementExecutionPlan(record, settlementContractAddress) {
+  const targetContract = getAddress(settlementContractAddress);
+  const callData = encodeFunctionData({
+    abi: settlementAbi,
+    functionName: 'settle',
+    args: [record.memoId, getAddress(record.recipient), BigInt(record.amount.creatorPayoutUnits)],
+  });
+
+  return {
+    provider: 'CIRCLE_AGENT_WALLET',
+    operation: 'ARC_DIRECT_SETTLEMENT',
+    chain: 'ARC-TESTNET',
+    asset: 'USDC',
+    recipient: record.recipient,
+    amountUsdc: record.amount.creatorPayoutUsdc,
+    amountUnits: record.amount.creatorPayoutUnits,
+    memoId: record.memoId,
+    // No Memo hop: the target of the call is the settlement contract itself.
+    memoContract: null,
+    targetContract,
+    callData,
+    callDataHash: keccak256(callData),
+    memoData: null,
+    requiresSigning: true,
+    broadcast: false,
+  };
+}
+
 export function createArcSettlementExecutionPlan(record, settlementContractAddress) {
   const targetContract = getAddress(settlementContractAddress);
   const callData = encodeFunctionData({

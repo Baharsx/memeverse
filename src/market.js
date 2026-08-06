@@ -6,7 +6,7 @@ import {
   parseAbi,
   parseUnits,
 } from 'viem';
-import { ARC_FALLBACK_RPC_URL, ARC_RPC_URL, arc, arcContracts } from './arc';
+import { ARC_FALLBACK_RPC_URL, ARC_RPC_URL, arc, arcContracts } from './arc.js';
 
 export const USDC_DECIMALS = 6;
 export const TOKEN_DECIMALS = 18;

@@ -30,6 +30,26 @@ function contentSecurityPolicyMeta(apiBaseUrl) {
 export default defineConfig({
   base: '/memeverse/',
   plugins: [react(), contentSecurityPolicyMeta(process.env.VITE_API_BASE_URL)],
+  build: {
+    rollupOptions: {
+      output: {
+        /**
+         * The wallet and chain libraries dominate the bundle and change far less often than
+         * MemeVerse's own code. Splitting them out keeps the application chunk small and lets a
+         * returning visitor reuse the cached vendor chunks across deploys.
+         */
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('wagmi') || id.includes('@tanstack')) return 'wallet';
+          if (id.includes('viem') || id.includes('ox') || id.includes('@noble')
+            || id.includes('@scure') || id.includes('abitype')) return 'chain';
+          if (id.includes('react') || id.includes('scheduler')) return 'react';
+          if (id.includes('framer-motion') || id.includes('motion')) return 'motion';
+          return 'vendor';
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       '/api': 'http://127.0.0.1:8787',

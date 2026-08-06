@@ -88,6 +88,8 @@ export async function startTestApp({
   operatorAuthService = createTestOperatorAuthService(),
   configOverrides = {},
   store = new MemorySettlementStore(),
+  autonomousAgentService,
+  autonomyStore,
 } = {}) {
   const config = baseTestConfig(configOverrides);
   const settlementService = new SettlementService({
@@ -113,6 +115,8 @@ export async function startTestApp({
     arcIndexer,
     store,
     agentDecisionService,
+    autonomousAgentService,
+    autonomyStore,
     operatorAuthService,
     logger: { info() {}, error() {} },
   });
@@ -124,6 +128,8 @@ export async function startTestApp({
     store,
     settlementService,
     agentDecisionService,
+    autonomousAgentService,
+    autonomyStore,
     operatorAuthService,
     circleGateway,
     async close() {

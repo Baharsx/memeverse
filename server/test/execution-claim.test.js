@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
+import { mintAutonomousAuthority } from '../domain/autonomous-authority.js';
 import { DomainError } from '../domain/errors.js';
 import { executionModes } from '../domain/execution-mode.js';
 import { createSettlementPolicy } from '../domain/policy.js';
@@ -390,14 +391,50 @@ test('a settlement payload changed after authorization still fails the claim', a
   assert.equal(gateway.executeCalls.length, 0);
 });
 
-test('AUTONOMOUS_POLICY still fails closed before any claim is written', async () => {
+test('an unbranded AUTONOMOUS_POLICY authority fails closed before any claim is written', async () => {
   const gateway = recordingGateway();
   const { service, id } = await fixture({ gateway });
 
+  // The mode is enabled in this release, but a plain object claiming it is exactly what an
+  // HTTP body would deserialise into, and it must never execute.
   await assert.rejects(
     service.execute(id, authority('autonomous', { mode: executionModes.AUTONOMOUS_POLICY })),
-    { code: 'EXECUTION_MODE_NOT_ENABLED', status: 501 },
+    { code: 'AUTONOMOUS_AUTHORITY_REQUIRED', status: 403 },
   );
+  assert.equal(gateway.executeCalls.length, 0);
+  assert.equal((await service.get(id)).executionSubmission ?? null, null);
+});
+
+test('a JSON copy of a genuine autonomous authority is still refused', async () => {
+  const gateway = recordingGateway();
+  const { service, id } = await fixture({ gateway });
+
+  // A real authority, minted the only legitimate way.
+  const genuine = mintAutonomousAuthority({
+    settlementId: id,
+    marketAddress: '0xBe6E56a8B5ec8861aE1284dF3f60E27953f2d39D',
+    creatorAddress: '0x6bbD385C0f51D273a1685C977fAfa179F9eEb689',
+    evidenceDigest: `0x${'11'.repeat(32)}`,
+    policyVersion: 'AGENT_AUTONOMOUS_POLICY_V1',
+    metricVersion: 'AGENT_SIGNAL_METRICS_V1',
+    epoch: 1,
+    decidedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    amountUnits: 10_000n,
+  });
+
+  // Serialising and reviving it is precisely what crossing an HTTP boundary would do. The brand
+  // is a Symbol, so it cannot survive the round trip, and the copy is powerless.
+  const replayed = JSON.parse(JSON.stringify(genuine));
+  assert.equal(replayed.mode, 'AUTONOMOUS_POLICY');
+  assert.equal(replayed.authorizationRef, genuine.authorizationRef);
+
+  await assert.rejects(service.execute(id, replayed), {
+    code: 'AUTONOMOUS_AUTHORITY_REQUIRED', status: 403,
+  });
+  await assert.rejects(service.executeAutonomous(id, replayed), {
+    code: 'AUTONOMOUS_AUTHORITY_REQUIRED', status: 403,
+  });
   assert.equal(gateway.executeCalls.length, 0);
   assert.equal((await service.get(id)).executionSubmission ?? null, null);
 });

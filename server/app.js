@@ -49,6 +49,18 @@ const executeSchema = z.object({
   authorizationId: z.string().trim().min(16).max(128),
 }).strict();
 
+/**
+ * The pause switch takes a reason and nothing else.
+ *
+ * There is deliberately no field here for a market, a recipient, an amount, or an execution
+ * mode: an operator may stop or start autonomy, but the transport offers no vocabulary for
+ * approving or steering an individual autonomous payout.
+ */
+const autonomyControlSchema = z.object({
+  paused: z.boolean(),
+  reason: z.string().trim().min(1).max(200).optional(),
+}).strict();
+
 function responseData(record, metadata = {}) {
   return { data: record, meta: metadata };
 }
@@ -73,6 +85,8 @@ export function createApp({
   arcIndexer,
   store,
   agentDecisionService,
+  autonomousAgentService,
+  autonomyStore,
   appKitGateway,
   operatorAuthService,
   logger = console,
@@ -391,6 +405,41 @@ export function createApp({
         settlement: record,
       });
       response.status(201).json({ data: authorization });
+    });
+
+  /**
+   * Sanitized public view of the autonomous agent.
+   *
+   * Safe for an unauthenticated browser: it carries policy versions, caps, decision outcomes,
+   * and Arc-verifiable identities, but no Circle wallet IDs, no internal worker identity, and
+   * no credentials.
+   */
+  app.get('/api/v1/agent/autonomy', limiter.global, async (request, response) => {
+    if (!autonomousAgentService) {
+      throw new DomainError('AGENT_NOT_CONFIGURED', 'Autonomous agent is unavailable.', {
+        status: 503,
+      });
+    }
+    response.json(responseData(await autonomousAgentService.status()));
+  });
+
+  /** Operator-only emergency stop. Never required for an eligible payout to execute. */
+  app.post('/api/v1/agent/autonomy', limiter.settlementWrite, requireOrigin, requireOperator,
+    async (request, response) => {
+      if (!autonomyStore) {
+        throw new DomainError('AGENT_NOT_CONFIGURED', 'Autonomous agent is unavailable.', {
+          status: 503,
+        });
+      }
+      const { paused, reason } = autonomyControlSchema.parse(request.body);
+      const state = await autonomyStore.setAutonomyPaused({
+        paused,
+        reason: reason ?? null,
+        changedBy: request.operator.address,
+      });
+      response.json(responseData({
+        paused: state.paused, reason: state.reason, changedAt: state.changedAt,
+      }));
     });
 
   app.post('/api/v1/settlements/:id/execute', limiter.settlementExecute,

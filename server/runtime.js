@@ -1,12 +1,22 @@
+import { hostname } from 'node:os';
+import { createPublicClient, http } from 'viem';
 import { createAgentPolicy } from './domain/agent-policy.js';
 import { AgentDecisionService } from './domain/agent-decision-service.js';
+import { createPayoutPolicy } from './domain/agent-payout.js';
+import {
+  AUTONOMOUS_POLICY_VERSION, AutonomousAgentService,
+} from './domain/autonomous-agent-service.js';
+import { defaultMetricConfig } from './domain/agent-signal-metrics.js';
 import { OperatorAuthService } from './domain/operator-auth-service.js';
 import { createSettlementPolicy } from './domain/policy.js';
 import { SettlementService } from './domain/settlement-service.js';
 import { ArcRpcClient } from './infrastructure/arc-rpc.js';
+import { ArcMarketSignalCollector } from './infrastructure/arc-market-signal-collector.js';
 import { ArcSettlementIndexer } from './infrastructure/arc-settlement-indexer.js';
+import { createCircleAgentWalletGateway } from './infrastructure/circle-agent-wallet-gateway.js';
 import { createCircleAppKitGateway } from './infrastructure/circle-app-kit-gateway.js';
 import { createCircleWalletGateway } from './infrastructure/circle-wallet-gateway.js';
+import { AgentAutonomyStore } from './repositories/agent-autonomy-store.js';
 import { PostgresOperatorAuthStore } from './repositories/operator-auth-store.js';
 import { createPostgresSettlementStore } from './repositories/postgres-settlement-store.js';
 
@@ -17,6 +27,7 @@ export async function createSettlementRuntime(config) {
   const arcIndexer = new ArcSettlementIndexer({
     rpcUrl: config.arcRpcUrl,
     settlementContractAddress: config.circleSettlementContractAddress,
+    agentSettlementContractAddress: config.agentSettlementContractAddress,
   });
   const arcRpc = new ArcRpcClient({
     rpcUrl: config.arcRpcUrl,
@@ -50,14 +61,72 @@ export async function createSettlementRuntime(config) {
     executionTtlSeconds: config.operatorExecutionTtlSeconds,
   });
 
+  const autonomyStore = new AgentAutonomyStore({ database: store.database });
+
+  /**
+   * The autonomous path executes as the Circle Agent Wallet, through its own settlement contract.
+   * It reuses the very same SettlementService class — and therefore the same execution claim,
+   * lease heartbeat, optimistic concurrency, and reconciliation — with only the provider gateway
+   * swapped. The manual operator path keeps the Developer-Controlled Wallet and its Memo-routed
+   * contract, so the two payout routes never share a wallet, a contract, or an allowance.
+   */
+  const agentWalletGateway = createCircleAgentWalletGateway(config, { store });
+  const autonomousSettlementService = agentWalletGateway.configuration().configured
+    ? new SettlementService({
+      store,
+      policy: createSettlementPolicy(config),
+      chainId: config.arcChainId,
+      quoteTtlSeconds: config.quoteTtlSeconds,
+      circleGateway: agentWalletGateway,
+      arcIndexer,
+      executionClaimLeaseSeconds: config.executionClaimLeaseSeconds,
+      executionClaimHeartbeatSeconds: config.executionClaimHeartbeatSeconds,
+    })
+    : null;
+  const signalCollector = new ArcMarketSignalCollector({
+    publicClient: createPublicClient({ transport: http(config.arcRpcUrl) }),
+    chainId: config.arcChainId,
+    factoryAddress: config.marketFactoryAddress,
+    minConfirmations: config.agentMinConfirmations,
+    lookbackBlocks: config.agentSignalLookbackBlocks,
+    metricConfig: defaultMetricConfig,
+    policyVersion: AUTONOMOUS_POLICY_VERSION,
+  });
+  const autonomousAgentService = new AutonomousAgentService({
+    collector: signalCollector,
+    autonomyStore,
+    // Falls back to the Developer-Controlled path only when no Agent Wallet is configured.
+    settlementService: autonomousSettlementService ?? settlementService,
+    agentPolicy: createAgentPolicy(config),
+    payoutPolicy: createPayoutPolicy({
+      maxPayoutUsdc: config.agentAutonomousMaxPayoutUsdc,
+      minPayoutUsdc: config.agentAutonomousMinPayoutUsdc,
+      marketDailyCapUsdc: config.agentMarketDailyCapUsdc,
+      dailySpendUsdc: config.agentDailySpendUsdc,
+      scoreFloor: config.agentAutonomousScoreFloor,
+    }),
+    arcRpc,
+    circleGateway: autonomousSettlementService ? agentWalletGateway : circleGateway,
+    cooldownSeconds: config.agentMarketCooldownSeconds,
+    decisionTtlSeconds: config.agentDecisionTtlSeconds,
+    creatorShareBps: config.creatorShareBps,
+    // Identifies which process owns an epoch claim. Never surfaced publicly.
+    workerId: `${hostname()}:${process.pid}`,
+  });
+
   return {
     store,
     operatorAuthStore,
+    autonomyStore,
     circleGateway,
     arcIndexer,
     arcRpc,
     settlementService,
     agentDecisionService,
+    signalCollector,
+    agentWalletGateway,
+    autonomousSettlementService,
+    autonomousAgentService,
     appKitGateway,
     operatorAuthService,
     /**

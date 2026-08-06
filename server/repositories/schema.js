@@ -39,6 +39,22 @@ export const requiredColumns = Object.freeze({
     'id_hash', 'session_id', 'settlement_id', 'binding_hash', 'operator_address',
     'created_at', 'expires_at', 'consumed_at',
   ]),
+  // Durable, cluster-wide autonomy switch. Environment configuration cannot serve as an
+  // emergency stop across multiple API and worker processes, so the authoritative state lives
+  // in one row every process reads before it creates or executes autonomous work.
+  agent_runtime_control: Object.freeze([
+    'id', 'paused', 'reason', 'changed_by', 'changed_at',
+  ]),
+  // One row per (market, policy version, payout epoch). The primary key is the cooldown: two
+  // workers evaluating the same market in the same epoch collide here, and exactly one proceeds.
+  agent_payout_epochs: Object.freeze([
+    'market_address', 'policy_version', 'epoch', 'evidence_digest', 'settlement_id',
+    'creator_address', 'amount_units', 'claimed_by', 'claimed_at', 'resolved_at', 'outcome',
+  ]),
+  // Incremental collector progress, so a restart resumes instead of rescanning the chain.
+  agent_collector_checkpoints: Object.freeze([
+    'market_address', 'last_scanned_block', 'last_block_hash', 'updated_at',
+  ]),
 });
 
 export const requiredTables = Object.freeze(Object.keys(requiredColumns));
@@ -101,6 +117,38 @@ export const schemaSql = `
     expires_at timestamptz NOT NULL,
     consumed_at timestamptz
   );
+  CREATE TABLE IF NOT EXISTS agent_runtime_control (
+    id text PRIMARY KEY,
+    paused boolean NOT NULL DEFAULT true,
+    reason text,
+    changed_by text,
+    changed_at timestamptz NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS agent_payout_epochs (
+    market_address text NOT NULL,
+    policy_version text NOT NULL,
+    epoch bigint NOT NULL,
+    evidence_digest text NOT NULL,
+    settlement_id text,
+    creator_address text NOT NULL,
+    amount_units numeric(78, 0) NOT NULL DEFAULT 0,
+    claimed_by text NOT NULL,
+    claimed_at timestamptz NOT NULL,
+    resolved_at timestamptz,
+    outcome text,
+    PRIMARY KEY (market_address, policy_version, epoch)
+  );
+  CREATE TABLE IF NOT EXISTS agent_collector_checkpoints (
+    market_address text PRIMARY KEY,
+    last_scanned_block bigint NOT NULL,
+    last_block_hash text,
+    updated_at timestamptz NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS agent_payout_epochs_settlement_idx
+    ON agent_payout_epochs (settlement_id)
+    WHERE settlement_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS agent_payout_epochs_claimed_idx
+    ON agent_payout_epochs (claimed_at DESC);
   CREATE INDEX IF NOT EXISTS settlements_state_idx ON settlements (state);
   CREATE INDEX IF NOT EXISTS settlements_created_at_idx ON settlements (created_at DESC);
   CREATE INDEX IF NOT EXISTS settlements_reconciliation_idx

@@ -1,9 +1,13 @@
 import { arcTestnet as viemArcTestnet } from 'viem/chains';
 
+// `import.meta.env` only exists under Vite. Defaulting it keeps this module importable from plain
+// Node, so the Arc constants and the helpers built on them can be unit tested without a bundler.
+const viteEnv = import.meta.env ?? {};
+
 export const ARC_RPC_URL =
-  import.meta.env.VITE_ARC_RPC_URL?.trim() || 'https://rpc.testnet.arc.io';
+  viteEnv.VITE_ARC_RPC_URL?.trim() || 'https://rpc.testnet.arc.io';
 export const ARC_FALLBACK_RPC_URL =
-  import.meta.env.VITE_ARC_FALLBACK_RPC_URL?.trim() || 'https://rpc.drpc.testnet.arc.io';
+  viteEnv.VITE_ARC_FALLBACK_RPC_URL?.trim() || 'https://rpc.drpc.testnet.arc.io';
 
 export const arc = {
   ...viemArcTestnet,

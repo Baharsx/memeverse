@@ -199,13 +199,15 @@ test('the domain rejects execution without an enabled, explicit authority', asyn
     await assert.rejects(isolated.settlementService.execute(settlement.id, { mode: 'ROOT' }), {
       code: 'EXECUTION_AUTHORIZATION_REQUIRED', status: 403,
     });
+    // AUTONOMOUS_POLICY is an enabled mode, but wielding it needs an internally minted,
+    // evidence-bound authority that no request body can carry.
     await assert.rejects(
       isolated.settlementService.execute(settlement.id, {
         mode: executionModes.AUTONOMOUS_POLICY,
         operatorAddress: null,
         authorizationRef: 'a'.repeat(32),
       }),
-      { code: 'EXECUTION_MODE_NOT_ENABLED', status: 501 },
+      { code: 'AUTONOMOUS_AUTHORITY_REQUIRED', status: 403 },
     );
     await assert.rejects(
       isolated.settlementService.execute(settlement.id, { mode: executionModes.MANUAL_OPERATOR }),
