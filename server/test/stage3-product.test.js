@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { safeMediaUrl } from '../../src/assets.js';
+import { safeMediaUrl, usdcAmountUnits } from '../../src/assets.js';
 import { autonomyDisplayState } from '../../src/agent-status.js';
 import {
   CHECK_STATES, describeConfigured, formatCheckLine, overallVerdict,
@@ -306,6 +306,148 @@ test('the static frontend deployment example carries its own security headers', 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Amount input validation
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('a USDC amount field never enables an action it cannot actually parse', () => {
+  // The bug: the button gated on `Number(value) <= 0`. `Number('abc')` is NaN and `NaN <= 0` is
+  // false, so a malformed price passed the guard, enabled the LIST button, and left parseUnits to
+  // throw at click time on a value the interface had already accepted.
+  for (const rejected of [
+    '', '   ', 'abc', '0', '0.0', '-1', '-0.5', '1e100', '1e-7', 'NaN', 'Infinity',
+    '0.0000001', '1.1234567', '1,5', '+1', ' 1 2 ', '0x10', '.5', '1.', '١٢٣',
+    null, undefined, {}, [], true, NaN, Infinity,
+  ]) {
+    assert.equal(
+      usdcAmountUnits(rejected),
+      null,
+      `${String(rejected)} must not produce spendable units`,
+    );
+  }
+});
+
+test('valid six-decimal USDC amounts parse to exact atomic units', () => {
+  assert.equal(usdcAmountUnits('0.000001'), 1n);
+  assert.equal(usdcAmountUnits('0.25'), 250_000n);
+  assert.equal(usdcAmountUnits('1.123456'), 1_123_456n);
+  assert.equal(usdcAmountUnits('1'), 1_000_000n);
+  assert.equal(usdcAmountUnits('1000'), 1_000_000_000n);
+  assert.equal(usdcAmountUnits(' 0.25 '), 250_000n, 'surrounding whitespace is tolerated');
+  assert.equal(usdcAmountUnits(0.25), 250_000n, 'a numeric value is accepted too');
+});
+
+test('the amount helper never throws, whatever the field contains', () => {
+  for (const hostile of [
+    Symbol.iterator, () => {}, new Date(), 'a'.repeat(5000), '9'.repeat(40), -0,
+  ]) {
+    assert.doesNotThrow(() => usdcAmountUnits(hostile));
+  }
+});
+
+test('the NFT ask price and vault deposit gate on the parse, not on Number()', async () => {
+  const stage2 = await readFile('src/stage2-views.jsx', 'utf8');
+
+  assert.equal(
+    /disabled=\{!price \|\| Number\(price\) <= 0\}/.test(stage2),
+    false,
+    'the ask-price button must not gate on Number()',
+  );
+  assert.ok(stage2.includes('disabled={priceUnits === null}'), 'it gates on the parsed units');
+  assert.ok(
+    stage2.includes('args: [asset.tokenId, priceUnits]'),
+    'and sends exactly the units it validated, so the guard and the call cannot disagree',
+  );
+  assert.equal(
+    /Number\(depositAmount\) > 0/.test(stage2),
+    false,
+    'the vault deposit must not gate on Number() either',
+  );
+  assert.ok(stage2.includes('usdcAmountUnits(depositAmount)'), 'it uses the same parser');
+
+  // Both fields are real numeric inputs with contract-precision bounds.
+  const numericInputs = stage2.match(/type="number"[\s\S]{0,220}?step="0\.000001"/g) ?? [];
+  assert.ok(numericInputs.length >= 2, 'ask price and deposit are both numeric with 6dp steps');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Site chrome must not style nested product content
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('no site-chrome rule targets a bare header or footer element', async () => {
+  const css = await readFile('src/styles.css', 'utf8');
+
+  // MemeVerse renders semantic <header>/<footer> inside the decision timeline, the reward
+  // receipt, and the creator economy panel. A generic `header{height:82px}` or
+  // `footer span:nth-child(2){display:none}` reaches straight into those — the second rule would
+  // have hidden the ARC TX proof link on mobile.
+  const selectors = [...css.matchAll(/(?:^|[}\n;{])\s*([^{}@\n][^{}]{0,240}?)\{/g)]
+    .flatMap((match) => match[1].split(',').map((part) => part.trim()));
+  const bare = selectors.filter((selector) => /^(header|footer)([\s>:[].*)?$/.test(selector));
+
+  assert.deepEqual(bare, [], 'application chrome must be scoped to .site-header / .site-footer');
+  assert.ok(css.includes('.site-header'), 'the scoped header rules exist');
+  assert.ok(css.includes('.site-footer'), 'the scoped footer rules exist');
+  assert.ok(
+    css.includes('.site-footer span:nth-child(2)'),
+    'the mobile footer rule is scoped, so it cannot hide a timeline ARC TX link',
+  );
+});
+
+test('the shell carries the classes its scoped chrome CSS depends on', async () => {
+  const main = await readFile('src/main.jsx', 'utf8');
+  assert.ok(main.includes('<header className="site-header">'));
+  assert.ok(main.includes('<footer className="site-footer">'));
+
+  // The component-level semantic elements keep their own markup and their own class-scoped CSS.
+  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
+  assert.ok(stage3.includes('<header>'), 'TimelineEntry keeps a semantic header');
+  assert.ok(stage3.includes('<footer>'), 'TimelineEntry keeps a semantic footer');
+});
+
+test('form controls do not take the outward action outline that overlapped their labels', async () => {
+  const css = await readFile('src/styles.css', 'utf8');
+
+  // The old rule put inputs in the same 3px-offset acid outline as buttons. MemeVerse inputs are
+  // a minimal underline sitting directly under their label and beside a unit suffix, so the
+  // outline drew a green rectangle through both.
+  assert.equal(
+    css.includes('button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--acid);outline-offset:3px}'),
+    false,
+    'inputs must not share the offset action outline',
+  );
+  assert.ok(
+    /button:focus-visible,a:focus-visible,summary:focus-visible\{outline:2px solid var\(--acid\)/.test(css),
+    'actions keep their outline',
+  );
+  // Focus must still be unmistakable for keyboard users — on the field's own edge.
+  assert.ok(/input:focus-visible,\s*\n?textarea:focus-visible,\s*\n?select:focus-visible\{/.test(css));
+  assert.ok(css.includes('border-color:var(--acid)'), 'the field edge marks focus');
+  assert.ok(css.includes('forced-colors:active'), 'high-contrast mode keeps a real outline');
+  assert.ok(css.includes('select:focus-visible'), 'selects have a focus treatment too');
+});
+
+test('mobile navigation keeps all seven labels readable on one line', async () => {
+  const css = await readFile('src/styles.css', 'utf8');
+  const main = await readFile('src/main.jsx', 'utf8');
+
+  const navItems = [...main.matchAll(/\['(0\d)', '([A-Z]+)', '(\/[a-z]*)'\]/g)];
+  assert.equal(navItems.length, 7, 'there are seven primary navigation items');
+
+  assert.ok(
+    /\.site-header nav a\{[^}]*white-space:nowrap/.test(css),
+    'labels must not wrap mid-word',
+  );
+  assert.ok(
+    /\.site-header nav a\{[^}]*flex:0 0 auto/.test(css),
+    'items keep their intrinsic width instead of compressing',
+  );
+  assert.ok(
+    /\.site-header nav\{[^}]*overflow-x:auto/.test(css),
+    'the mobile nav scrolls horizontally rather than clipping',
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Demo preflight
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -466,7 +608,7 @@ test('the Proof Center states the project limitations it must not hide', async (
     'No independent security audit',
     'Not production ready',
     'application-level',
-    'deterministic, not intelligent',
+    'deterministic and does not use an LLM',
   ]) {
     assert.ok(stage3.includes(admission), `the Proof Center must state: ${admission}`);
   }

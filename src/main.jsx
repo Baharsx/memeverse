@@ -231,7 +231,7 @@ function Shell() {
       <div className="testnet-banner">
         ARC PUBLIC TESTNET — REAL USDC MARKET TRANSACTIONS — TEST ASSETS HAVE NO REAL-WORLD VALUE
       </div>
-      <header>
+      <header className="site-header">
         <NavLink className="brand" to="/">
           <img
             className="brand-lockup"
@@ -269,7 +269,7 @@ function Shell() {
           <Route path="/proof" element={<Safety />} />
         </Routes>
       </main>
-      <footer>
+      <footer className="site-footer">
         <span>MEMEVERSE © 2026</span>
         <span>{network.chain.name.toUpperCase()} // CHAIN {network.chain.id}</span>
         <ExternalLink className="social-link" href="https://x.com/memeversebiz" aria-label="MemeVerse on X">X / @MEMEVERSEBIZ ↗</ExternalLink>

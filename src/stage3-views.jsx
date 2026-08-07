@@ -258,7 +258,7 @@ export function AgentCommandCenter() {
           <small>AUTONOMOUS AGENT</small>
           <h2>OBSERVE → DECIDE → PAY → PROVE</h2>
           <p>
-            A supervised worker discovers the markets registered in the MemeVerse factory and reads
+            An autonomous worker discovers the markets registered in the MemeVerse factory and reads
             their confirmed Arc trading evidence itself. Policy scores that evidence; the agent
             derives the recipient from <code>market.creator()</code> and the amount from the score,
             then spends from its own Circle Agent Wallet. <b>No human approves an individual
@@ -649,7 +649,7 @@ export function ProofCenter() {
           <li><b>No independent security audit.</b> No third party has reviewed this code.</li>
           <li><b>Not production ready.</b> Operational hardening, key custody review, and monitoring remain open.</li>
           <li><b>Agent spending caps are application-level.</b> Circle wallet-level spend limits are a mainnet feature, so every cap in force here is enforced by this application&rsquo;s database, not by the wallet.</li>
-          <li><b>The policy is deterministic, not intelligent.</b> It is arithmetic over onchain trade data. No language model participates in any decision.</li>
+          <li><b>The payout policy is deterministic and does not use an LLM.</b> It is arithmetic over confirmed onchain trade data, which is what makes every decision reproducible and auditable.</li>
           <li><b>Risk scoring detects shape, not intent.</b> A patient, well-funded adversary can trade a market into a passing profile; the caps bound the damage rather than preventing it.</li>
           <li><b>The Agent Wallet session expires.</b> When it lapses the agent reports UNAVAILABLE and stops paying until a human signs in again.</li>
         </ul>

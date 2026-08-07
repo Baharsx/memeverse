@@ -8,13 +8,13 @@ import {
   formatUsdcAmount,
   mediaNftAbi,
   nftMarketplaceAbi,
-  parseUsdcAmount,
   readCreatableMarkets,
   readMediaAssets,
   readMarketplaceAllowance,
   readVaultPosition,
   safeMediaUrl,
   stage2Contracts,
+  usdcAmountUnits,
   vaultAbi,
 } from './assets';
 import { useOnchainAction } from './use-onchain-action';
@@ -131,6 +131,10 @@ function MediaCard({ asset, wallet, onChanged }) {
   // Minter-supplied and therefore untrusted: anything that is not https or a data: image is
   // refused outright rather than handed to the browser as an attribute.
   const image = safeMediaUrl(asset.metadata?.image);
+  // The exact units the listing call will send, or null when the field cannot become one. The
+  // button gates on this rather than on Number(), which reports NaN for "abc" and let the guard
+  // pass — enabling a transaction whose own parser would then throw.
+  const priceUnits = usdcAmountUnits(price);
 
   const allowance = useQuery({
     queryKey: ['marketplace-allowance', wallet.address],
@@ -200,11 +204,20 @@ function MediaCard({ asset, wallet, onChanged }) {
                 value={price}
                 onChange={(event) => setPrice(event.target.value)}
                 placeholder="0.00"
+                type="number"
                 inputMode="decimal"
+                min="0.000001"
+                step="0.000001"
                 aria-label="Listing price in USDC"
+                aria-invalid={price.trim() !== '' && priceUnits === null ? 'true' : undefined}
               />
               <small>USDC</small>
             </label>
+            {price.trim() !== '' && priceUnits === null ? (
+              <small className="tx-error">
+                Enter a positive USDC amount with at most 6 decimal places.
+              </small>
+            ) : null}
             <button
               type="button"
               className="btn"
@@ -221,12 +234,12 @@ function MediaCard({ asset, wallet, onChanged }) {
             <button
               type="button"
               className="btn primary"
-              disabled={!price || Number(price) <= 0}
+              disabled={priceUnits === null}
               onClick={() => run(list, {
                 address: stage2Contracts.nftMarketplace,
                 abi: nftMarketplaceAbi,
                 functionName: 'list',
-                args: [asset.tokenId, parseUsdcAmount(price)],
+                args: [asset.tokenId, priceUnits],
               })}
             >
               2. LIST FOR USDC →
@@ -515,8 +528,11 @@ export function UsdcVault() {
 
   const blocked = guard(wallet, stage2Contracts.usdcVault, 'USDC VAULT');
   const data = vault.data;
-  const depositUnits = depositAmount && Number(depositAmount) > 0
-    ? parseUsdcAmount(depositAmount) : 0n;
+  // Same question the deposit call will ask, asked with the same parser. `Number()` alone reports
+  // NaN for a malformed entry, and `NaN > 0` being false only accidentally produced the right
+  // answer here — an explicit parse says so on purpose.
+  const depositUnits = usdcAmountUnits(depositAmount) ?? 0n;
+  const depositMalformed = depositAmount.trim() !== '' && usdcAmountUnits(depositAmount) === null;
   const needsApproval = data && depositUnits > 0n && data.allowanceUnits < depositUnits;
   const insufficient = data && depositUnits > (data.walletUsdcUnits ?? 0n);
 
@@ -593,11 +609,20 @@ export function UsdcVault() {
                     value={depositAmount}
                     onChange={(event) => setDepositAmount(event.target.value)}
                     placeholder="0.00"
+                    type="number"
                     inputMode="decimal"
+                    min="0.000001"
+                    step="0.000001"
                     aria-label="Deposit amount in USDC"
+                    aria-invalid={depositMalformed ? 'true' : undefined}
                   />
                   <small>USDC</small>
                 </label>
+                {depositMalformed ? (
+                  <small className="tx-error">
+                    Enter a positive USDC amount with at most 6 decimal places.
+                  </small>
+                ) : null}
                 {insufficient ? <small className="tx-error">Insufficient USDC balance.</small> : null}
                 {needsApproval ? (
                   <button

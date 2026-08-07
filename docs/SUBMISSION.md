@@ -260,7 +260,7 @@ Safety is structural: atomic global and per-market daily spend reservations in P
 payout per market per epoch enforced by a primary key, and capacity that is never released on an
 undetermined provider outcome.
 
-336 tests. Zero dependency vulnerabilities. Arc Public Testnet only.
+344 tests. Zero dependency vulnerabilities. Arc Public Testnet only.
 
 ## Technical summary
 

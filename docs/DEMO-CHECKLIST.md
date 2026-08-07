@@ -28,7 +28,7 @@ you to trust that something is probably fine.
 
 **System**
 
-- [ ] `npm ci && NODE_ENV=test npm test` — 336 pass (282 backend, 54 contract).
+- [ ] `npm ci && NODE_ENV=test npm test` — 344 pass (290 backend, 54 contract).
 - [ ] `NODE_ENV=production npm run build` — succeeds, no chunk over 500 kB.
 - [ ] `npm run db:migrate` has been run against the demo database.
 - [ ] `npm run demo:preflight` — **DEMO READY**, or the only warnings are ones you have decided to

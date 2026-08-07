@@ -81,6 +81,30 @@ export function parseUsdcAmount(value) {
 }
 
 /**
+ * The atomic USDC units a user-entered amount really represents, or null if it does not represent
+ * one at all.
+ *
+ * Gating a transaction on `Number(value) <= 0` is not the same question as "can this be parsed".
+ * `Number('abc')` is `NaN`, and `NaN <= 0` is false — so a field containing `abc` passed the guard
+ * and the button enabled, leaving `parseUnits` to throw at click time on a value the interface had
+ * already told the user was fine. This asks the question the transaction will actually ask, using
+ * the same parser, so the button's enabled state and the call's success cannot disagree.
+ */
+export function usdcAmountUnits(value) {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const trimmed = String(value).trim();
+  // parseUnits accepts leading '+', exponent notation, and other shapes the contract's decimal
+  // amount is not; require a plain non-negative decimal with at most six places up front.
+  if (!/^\d{1,18}(?:\.\d{1,6})?$/.test(trimmed)) return null;
+  try {
+    const units = parseUsdcAmount(trimmed);
+    return units > 0n ? units : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Reads every minted media asset with its provenance, owner, and live listing.
  *
  * The collection is enumerated from `totalMinted` rather than by scanning logs. Arc's public RPC

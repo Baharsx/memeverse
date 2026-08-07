@@ -75,7 +75,7 @@ npm run demo:preflight        # read-only: RPC, chain ID, every contract's bytec
 npm run contracts:audit:onchain
 npm run markets:audit:onchain
 npm run assets:audit:onchain
-NODE_ENV=test npm test        # 282 backend + 54 contract = 336
+NODE_ENV=test npm test        # 290 backend + 54 contract = 344
 NODE_ENV=production npm run build
 npm audit
 ```
