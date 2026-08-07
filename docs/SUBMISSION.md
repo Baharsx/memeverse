@@ -7,44 +7,58 @@ verifiable against the addresses and transaction hashes in this file.
 
 ## Official requirements checked
 
-Checked **7 August 2026** against the current official event pages:
+### Publicly verified — Arc House event page, checked 7 August 2026
 
-| Source | URL |
+Governing source: **<https://community.arc.io/public/events/hackathon-programmable-money-74llz8htis>**
+(the official Arc House page for the online hackathon). Everything in this table was read directly
+off that page on the date given.
+
+| Item | What the page states |
 | --- | --- |
-| Encode Club — Programmable Money Hackathon | <https://www.encodeclub.com/programmes/arc-hackathon> |
-| Arc House — Hackathon: Programmable Money (event page) | <https://community.arc.io/public/events/hackathon-programmable-money-74llz8htis> |
-| Encode x Arc DeFi Hackathon (in-person track) | <https://luma.com/rjsr5r3a> |
-
-**What the official pages state**
-
-| Item | Requirement |
-| --- | --- |
-| Programme window | 13 July – 22 August 2026 |
-| Final submission checkpoint | Sunday **9 August 2026** |
-| Demo Day | Thursday 20 August 2026 |
-| Deadline timezone | Anywhere on Earth (UTC−12) |
+| Programme window | **13 July – 22 August 2026** |
 | Deliverable 1 | Functional MVP with working frontend **and** backend |
 | Deliverable 2 | **3-minute** video pitch and demo covering core functionality *and* use of Circle tools |
 | Deliverable 3 | Link to the code repository |
-| Also referenced | A deck, alongside the MVP / video / repo, on the Encode schedule view |
 | Tracks | **DeFi** and **Agentic** |
-| Judging | A working prototype deployed on Arc · clear use of Circle's developer tools (Wallets, Contracts, CCTP, Gateway, Paymaster, Nanopayments) · a real use case with a path to production · quality of execution over complexity |
-| Prize | Top teams (up to 8) enter an 8-week accelerator programme |
+| Judging | A working prototype deployed on Arc · clear use of Circle's developer tools · a real use case with a path to production · quality of execution over complexity |
 
 **Track chosen: Agentic** (MemeVerse also satisfies the DeFi criteria through its bonding-curve
 markets, USDC marketplace, and ERC-4626 vault).
 
-**Gaps against the official list — read before submitting**
+### ⚠ VERIFY IN THE ENCODE PARTICIPANT DASHBOARD BEFORE SUBMISSION
 
-1. **A deck is not in this repository.** The Arc House page lists three deliverables and does not
-   name a deck; the Encode schedule view does. A deck outline is provided at the end of this file
-   so it can be produced quickly. **This is a human action item.**
-2. **No hosted demo URL exists yet.** The contracts are deployed and live on Arc Public Testnet,
+The following are **not** exposed on the public Arc House page and could not be confirmed from an
+authoritative source. They may well be correct — Encode publishes its detailed schedule inside the
+participant dashboard, which is not publicly readable — but this repository must not present them
+as verified requirements, and no date here should be treated as the deadline until a human has
+checked the dashboard.
+
+| Unverified item | Status |
+| --- | --- |
+| A final submission checkpoint on **9 August 2026** | **UNVERIFIED.** Not on the public page. Seen only in third-party summaries of the Encode schedule view. |
+| Demo Day on **20 August 2026** | **UNVERIFIED.** Not on the public page. |
+| An **Anywhere-on-Earth** deadline timezone | **UNVERIFIED.** The public page quotes times in GMT and carries no AoE wording. |
+| A required **deck / slide presentation** | **UNVERIFIED.** The public page lists three deliverables and does not name a deck. |
+| Prize: top teams entering an 8-week accelerator | **UNVERIFIED.** Not on the public page. |
+
+Third-party write-ups and the separate in-person *Encode x Arc DeFi Hackathon*
+(<https://luma.com/rjsr5r3a>) were also read, but neither is a governing source for this online
+hackathon and neither is relied on above.
+
+**Human action item: open the Encode participant dashboard, confirm the real submission deadline
+and deliverable list, and correct this section before submitting.**
+
+### Gaps against the deliverables — read before submitting
+
+1. **No hosted demo URL exists yet.** The contracts are deployed and live on Arc Public Testnet,
    and the frontend and backend both run, but the application itself is not yet hosted at a public
    address. Deployment topology and configuration are documented in `README.md` and
    `docs/STAGE-3-FINAL.md`; choosing and provisioning a host is **a human action item**.
-3. **The 3-minute video has not been recorded.** `docs/DEMO-SCRIPT.md` is the timeboxed script for
+2. **The 3-minute video has not been recorded.** `docs/DEMO-SCRIPT.md` is the timeboxed script for
    it, including the Circle-tools coverage the official criteria ask for.
+3. **No deck exists in this repository.** A deck is not among the three publicly listed
+   deliverables, so this may not be required at all — see the unverified table above. An outline is
+   provided at the end of this file in case it is.
 
 ---
 
@@ -246,7 +260,7 @@ Safety is structural: atomic global and per-market daily spend reservations in P
 payout per market per epoch enforced by a primary key, and capacity that is never released on an
 undetermined provider outcome.
 
-313 tests. Zero dependency vulnerabilities. Arc Public Testnet only.
+321 tests. Zero dependency vulnerabilities. Arc Public Testnet only.
 
 ## Technical summary
 

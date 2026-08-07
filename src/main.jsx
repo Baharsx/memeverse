@@ -852,7 +852,7 @@ function Quote() {
 
   return (
     <section className="page app-kit-page">
-      <Title n="02" t="CIRCLE STABLECOIN QUOTE" />
+      <Title n="07 QUOTE" t="CIRCLE STABLECOIN QUOTE" />
       <p className="lede">
         Request a live, authenticated Circle Stablecoin Kits estimate for Arc Testnet. The Kit Key
         stays on the server, transaction data is discarded, and this screen never signs or broadcasts.

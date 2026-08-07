@@ -69,9 +69,14 @@ export const arcCapabilities = Object.freeze({
   phase: 'FINAL MVP / PUBLIC TESTNET',
   realAssets: 'ARC TESTNET USDC + MEME TOKENS',
   confirmationsRequired: 1,
-  transactionMemos: 'LIVE FOR AGENT SETTLEMENT / EOA ONLY',
+  // Memo CallFrom preserves only a directly signing EOA as msg.sender, so it routes the manual
+  // Developer-Controlled Wallet path alone. The Agent Wallet is an ERC-4337 smart account and
+  // calls its own settlement contract directly instead.
+  transactionMemos: 'MANUAL SETTLEMENT ROUTE / EOA ONLY',
   batchedTransactions: 'TESTNET READY / EOA ONLY',
   postQuantum: 'ROADMAP / NOT YET AVAILABLE',
   appKit: 'SWAP ESTIMATE LIVE / SERVER-ONLY',
-  agentExecution: 'HUMAN APPROVAL REQUIRED',
+  // Two isolated routes: the Agent Wallet executes with no per-payout human approval, and the
+  // manual operator route still requires a wallet-signed session plus a settlement-bound approval.
+  agentExecution: 'AUTONOMOUS AGENT WALLET + MANUAL OPERATOR ROUTES',
 });

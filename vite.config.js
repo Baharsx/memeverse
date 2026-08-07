@@ -15,8 +15,10 @@ function contentSecurityPolicyMeta(apiBaseUrl) {
     connectSources: apiBaseUrl ? [apiBaseUrl] : [],
   });
   // `frame-ancestors` is defined to be ignored when delivered in a meta element, so shipping it
-  // here buys nothing and logs a console warning on every page load. Clickjacking protection for
-  // the document comes from the API's response header and its matching X-Frame-Options.
+  // here buys nothing and logs a console warning on every page load. The static document is served
+  // by the reverse proxy, not by the API, so it gets its clickjacking protection over HTTP from
+  // that proxy — `Content-Security-Policy: frame-ancestors 'none'` plus `X-Frame-Options: DENY`,
+  // both documented in the README's nginx example. The rest of the policy travels in this tag.
   const { 'frame-ancestors': _ignoredInMeta, ...deliverable } = directives;
   const policy = serializeContentSecurityPolicy(deliverable);
   return {
