@@ -1,6 +1,86 @@
 # MemeVerse
 
-**MemeVerse is a meme asset terminal built on Arc for launching, trading, minting, and agent-guided creator settlement in USDC.**
+## A meme becomes an economy.
+
+MemeVerse turns a meme into a real Arc market. People trade it in USDC, the creator earns from
+every trade and keeps onchain provenance of their media — and **an autonomous agent reads the real
+trading record and pays that creator from a Circle Agent Wallet, with no human approving the
+payment.**
+
+Every step resolves to an Arc transaction anyone can verify.
+
+```
+CREATE → TRADE → OWN → REWARD → PROVE
+```
+
+**Live proof, right now, on Arc Public Testnet:** an autonomous creator payout of **0.100000 USDC**,
+executed by Circle Agent Wallet [`0x65da73c6…0FE3`](https://testnet.arcscan.app/address/0x65da73c6d9300F3dAb1dF785219f76DeCA5e0FE3),
+reconciled **VERIFIED**, `operatorAddress: null`, human authorization consumed: **no** —
+[`0xffad62e6…6b6799`](https://testnet.arcscan.app/tx/0xffad62e616262a682dcfd0ac85a7ced9f7b16290b29beadec6225e008c6b6799).
+
+**Demo:** not yet hosted publicly. The contracts below are live and independently verifiable today;
+the application runs locally with `npm run dev` (see [Run locally](#run-locally)).
+
+### Start here
+
+| If you want to… | Go to |
+| --- | --- |
+| Read the submission copy, contracts, proofs, and judge Q&A | [`docs/SUBMISSION.md`](./docs/SUBMISSION.md) |
+| See the 3-minute demo, click by click, with fallbacks | [`docs/DEMO-SCRIPT.md`](./docs/DEMO-SCRIPT.md) |
+| Prepare a live presentation | [`docs/DEMO-CHECKLIST.md`](./docs/DEMO-CHECKLIST.md) |
+| Understand what Stage 3 changed and why it is safe | [`docs/STAGE-3-FINAL.md`](./docs/STAGE-3-FINAL.md) |
+| Read the full autonomous trust boundary | [`docs/PHASE-6B-STAGE-2.md`](./docs/PHASE-6B-STAGE-2.md) |
+| Check readiness before a demo | `npm run demo:preflight` |
+
+### Architecture in six lines
+
+```
+Browser (React 19 / Vite)     reads Arc contracts directly; only VITE_* values ever reach it
+      │
+Express 5 API                 sanitized status, operator auth, App Kit estimates
+      │
+Autonomous worker (separate)  Arc log collector → deterministic policy → spend admission → payout
+      │
+PostgreSQL                    epoch claims, spend reservations, settlement audit trail
+      │
+Circle Agent Wallet (ERC-4337, MPC)   signs autonomous payouts — no private key in this repo
+      │
+Arc Public Testnet            markets, media NFT, marketplace, vault, two settlement contracts
+```
+
+### Why Arc, and why Circle
+
+**Arc** because USDC is native money *and* native gas. A bounded autonomous spend policy — at most
+0.1 USDC per payout, 0.3 per market per day — is only expressible when the agent's budget, its
+payouts, and its transaction costs are the same unit of account. A separate volatile gas token
+would require a second treasury and a price feed before the agent could make one bounded decision.
+
+**Circle** because the executor is a real **Agent Wallet**: an ERC-4337 smart account backed by
+2-of-2 MPC, created with the official CLI. No private key exists in this codebase. The separate
+human-authorized route uses a **Developer-Controlled Wallet**; every contract was deployed through
+the **Smart Contract Platform**; `/quote` uses **Stablecoin Kits** for live estimates.
+
+### Verify it yourself
+
+```bash
+npm ci
+npm run demo:preflight        # read-only: RPC, chain ID, every contract's bytecode, proof txs
+npm run contracts:audit:onchain
+npm run markets:audit:onchain
+npm run assets:audit:onchain
+NODE_ENV=test npm test        # 258 backend + 54 contract
+NODE_ENV=production npm run build
+npm audit
+```
+
+None of those write to the chain.
+
+---
+
+**MemeVerse is an Arc Public Testnet product. It is not independently audited and is not mainnet
+ready.** Test assets have no real-world value.
+
+---
 
 The current release is an Arc Public Testnet product. Markets, balances, quotes, positions, fees, and receipts come from deployed contracts and the Arc RPC; no market financial data is fabricated.
 
@@ -459,9 +539,32 @@ npm run dev:web
 ## Production build
 
 ```bash
-npm run build
-npm run preview
+NODE_ENV=production npm run build
+npm run preview          # serves dist and proxies /api to 127.0.0.1:8787 on one origin
 ```
+
+Route-level code splitting keeps the initial payload small: the wallet, chain, React, Stage 2, and
+Stage 3 surfaces are separate chunks and nothing exceeds 500 kB. A configured local production
+build reports:
+
+| Chunk | Raw | Gzip |
+| --- | --- | --- |
+| `chain` | 268.62 kB | 82.75 kB |
+| `react` | 192.49 kB | 60.35 kB |
+| `wallet` | 68.14 kB | 20.36 kB |
+| `index` (application) | 61.19 kB | 17.93 kB |
+| `stage3-views` | 22.59 kB | 6.91 kB |
+| `stage2-views` | 14.50 kB | 4.92 kB |
+| CSS | 52.69 kB | 9.49 kB |
+
+**On comparing these numbers to CI.** Vite inlines `VITE_*` contract addresses at build time, so a
+**configured local build** and a **clean unconfigured CI build** differ slightly — CI has no
+contract addresses to inline and reports marginally smaller application chunks. Both are correct;
+they measure different builds. Always state which environment a bundle figure came from.
+
+`VITE_BASE_PATH` sets the build's base path. The committed default is `/memeverse/`; a root-domain
+deployment sets `VITE_BASE_PATH=/`. The client router derives its basename from the same value, so
+the two cannot disagree.
 
 ### Same-origin deployment
 
@@ -486,6 +589,20 @@ Production refuses to start without managed PostgreSQL. Run the API and worker a
 NODE_ENV=production npm run db:migrate
 NODE_ENV=production npm run start:api
 NODE_ENV=production npm run start:worker
+```
+
+**SPA history fallback is required.** All eight routes (`/`, `/markets`, `/launch`, `/nft`,
+`/vault`, `/agent`, `/quote`, `/safety`) must render on direct navigation and on refresh, so the
+edge has to serve `index.html` for unmatched paths under the base:
+
+```nginx
+location /memeverse/ {
+  alias /opt/memeverse/dist/;
+  try_files $uri $uri/ /memeverse/index.html;
+}
+location /api/ {
+  proxy_pass http://127.0.0.1:8787;
+}
 ```
 
 Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration identity, **before** rolling out the API and worker. The API and worker use the lower-privilege `DATABASE_URL`; production runtime migration is forcibly disabled. Startup verifies every table *and column* the runtime writes and refuses to start against an outdated schema with `Database schema is outdated. Run npm run db:migrate.`, naming what is missing — so a skipped migration fails immediately rather than on the first settlement write. The readiness check reads the catalog only and runs no DDL. Hardened service templates are under `ops/systemd/`. Credentials must come from a secret manager rather than Git.
@@ -553,6 +670,7 @@ Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration
 - **The Agent Wallet session is time-bounded** (~28 days). When it lapses the agent reports `UNAVAILABLE` and stops paying until a human logs in again.
 - **Autonomous execution needs the `circle` CLI on `PATH`** in the worker's environment; it is a subprocess dependency, not a library call.
 - **Single Arc RPC** for the backend collector: a sustained outage means no autonomous decisions. The collector fails closed rather than guessing.
+- **No public demo host yet.** The contracts are live on Arc Testnet and independently verifiable; the application itself is not hosted at a public URL.
 - Not independently audited, and not mainnet ready.
 
 ## Post-hackathon hardening
