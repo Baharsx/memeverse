@@ -70,6 +70,7 @@ import {
   factoryAbi,
   formatTokenAmount,
   formatUsdc,
+  launchPriceUnits,
   loadFactoryConfig,
   loadMarkets,
   loadUsdcBalance,
@@ -79,6 +80,7 @@ import {
   parseWholeTokens,
   quoteBuy,
   quoteSell,
+  tokenSupplyValue,
   usdcAbi,
 } from './market';
 import { useOnchainAction } from './use-onchain-action';
@@ -479,6 +481,7 @@ function Launch() {
   const [slopePrice, setSlopePrice] = useState('0.001');
   const [review, setReview] = useState(false);
   const [result, setResult] = useState(null);
+  const [formError, setFormError] = useState(null);
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const action = useOnchainAction();
@@ -489,27 +492,68 @@ function Launch() {
   });
   const onArc = isConnected && chainId === arc.id;
 
+  /*
+    Validated with the parsers the transaction uses, not with the browser's field validation
+    alone. A number input accepts `1e3`, which `BigInt` then rejects — previously inside the
+    contract call, where a broad catch swallowed it and the button appeared to do nothing.
+  */
+  const supplyValue = tokenSupplyValue(supply);
+  const basePriceUnits = launchPriceUnits(basePrice);
+  // A flat curve is a real market, so zero is valid here and only here.
+  const slopePriceUnits = launchPriceUnits(slopePrice, { allowZero: true });
+  const launchInvalid = !name.trim() || !symbol.trim()
+    || supplyValue === null || basePriceUnits === null || slopePriceUnits === null;
+
+  // Clear a stale message as soon as the user edits anything. Without this, a message from an
+  // earlier attempt lingers while the browser's own min/max validation silently blocks a later
+  // submit, so the visible text can describe a field the user has already corrected.
+  useEffect(() => { setFormError(null); }, [name, symbol, supply, basePrice, slopePrice]);
+
   function handleSubmit(event) {
     event.preventDefault();
-    setReview(true);
     setResult(null);
     action.reset();
+    if (launchInvalid) {
+      // Refuse here rather than opening review on values that can never be signed.
+      setReview(false);
+      setFormError(
+        !name.trim() ? 'Enter a meme name.'
+          : !symbol.trim() ? 'Enter a ticker.'
+            : supplyValue === null ? 'Supply must be a whole number between 100 and 1,000,000,000.'
+              : basePriceUnits === null ? 'Initial price must be between 0.000001 and 1000 USDC, with at most 6 decimals.'
+                : 'Curve increase must be between 0 and 1000 USDC, with at most 6 decimals.',
+      );
+      return;
+    }
+    setFormError(null);
+    setReview(true);
   }
 
   async function launchMarket() {
+    if (launchInvalid) return;
+    setFormError(null);
     try {
       const receipt = await action.execute({
         address: arcContracts.memeVerseFactory,
         abi: factoryAbi,
         functionName: 'createMarket',
-        args: [name.trim(), symbol.trim().toUpperCase(), description.trim(), BigInt(supply), parseUsdc(basePrice), parseUsdc(slopePrice)],
+        args: [name.trim(), symbol.trim().toUpperCase(), description.trim(), supplyValue, basePriceUnits, slopePriceUnits],
         chainId: arc.id,
       });
       const [event] = parseEventLogs({ abi: factoryAbi, logs: receipt.logs, eventName: 'MarketCreated', strict: true });
       setResult({ market: event.args.market, token: event.args.token, creator: address, hash: receipt.transactionHash });
       queryClient.invalidateQueries({ queryKey: ['onchain-markets'] });
       queryClient.invalidateQueries({ queryKey: ['market-factory-config'] });
-    } catch { /* The action state presents validation, wallet, and receipt errors. */ }
+    } catch (error) {
+      /*
+        Wallet, provider, and receipt failures are already presented by the action state. Anything
+        that fails *outside* that — a local decoding or logic error — would otherwise be invisible,
+        so it gets a sanitized line of its own rather than silence. No provider internals are shown.
+      */
+      if (action.state.status !== 'FAILED') {
+        setFormError('The launch could not be completed. Check the review details and try again.');
+      }
+    }
   }
 
   return (
@@ -572,6 +616,7 @@ function Launch() {
             <b>{Number(supply || 0).toLocaleString()} ${symbol || 'TOKEN'}</b>
           </div>
           <button className="btn primary full" disabled={action.state.status === 'WALLET_SIGNATURE' || action.state.status === 'SUBMITTED'}>REVIEW ONCHAIN LAUNCH →</button>
+          {formError ? <small className="tx-error" role="alert">{formError}</small> : null}
           {review ? <div className="onchain-review" role="region" aria-label="Launch review"><b>REVIEW BEFORE SIGNING</b><span>CREATOR // {address ?? 'CONNECT WALLET'}</span><span>FACTORY // {arcContracts.memeVerseFactory}</span><span>PRICE // {basePrice} + UP TO {slopePrice} USDC</span><span>FEES // {factory.data ? `${Number(factory.data.creatorFeeBps) / 100}% CREATOR + ${Number(factory.data.treasuryFeeBps) / 100}% TREASURY` : 'READING ONCHAIN'}</span><button className="btn primary full" type="button" disabled={!onArc || !factory.data || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(action.state.status)} onClick={launchMarket}>{!isConnected ? 'CONNECT WALLET FIRST' : !onArc ? 'SWITCH TO ARC TESTNET' : 'SIGN + LAUNCH ON ARC →'}</button></div> : null}
           <TransactionStatus state={action.state} />
           {result ? <div className="receipt onchain-receipt" role="status"><b>MARKET CONFIRMED ON ARC</b><span>MARKET + TOKEN // {result.market}</span><span>CREATOR // {result.creator}</span><ExternalLink href={`${arcLinks.explorer}/tx/${result.hash}`}>VIEW TRANSACTION ON ARCSCAN ↗</ExternalLink><ExternalLink href={`${arcLinks.explorer}/address/${result.market}`}>VIEW MARKET CONTRACT ↗</ExternalLink></div> : null}

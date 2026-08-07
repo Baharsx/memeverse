@@ -204,13 +204,43 @@ export function safeMediaUrl(value) {
   return url.toString();
 }
 
-/** Decodes the self-contained `data:application/json;base64` metadata the mint script writes. */
+const JSON_DATA_URI_PREFIX = 'data:application/json;base64,';
+
+/**
+ * Encodes token metadata as a self-contained `data:application/json;base64` URI, UTF-8 safe.
+ *
+ * `btoa` is defined over Latin-1 code units, so `btoa(JSON.stringify(…))` throws
+ * `InvalidCharacterError` on any character above U+00FF. That is not an exotic edge case for a
+ * meme platform — `DOGE 🚀`, `میم ایرانی`, and `猫コイン` are all exactly the names people would
+ * type, and the failure landed while *rendering* the mint panel rather than on submit, so the
+ * surface broke before the user could click anything. Encoding the UTF-8 bytes first is the fix.
+ */
+export function jsonDataUri(value) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  // btoa needs one character per byte. Chunked so a large metadata blob cannot blow the argument
+  // limit of String.fromCharCode(...spread).
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + CHUNK));
+  }
+  return `${JSON_DATA_URI_PREFIX}${btoa(binary)}`;
+}
+
+/**
+ * Decodes the self-contained `data:application/json;base64` metadata a mint writes.
+ *
+ * The mirror of the problem above: `JSON.parse(atob(…))` reads each byte as a code unit, so a
+ * multi-byte character comes back mojibake — or fails outright. The bytes are decoded as UTF-8.
+ * Malformed, hostile, or absent input still resolves to null rather than throwing into the UI.
+ */
 export function decodeMetadata(tokenUri) {
   if (typeof tokenUri !== 'string') return null;
-  const prefix = 'data:application/json;base64,';
-  if (!tokenUri.startsWith(prefix)) return null;
+  if (!tokenUri.startsWith(JSON_DATA_URI_PREFIX)) return null;
   try {
-    return JSON.parse(atob(tokenUri.slice(prefix.length)));
+    const binary = atob(tokenUri.slice(JSON_DATA_URI_PREFIX.length));
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
   } catch {
     return null;
   }

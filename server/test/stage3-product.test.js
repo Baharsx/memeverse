@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { safeMediaUrl, usdcAmountUnits } from '../../src/assets.js';
+import { decodeMetadata, jsonDataUri, safeMediaUrl, usdcAmountUnits } from '../../src/assets.js';
+import { launchPriceUnits, tokenSupplyValue } from '../../src/market.js';
 import { autonomyDisplayState } from '../../src/agent-status.js';
 import {
   CHECK_STATES, describeConfigured, formatCheckLine, overallVerdict,
@@ -302,6 +303,175 @@ test('the static frontend deployment example carries its own security headers', 
     /add_header\s+Content-Security-Policy\s+"(?![^"]*frame-ancestors 'none';")/.test(nginx),
     false,
     'the nginx CSP header must not restate the full policy',
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unicode token metadata
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('token metadata survives a round trip through emoji and non-Latin scripts', () => {
+  // `btoa` is defined over Latin-1, so the previous `btoa(JSON.stringify(…))` threw
+  // InvalidCharacterError on every one of these — while *rendering* the mint panel, before the
+  // user could click anything. These are ordinary meme names, not adversarial input.
+  for (const name of [
+    'MemeVerse Media',
+    'DOGE 🚀',
+    'میم ایرانی',
+    '猫コイン',
+    'GN 🌙 / creator اقتصاد',
+    '👨‍👩‍👧‍👦 family zwj',
+    'Ω≈ç√∫˜µ≤≥÷',
+    'line\nbreak\ttab "quoted" \\backslash',
+  ]) {
+    const metadata = {
+      name,
+      description: `${name} — bound onchain to a MemeVerse market.`,
+      image: 'https://example.com/x.png',
+      attributes: [{ trait_type: 'market', value: '0xBe6E56a8B5ec8861aE1284dF3f60E27953f2d39D' }],
+    };
+    const uri = jsonDataUri(metadata);
+    assert.ok(uri.startsWith('data:application/json;base64,'), 'the URI stays self-contained');
+    const decoded = decodeMetadata(uri);
+    assert.equal(decoded.name, name, `${name} must survive exactly`);
+    assert.deepEqual(decoded, metadata, 'every field round-trips unchanged');
+  }
+});
+
+test('metadata encoding produces bytes a plain base64 decoder agrees with', () => {
+  // Independent check: decode with Buffer rather than the app's own decoder, so a symmetric bug
+  // in both halves cannot hide.
+  const metadata = { name: 'DOGE 🚀', description: 'میم' };
+  const base64 = jsonDataUri(metadata).slice('data:application/json;base64,'.length);
+  assert.deepEqual(JSON.parse(Buffer.from(base64, 'base64').toString('utf8')), metadata);
+});
+
+test('a large metadata blob encodes without exceeding an argument limit', () => {
+  const metadata = { name: '🚀'.repeat(20_000) };
+  assert.doesNotThrow(() => jsonDataUri(metadata));
+  assert.equal(decodeMetadata(jsonDataUri(metadata)).name, metadata.name);
+});
+
+test('malformed metadata still fails closed instead of throwing into the UI', () => {
+  for (const hostile of [
+    'data:application/json;base64,!!!not-base64!!!',
+    `data:application/json;base64,${Buffer.from('{ not json').toString('base64')}`,
+    // Valid base64 whose bytes are not valid UTF-8 — the decoder must refuse, not mojibake.
+    `data:application/json;base64,${Buffer.from([0xff, 0xfe, 0xfd]).toString('base64')}`,
+    'data:application/json;base64,',
+    'https://example.com/not-a-data-uri.json',
+    '', '   ', null, undefined, 42, {}, [],
+  ]) {
+    assert.doesNotThrow(() => decodeMetadata(hostile));
+    assert.equal(decodeMetadata(hostile), null, `${String(hostile)} must decode to null`);
+  }
+});
+
+test('the mint panel encodes through the UTF-8 helper, never raw btoa', async () => {
+  const stage2 = await readFile('src/stage2-views.jsx', 'utf8');
+  assert.equal(
+    /btoa\(JSON\.stringify/.test(stage2),
+    false,
+    'raw btoa over a JSON string throws on any character above U+00FF',
+  );
+  assert.ok(stage2.includes('jsonDataUri(metadata)'), 'it uses the UTF-8-safe encoder');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Launch input validation
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('launch supply accepts only whole numbers inside the advertised bounds', () => {
+  assert.equal(tokenSupplyValue('100'), 100n);
+  assert.equal(tokenSupplyValue('1000'), 1000n);
+  assert.equal(tokenSupplyValue('1000000000'), 1_000_000_000n);
+  assert.equal(tokenSupplyValue(' 1000000 '), 1_000_000n, 'whitespace is tolerated');
+  assert.equal(tokenSupplyValue(1000), 1000n, 'a numeric value works too');
+
+  for (const rejected of [
+    '', '   ', '0', '99', '1000000001',
+    // A `type="number"` field really will hand back exponent notation, and BigInt('1e3') throws.
+    '1e3', '1E3', '1e-3', '2e9',
+    '1.5', '-100', '+100', 'abc', 'NaN', 'Infinity', '0x64', '1_000',
+    null, undefined, {}, [], true, NaN, Infinity, -0,
+  ]) {
+    assert.equal(tokenSupplyValue(rejected), null, `${String(rejected)} is not a valid supply`);
+  }
+});
+
+test('launch initial price requires a positive six-decimal USDC amount', () => {
+  assert.equal(launchPriceUnits('0.000001'), 1n);
+  assert.equal(launchPriceUnits('0.1'), 100_000n);
+  assert.equal(launchPriceUnits('1'), 1_000_000n);
+  assert.equal(launchPriceUnits('1000'), 1_000_000_000n);
+  assert.equal(launchPriceUnits('1.123456'), 1_123_456n);
+
+  for (const rejected of [
+    '0', '-1', '1e-3', '1E3', 'abc', '0.0000001', '1000.000001', '1.1234567',
+    '', '   ', '+1', '.5', '1.', 'Infinity', null, undefined, {}, [],
+  ]) {
+    assert.equal(launchPriceUnits(rejected), null, `${String(rejected)} is not a valid price`);
+  }
+});
+
+test('launch curve increase permits exactly zero, because a flat curve is a real market', () => {
+  const flat = { allowZero: true };
+  assert.equal(launchPriceUnits('0', flat), 0n);
+  assert.equal(launchPriceUnits('0.000001', flat), 1n);
+  assert.equal(launchPriceUnits('1', flat), 1_000_000n);
+  assert.equal(launchPriceUnits('1000', flat), 1_000_000_000n);
+
+  for (const rejected of ['-1', '1e3', 'abc', '1000.000001', '1.1234567', '', null, undefined]) {
+    assert.equal(launchPriceUnits(rejected, flat), null, `${String(rejected)} is not a valid slope`);
+  }
+  // And zero stays invalid for the initial price, where the two fields genuinely differ.
+  assert.equal(launchPriceUnits('0'), null);
+});
+
+test('no launch helper throws, whatever the field contains', () => {
+  for (const hostile of [
+    Symbol.iterator, () => {}, new Date(), 'a'.repeat(10_000), '9'.repeat(400),
+    { toString() { throw new Error('hostile'); } },
+  ]) {
+    assert.doesNotThrow(() => { try { tokenSupplyValue(hostile); } catch (e) { if (e.message !== 'hostile') throw e; } });
+    assert.doesNotThrow(() => { try { launchPriceUnits(hostile); } catch (e) { if (e.message !== 'hostile') throw e; } });
+  }
+});
+
+test('the launch form validates before review and signs only validated values', async () => {
+  const main = await readFile('src/main.jsx', 'utf8');
+
+  // The bug: `BigInt(supply)` and `parseUsdc(...)` ran inside the contract call, so `1e3` threw
+  // there and a broad `catch {}` swallowed it — the button appeared to do nothing at all.
+  assert.equal(
+    /args: \[name\.trim\(\)[^\]]*BigInt\(supply\)/.test(main),
+    false,
+    'the call must not re-parse raw strings',
+  );
+  assert.ok(
+    main.includes('args: [name.trim(), symbol.trim().toUpperCase(), description.trim(), supplyValue, basePriceUnits, slopePriceUnits]'),
+    'it sends the values that were validated',
+  );
+  assert.ok(main.includes('if (launchInvalid) {'), 'review is refused for invalid input');
+  assert.ok(main.includes('setReview(false)'), 'and review does not open');
+  assert.ok(main.includes('launchPriceUnits(slopePrice, { allowZero: true })'), 'zero slope stays valid');
+  // Scoped to launchMarket: the markets buy/sell handlers legitimately wrap only action.execute,
+  // whose error state already presents wallet and provider failures.
+  const launchBody = main.slice(main.indexOf('async function launchMarket()'));
+  const launchCatch = launchBody.slice(0, launchBody.indexOf('\n  }\n\n  return ('));
+  assert.equal(
+    /\} catch \{/.test(launchCatch),
+    false,
+    'a local failure inside launchMarket must not be swallowed silently',
+  );
+  assert.ok(launchCatch.includes('setFormError('), 'an unexpected local failure surfaces a line');
+  assert.ok(main.includes('setFormError('), 'invalid input surfaces an inline message');
+  // The browser's own min/max blocks some submits before handleSubmit runs, so a message from an
+  // earlier attempt would otherwise linger and describe a field the user has already corrected.
+  assert.ok(
+    /useEffect\(\(\) => \{ setFormError\(null\); \}, \[name, symbol, supply, basePrice, slopePrice\]\)/
+      .test(main),
+    'editing any launch field clears a stale validation message',
   );
 });
 

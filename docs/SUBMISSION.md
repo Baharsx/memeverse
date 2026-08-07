@@ -7,7 +7,7 @@ verifiable against the addresses and transaction hashes in this file.
 
 ## Official requirements checked
 
-### Publicly verified — Arc House event page, checked 7 August 2026
+### Publicly verified — Arc House event page, re-checked 8 August 2026
 
 Governing source: **<https://community.arc.io/public/events/hackathon-programmable-money-74llz8htis>**
 (the official Arc House page for the online hackathon). Everything in this table was read directly
@@ -21,6 +21,7 @@ off that page on the date given.
 | Deliverable 3 | Link to the code repository |
 | Tracks | **DeFi** and **Agentic** |
 | Judging | A working prototype deployed on Arc · clear use of Circle's developer tools · a real use case with a path to production · quality of execution over complexity |
+| Follow-on opportunity | Top teams get places in an 8-week accelerator programme |
 
 **Track chosen: Agentic** (MemeVerse also satisfies the DeFi criteria through its bonding-curve
 markets, USDC marketplace, and ERC-4626 vault).
@@ -39,7 +40,6 @@ checked the dashboard.
 | Demo Day on **20 August 2026** | **UNVERIFIED.** Not on the public page. |
 | An **Anywhere-on-Earth** deadline timezone | **UNVERIFIED.** The public page quotes times in GMT and carries no AoE wording. |
 | A required **deck / slide presentation** | **UNVERIFIED.** The public page lists three deliverables and does not name a deck. |
-| Prize: top teams entering an 8-week accelerator | **UNVERIFIED.** Not on the public page. |
 
 Third-party write-ups and the separate in-person *Encode x Arc DeFi Hackathon*
 (<https://luma.com/rjsr5r3a>) were also read, but neither is a governing source for this online
@@ -260,7 +260,7 @@ Safety is structural: atomic global and per-market daily spend reservations in P
 payout per market per epoch enforced by a primary key, and capacity that is never released on an
 undetermined provider outcome.
 
-344 tests. Zero dependency vulnerabilities. Arc Public Testnet only.
+354 tests. Zero dependency vulnerabilities. Arc Public Testnet only.
 
 ## Technical summary
 

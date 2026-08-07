@@ -6,6 +6,7 @@ import { arc, arcContracts } from './arc';
 import { usdcAbi } from './market';
 import {
   formatUsdcAmount,
+  jsonDataUri,
   mediaNftAbi,
   nftMarketplaceAbi,
   readCreatableMarkets,
@@ -337,7 +338,9 @@ function MintMedia({ wallet, onMinted }) {
       ],
     };
     // Self-contained metadata: no host is required for it to stay resolvable or verifiable.
-    return `data:application/json;base64,${btoa(JSON.stringify(metadata))}`;
+    // Encoded through the UTF-8-safe helper, because a meme name is exactly where emoji and
+    // non-Latin script show up and raw btoa throws on both.
+    return jsonDataUri(metadata);
   }, [canMint, form, wallet.address]);
 
   async function hashFile(file) {

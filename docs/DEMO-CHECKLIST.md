@@ -28,7 +28,7 @@ you to trust that something is probably fine.
 
 **System**
 
-- [ ] `npm ci && NODE_ENV=test npm test` — 344 pass (290 backend, 54 contract).
+- [ ] `npm ci && NODE_ENV=test npm test` — 354 pass (300 backend, 54 contract).
 - [ ] `NODE_ENV=production npm run build` — succeeds, no chunk over 500 kB.
 - [ ] `npm run db:migrate` has been run against the demo database.
 - [ ] `npm run demo:preflight` — **DEMO READY**, or the only warnings are ones you have decided to
@@ -99,7 +99,8 @@ you to trust that something is probably fine.
 
 ## During the demo
 
-- [ ] Refresh `/agent` before starting, so the status is current rather than fifteen minutes stale.
+- [ ] Refresh `/agent` immediately before recording, then confirm **STATUS: ACTIVE**. The page
+      also refreshes status automatically every 15 seconds.
 - [ ] Do **not** wait on an unconfirmed transaction. Move on; come back to it.
 - [ ] If you show a historical payout, say **"a previously verified autonomous payout."** Out loud.
 - [ ] Do not claim mainnet, an independent audit, or exactly-once payment.

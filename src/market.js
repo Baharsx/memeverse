@@ -73,6 +73,48 @@ export function parseUsdc(value) {
   return parseUnits(value, USDC_DECIMALS);
 }
 
+/**
+ * Launch-form validation, using the same parsers the transaction itself uses.
+ *
+ * A `type="number"` field will happily hand back `1e3`, and `BigInt('1e3')` throws — so the value
+ * that passed the browser's own validation blew up inside the contract call, where a broad catch
+ * swallowed it and the user saw a button that did nothing. These answer the question the call will
+ * ask, and return null rather than throwing, so the form can refuse before anything reaches a
+ * wallet. Every input is coerced to a string first: nothing here throws for any input.
+ */
+
+/** Whole-token supply, in the bounds the launch form advertises. */
+export function tokenSupplyValue(value) {
+  const text = String(value ?? '').trim();
+  // Plain digits only. No exponent, no decimal point, no sign.
+  if (!/^\d{1,12}$/.test(text)) return null;
+  const units = BigInt(text);
+  if (units < 100n || units > 1_000_000_000n) return null;
+  return units;
+}
+
+const LAUNCH_PRICE_MAX_UNITS = 1_000_000_000n; // 1000 USDC at six decimals.
+
+/**
+ * A launch price in atomic USDC units.
+ *
+ * `allowZero` exists because the two price fields genuinely differ: the initial price must be at
+ * least one atomic unit, while a flat curve — a slope of exactly 0 — is a legitimate market.
+ */
+export function launchPriceUnits(value, { allowZero = false } = {}) {
+  const text = String(value ?? '').trim();
+  if (!/^\d+(?:\.\d{1,6})?$/.test(text)) return null;
+  let units;
+  try {
+    units = parseUnits(text, USDC_DECIMALS);
+  } catch {
+    return null;
+  }
+  if (units > LAUNCH_PRICE_MAX_UNITS) return null;
+  if (units === 0n) return allowZero ? 0n : null;
+  return units;
+}
+
 export function parseWholeTokens(value) {
   if (!/^\d+$/.test(value.trim()) || BigInt(value) === 0n) {
     throw new Error('Enter a positive whole-token amount.');

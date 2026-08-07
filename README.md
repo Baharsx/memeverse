@@ -75,7 +75,7 @@ npm run demo:preflight        # read-only: RPC, chain ID, every contract's bytec
 npm run contracts:audit:onchain
 npm run markets:audit:onchain
 npm run assets:audit:onchain
-NODE_ENV=test npm test        # 290 backend + 54 contract = 344
+NODE_ENV=test npm test        # 300 backend + 54 contract = 354
 NODE_ENV=production npm run build
 npm audit
 ```
@@ -106,7 +106,7 @@ MemeVerse is an independent product. The MemeVerse name and visual identity lead
 The product explores two Arc ecosystem tracks:
 
 - **DeFi:** USDC-denominated meme markets, bonding curves, treasury controls, creator revenue splits, and conditional settlement.
-- **Agentic economy:** a supervised worker that discovers registered markets, reads confirmed Arc trading evidence, scores it with deterministic policy, and executes bounded creator payouts from a Circle Agent Wallet with no per-payout human approval — each one reconciled back against Arc.
+- **Agentic economy:** an autonomous worker that discovers registered markets, reads confirmed Arc trading evidence, scores it with deterministic policy, and executes bounded creator payouts from a Circle Agent Wallet with no per-payout human approval — each one reconciled back against Arc.
 
 ## Current MVP
 
@@ -122,9 +122,11 @@ The product explores two Arc ecosystem tracks:
 - Server-enforced USDC spend/virality policy using exact six-decimal integer math
 - Durable transactional PostgreSQL/PGlite settlement records
 - Idempotent quote creation, five-minute expiry, and explicit transaction state transitions
-- Browser Agent flow connected to `quote → prepare → persisted record`
+- Manual operator Agent flow connected to `quote → prepare → persisted record` (manual route only)
 - Official Circle Developer-Controlled Wallets SDK integration for Arc Testnet USDC
-- Explicit `prepare → execute → reconcile` flow; no automatic or hidden signing
+- Manual operator route uses an explicit `prepare → execute → reconcile` flow with no automatic or hidden signing on that route; the autonomous creator-reward route is separate and takes no per-payout human approval
+- Autonomous creator-reward route: an autonomous worker discovers registered markets, scores confirmed Arc trading evidence with a deterministic policy, and pays the creator from a Circle **Agent Wallet** with **no per-payout human approval**
+- Every autonomous payout is reconciled against `SettlementExecuted` and the USDC `Transfer` on Arc before it is reported as verified
 - Signed Circle webhook verification with durable `notificationId` deduplication
 - Circle wallet readiness and USDC balance endpoint without secret exposure
 - Verified MemeVerseSettlement contract deployed on Arc Testnet
