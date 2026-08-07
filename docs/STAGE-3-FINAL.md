@@ -26,7 +26,7 @@ Baseline: `a72bcf244237c1bb310b082f913ca16fb557a73f`.
 | Agent status API | Additive, sanitized: daily budget, last evaluation, settlement contract, policy version, reference |
 | Demo tooling | `npm run demo:preflight` — read-only readiness check |
 | Documentation | Submission package, 3-minute script, demo checklist |
-| Tests | +21 backend (237 → 258). Contract tests unchanged at 54. |
+| Tests | +22 backend (237 → 259). Contract tests unchanged at 54. |
 
 ### What did **not** change
 
@@ -239,7 +239,7 @@ it. See `docs/SUBMISSION.md`.
 
 | Check | Result |
 | --- | --- |
-| `NODE_ENV=test npm test` — backend | **258 pass**, 0 fail (baseline 237) |
+| `NODE_ENV=test npm test` — backend | **259 pass**, 0 fail (baseline 237) |
 | `NODE_ENV=test npm test` — contracts | **54 pass**, 0 fail (unchanged) |
 | `NODE_ENV=production npm run build` | Success, largest chunk 268.62 kB |
 | `npm audit` | **0 vulnerabilities** |

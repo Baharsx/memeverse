@@ -82,8 +82,17 @@ export function Route() {
   return null;
 }
 
-export function Routes({ children }) {
+/**
+ * Renders the matching route, or `notFound` when nothing matches.
+ *
+ * The fallback is not optional in practice. Hosting this application requires SPA history
+ * fallback, so the edge answers *every* path under the base with `index.html` — which means a
+ * mistyped URL reaches the browser as a successful page load. Without a not-found element that
+ * would render an empty document under a working header, which is exactly the blank panel every
+ * other surface here goes out of its way to avoid.
+ */
+export function Routes({ children, notFound = null }) {
   const { pathname } = React.useContext(RouterContext);
   const route = React.Children.toArray(children).find((child) => child.props.path === pathname);
-  return route?.props.element ?? null;
+  return route?.props.element ?? notFound;
 }

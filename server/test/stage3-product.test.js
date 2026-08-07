@@ -161,6 +161,19 @@ test('every route on the canonical demo path is routed and reachable from naviga
   }
 });
 
+test('an unmatched deep link renders a real surface rather than an empty page', async () => {
+  const main = await readFile('src/main.jsx', 'utf8');
+  const router = await readFile('src/router.jsx', 'utf8');
+
+  // SPA history fallback means the edge answers every path under the base with index.html, so a
+  // mistyped URL reaches the browser as a successful page load. Without this it would render an
+  // empty document under a working header.
+  assert.ok(router.includes('notFound = null'), 'Routes must accept a not-found element');
+  assert.ok(router.includes('return route?.props.element ?? notFound'), 'it must be rendered');
+  assert.ok(main.includes('notFound={<NotFound />}'), 'the shell must supply one');
+  assert.ok(main.includes('NO SUCH SURFACE'), 'and it must say what happened');
+});
+
 test('each demo step hands off to the next one without returning to the homepage', async () => {
   const main = await readFile('src/main.jsx', 'utf8');
   const stage2 = await readFile('src/stage2-views.jsx', 'utf8');

@@ -363,3 +363,13 @@ nav a:hover sup,nav a.active sup{color:var(--bg)}
 .market-proof{grid-template-columns:minmax(240px,5fr) 7fr}
 .market-proof strong{font-size:clamp(22px,2.6vw,32px);line-height:1.06;overflow-wrap:anywhere}
 @media(max-width:900px){.market-proof{grid-template-columns:1fr}}
+
+/* SPA history fallback means an unknown path loads successfully, so it needs a real surface. */
+.not-found-links{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);margin-bottom:28px}
+.not-found-links a{padding:22px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--bg-2);transition:100ms}
+.not-found-links a:hover{background:var(--acid);color:var(--bg)}
+.not-found-links small{display:block;font:9px var(--mono);color:var(--mute);letter-spacing:.11em}
+.not-found-links a:hover small{color:var(--bg)}
+.not-found-links strong{display:block;margin-top:10px;font:600 20px var(--display)}
+@media(max-width:900px){.not-found-links{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:500px){.not-found-links{grid-template-columns:1fr}.not-found-links a{border-right:0}}

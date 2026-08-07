@@ -250,7 +250,7 @@ function Shell() {
         <Wallet />
       </header>
       <main id="main-content">
-        <Routes>
+        <Routes notFound={<NotFound />}>
           <Route path="/" element={<Home />} />
           <Route path="/markets" element={<Markets />} />
           <Route path="/trade" element={<Markets />} />
@@ -434,6 +434,28 @@ function Home() {
         </div>
       </section>
     </>
+  );
+}
+
+/**
+ * Hosting this application requires SPA history fallback, so a mistyped path arrives in the
+ * browser as a successful page load. Say so, and put the demo path back within one click.
+ */
+function NotFound() {
+  return (
+    <section className="page not-found">
+      <Title n="404" t="NO SUCH SURFACE" />
+      <p className="lede">
+        That address is not a MemeVerse surface. Nothing failed and nothing is missing — the page
+        simply does not exist. Every real surface is one click away.
+      </p>
+      <div className="not-found-links">
+        {navItems.map(([number, label, path]) => (
+          <NavLink key={path} to={path}><small>{number}</small><strong>{label}</strong></NavLink>
+        ))}
+      </div>
+      <NavLink className="btn primary" to="/">BACK TO MEMEVERSE →</NavLink>
+    </section>
   );
 }
 
