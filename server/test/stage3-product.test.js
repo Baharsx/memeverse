@@ -141,6 +141,76 @@ test('both agent surfaces derive their status from the one shared rule', async (
   );
 });
 
+test('the agent explains what it does before it explains what it is not', async () => {
+  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
+
+  // Leading with the disclaimer taught a judge what MemeVerse is not before they understood what
+  // it is. The autonomy comes first; the deterministic-policy note stays, but underneath.
+  const heading = stage3.indexOf('OBSERVE → DECIDE → PAY → PROVE');
+  const llmNote = stage3.indexOf('No LLM participates in the payout decision');
+  assert.ok(heading > 0, 'the agent surface must lead with what the agent actually does');
+  assert.ok(llmNote > heading, 'the determinism note must follow the autonomy, not precede it');
+  assert.equal(
+    stage3.includes('ECONOMIC ACTOR, NOT A CHATBOT'),
+    false,
+    'the defensive heading is replaced, not merely supplemented',
+  );
+
+  // The four things a judge has to be able to answer, stated on the surface itself.
+  for (const claim of [
+    'discovers the markets registered',
+    'confirmed Arc trading evidence',
+    'market.creator()',
+    'Circle Agent Wallet',
+    'No human approves an individual',
+    'reconciled back against Arc',
+  ]) {
+    assert.ok(stage3.includes(claim), `the agent story must state: ${claim}`);
+  }
+
+  // And it still must not claim intelligence it does not have.
+  for (const overclaim of ['AI-powered', 'intelligent agent', 'machine learning', 'reasoning model']) {
+    assert.equal(
+      stage3.toLowerCase().includes(overclaim.toLowerCase()),
+      false,
+      `the agent must not claim "${overclaim}"`,
+    );
+  }
+});
+
+test('the manual settlement route is preserved but secondary and collapsed by default', async () => {
+  const main = await readFile('src/main.jsx', 'utf8');
+
+  // The autonomous surface says no human approves a payout. A human approval form at equal visual
+  // weight directly beneath it reads as the same flow, which is the confusion being removed.
+  assert.ok(main.includes('<details className="manual-route">'), 'it must be collapsible');
+  assert.equal(
+    /<details className="manual-route"[^>]*\bopen\b/.test(main),
+    false,
+    'it must be closed by default',
+  );
+  assert.ok(main.includes('ADVANCED / SUPPORTING MANUAL ROUTE'), 'and labelled as supporting');
+  assert.ok(
+    main.includes('not used by autonomous creator rewards'),
+    'the summary must say the two routes are separate',
+  );
+
+  // Preserved, not deleted: every manual control still exists inside it.
+  for (const preserved of [
+    'OPERATOR SETTLEMENT ROUTE', 'OperatorSessionPanel', 'REVIEW HUMAN EXECUTION',
+    'SETTLEMENT REQUEST', 'runPolicy', 'executeWithCircle',
+  ]) {
+    assert.ok(main.includes(preserved), `the manual route must keep ${preserved}`);
+  }
+
+  // The autonomous surface is outside the <details> and therefore visible by default.
+  const detailsAt = main.indexOf('<details className="manual-route">');
+  assert.ok(
+    main.indexOf('<AgentCommandCenter />') < detailsAt,
+    'the Agent Command Center must render before, and outside, the collapsed route',
+  );
+});
+
 test('the recorded epoch timestamp is not overstated as every evaluation', async () => {
   const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
   // The backend derives this from the most recent payout epoch claim, so an evaluation denied

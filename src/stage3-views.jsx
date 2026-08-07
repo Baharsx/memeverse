@@ -256,11 +256,17 @@ export function AgentCommandCenter() {
       <div className="command-head">
         <div>
           <small>AUTONOMOUS AGENT</small>
-          <h2>ECONOMIC ACTOR, NOT A CHATBOT</h2>
+          <h2>OBSERVE → DECIDE → PAY → PROVE</h2>
           <p>
-            A deterministic policy reads confirmed Arc trading evidence, decides on its own whether
-            a creator has earned a reward, and pays them from a Circle Agent Wallet. No language
-            model is involved, and no human approves an individual payout.
+            A supervised worker discovers the markets registered in the MemeVerse factory and reads
+            their confirmed Arc trading evidence itself. Policy scores that evidence; the agent
+            derives the recipient from <code>market.creator()</code> and the amount from the score,
+            then spends from its own Circle Agent Wallet. <b>No human approves an individual
+            payout.</b> Every payment is reconciled back against Arc independently.
+          </p>
+          <p className="command-note">
+            The financial policy is deterministic by design, so each decision is reproducible and
+            auditable. No LLM participates in the payout decision.
           </p>
         </div>
         <div className={`command-state ${state.toLowerCase()}`} role="status">

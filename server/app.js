@@ -272,7 +272,39 @@ export function createApp({
         },
         circle: { ready: circleGateway?.configuration().configured === true },
         settlementContract: arcIndexer?.configuration() ?? { configured: false },
+        /**
+         * MemeVerse has two settlement routes, and this endpoint used to describe only one of
+         * them. A reader who called it saw `executionMode: MANUAL_OPERATOR` and
+         * `humanApprovalRequired: true` with no qualifier, and would reasonably conclude that
+         * every agent payout needs a human — which is the opposite of what the autonomous route
+         * does. Both routes are now named explicitly.
+         *
+         * Public values only: policy constants, mode names, and booleans. No wallet identifier,
+         * no worker identity, no credential, no session material.
+         */
         agent: {
+          policy: {
+            dailySpendUsdc: config.agentDailySpendUsdc,
+            maxFraudRisk: config.agentMaxFraudRisk,
+            minConfidence: config.agentMinConfidence,
+            signalMaxAgeSeconds: config.agentSignalMaxAgeSeconds,
+            signalProvenance: 'SERVER_ASSIGNED',
+            browserProvenance: 'OPERATOR_INPUT',
+          },
+          manualRoute: {
+            executionMode: 'MANUAL_OPERATOR',
+            humanApprovalRequired: true,
+          },
+          autonomousRoute: {
+            executionMode: 'AUTONOMOUS_POLICY',
+            humanApprovalRequired: false,
+            // Whether this deployment has an Agent Wallet route at all, and whether an operator
+            // has it running. Both are booleans a judge can already read off /agent.
+            configured: Boolean(autonomousAgentService),
+            enabled: config.agentAutonomousEnabled === true,
+          },
+          // Retained for existing consumers, and now explicitly scoped to the manual route so the
+          // old field names cannot be read as describing the whole product.
           dailySpendUsdc: config.agentDailySpendUsdc,
           maxFraudRisk: config.agentMaxFraudRisk,
           minConfidence: config.agentMinConfidence,
@@ -281,6 +313,7 @@ export function createApp({
           browserProvenance: 'OPERATOR_INPUT',
           executionMode: 'MANUAL_OPERATOR',
           humanApprovalRequired: true,
+          appliesTo: 'MANUAL_OPERATOR_ROUTE',
         },
         operatorAuth: operatorAuthService
           ? { configured: operatorAuthService.configured, ...operatorAuthService.configuration() }

@@ -19,14 +19,16 @@ you to trust that something is probably fine.
 
 - [ ] `circle` CLI session is valid. The Agent Command Center must show **STATUS: ACTIVE** and
       wallet state **LIVE**. A lapsed session reads UNAVAILABLE and the agent will not pay.
-      Sessions are time-bounded (~28 days) — renewing takes a human login, so do it now, not on
-      the day.
+      Agent Wallet sessions are time-bounded. Verify the TESTNET session status and expiry with
+      Circle CLI immediately before the demo (current Circle docs: 7 days). Testnet and mainnet
+      sessions are stored separately, and renewing takes a human login — so do it now, not on the
+      day.
 - [ ] `.env.local` present and complete. `npm run demo:preflight` shows CONFIGURED for the Agent
       Wallet, Circle credentials, and Kit Key.
 
 **System**
 
-- [ ] `npm ci && NODE_ENV=test npm test` — 321 pass (267 backend, 54 contract).
+- [ ] `npm ci && NODE_ENV=test npm test` — 336 pass (282 backend, 54 contract).
 - [ ] `NODE_ENV=production npm run build` — succeeds, no chunk over 500 kB.
 - [ ] `npm run db:migrate` has been run against the demo database.
 - [ ] `npm run demo:preflight` — **DEMO READY**, or the only warnings are ones you have decided to

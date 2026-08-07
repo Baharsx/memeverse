@@ -1148,8 +1148,21 @@ function Agent() {
         <AgentCommandCenter />
       </Suspense>
 
-      <hr className="route-divider" />
-
+      {/*
+        Collapsed by default, and that is a truthfulness decision rather than a cosmetic one. The
+        surface above states that no human approves an autonomous payout; presenting a human
+        approval form immediately beneath it, at the same visual weight, invites the reader to
+        conclude the two are the same flow. They share no wallet, no settlement contract, and no
+        allowance. The route is fully preserved — every control below is unchanged — but it opens
+        only when somebody deliberately asks for it.
+      */}
+      <details className="manual-route">
+        <summary>
+          <span>ADVANCED / SUPPORTING MANUAL ROUTE</span>
+          <small>
+            Separate human-authorized settlement path — not used by autonomous creator rewards.
+          </small>
+        </summary>
       <Title n="MANUAL" t="OPERATOR SETTLEMENT ROUTE" />
       <p className="lede">
         A separate, human-authorized route. The backend weights engagement, retention, liquidity,
@@ -1280,6 +1293,7 @@ function Agent() {
         <span>CIRCLE DEV-CONTROLLED EOA</span>
         <span>SEPARATE LEASED WORKER</span>
       </div>
+      </details>
     </section>
   );
 }

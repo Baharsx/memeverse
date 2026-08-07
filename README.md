@@ -21,6 +21,13 @@ reconciled **VERIFIED**, `operatorAddress: null`, human authorization consumed: 
 **Demo:** not yet hosted publicly. The contracts below are live and independently verifiable today;
 the application runs locally with `npm run dev` (see [Run locally](#run-locally)).
 
+### Judge in 60 seconds
+
+1. Create a real Arc meme market
+2. Trade it in USDC
+3. The agent observes confirmed activity and autonomously rewards the creator
+4. Open the payout on ArcScan and verify it
+
 ### Start here
 
 | If you want to… | Go to |
@@ -68,7 +75,7 @@ npm run demo:preflight        # read-only: RPC, chain ID, every contract's bytec
 npm run contracts:audit:onchain
 npm run markets:audit:onchain
 npm run assets:audit:onchain
-NODE_ENV=test npm test        # 259 backend + 54 contract
+NODE_ENV=test npm test        # 282 backend + 54 contract = 336
 NODE_ENV=production npm run build
 npm audit
 ```
@@ -86,7 +93,7 @@ The current release is an Arc Public Testnet product. Markets, balances, quotes,
 
 **Backend (Stage 2, Phase 6B):** real Arc media NFTs with onchain market provenance, a real USDC NFT marketplace, a real ERC-4626 USDC vault, and a genuinely autonomous creator-settlement agent that reads confirmed Arc evidence, decides by deterministic policy, and pays creators in USDC with no human approval in the execution path. All three contracts are deployed and verified on Arc Testnet, and each has been proven with live transactions — including one real autonomous payout. See [`docs/PHASE-6B-STAGE-2.md`](./docs/PHASE-6B-STAGE-2.md) for addresses, transaction hashes, and the full trust boundary.
 
-**Browser UI:** the NFT, marketplace, vault, and agent surfaces all read deployed Arc contracts and the sanitized backend status. The Stage 1 simulated NFT archive and Vault screens have been deleted, not merely unrouted. The manual operator settlement path is unchanged and still requires a wallet-signed session plus a one-time approval bound to the exact settlement.
+**Browser UI:** the NFT, marketplace, vault, and agent surfaces all read deployed Arc contracts and the sanitized backend status. No simulated market, NFT, or vault data exists anywhere in the product. The manual operator settlement path is unchanged and still requires a wallet-signed session plus a one-time approval bound to the exact settlement; on `/agent` it is presented as a collapsed secondary route so it cannot be mistaken for the autonomous one.
 
 **Circle Agent Stack is integrated.** Autonomous payouts execute through a Circle **Agent Wallet** (`0x65da73c6d9300F3dAb1dF785219f76DeCA5e0FE3`), created with the official `@circle-fin/cli` on Arc Testnet. Because an Agent Wallet is an ERC-4337 smart contract account, and Arc's Memo `CallFrom` only preserves a directly signing EOA, the autonomous route calls its own settlement contract directly while the manual operator route keeps the Developer-Controlled Wallet and the Memo hop. The two routes share no wallet, contract, or allowance. Circle's wallet-level spending policies are mainnet-only, so on testnet every cap is application-level — see [`docs/PHASE-6B-STAGE-2.md`](./docs/PHASE-6B-STAGE-2.md).
 
@@ -99,7 +106,7 @@ MemeVerse is an independent product. The MemeVerse name and visual identity lead
 The product explores two Arc ecosystem tracks:
 
 - **DeFi:** USDC-denominated meme markets, bonding curves, treasury controls, creator revenue splits, and conditional settlement.
-- **Agentic economy:** transparent policy evaluation, capped allocation, reconciliation references, explicit transaction states, and non-custodial settlement preparation.
+- **Agentic economy:** a supervised worker that discovers registered markets, reads confirmed Arc trading evidence, scores it with deterministic policy, and executes bounded creator payouts from a Circle Agent Wallet with no per-payout human approval — each one reconciled back against Arc.
 
 ## Current MVP
 
@@ -141,7 +148,6 @@ The product explores two Arc ecosystem tracks:
 - Fail-closed Circle Stablecoin Kits quote boundary and capability discovery
 - Presentation UI for live server-authenticated Circle Stablecoin Kits estimates
 - USDC-native gas and settlement presentation
-- Simulated NFT archive and legacy Vault screens (removed in Stage 2, replaced by real contracts)
 - Reconciliation reference and deterministic `bytes32` Memo ID generation
 - Safety center with verified Arc resources, contract links, and transaction lifecycle
 - Responsive tactile-brutalist interface
@@ -684,7 +690,7 @@ Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration
 
 - **No Circle wallet-level spend limits on Arc Testnet.** `circle wallet limit` is mainnet only, so every autonomous cap in force is application-level rather than enforced by the wallet itself.
 - **`fraudRisk` is a heuristic score, not a fraud detector.** It measures onchain shape and cannot prove intent; the spend caps bound the damage rather than preventing manipulation.
-- **The Agent Wallet session is time-bounded** (~28 days). When it lapses the agent reports `UNAVAILABLE` and stops paying until a human logs in again.
+- **The Agent Wallet session is time-bounded** (current Circle docs: 7 days; testnet and mainnet sessions are stored separately). Verify it with the Circle CLI before relying on it — when it lapses the agent reports `UNAVAILABLE` and stops paying until a human logs in again.
 - **Autonomous execution needs the `circle` CLI on `PATH`** in the worker's environment; it is a subprocess dependency, not a library call.
 - **Single Arc RPC** for the backend collector: a sustained outage means no autonomous decisions. The collector fails closed rather than guessing.
 - **No public demo host yet.** The contracts are live on Arc Testnet and independently verifiable; the application itself is not hosted at a public URL.

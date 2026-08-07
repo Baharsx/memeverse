@@ -42,6 +42,10 @@ export class AutonomousAgentWorker {
     this.now = now;
     this.logger = logger;
     this.maxMarketsPerTick = maxMarketsPerTick;
+    // Where the next sweep starts. Every tick was previously bounded by slicing from index zero,
+    // so once the factory held more markets than the bound, everything past it would never be
+    // evaluated — the sweep would re-read the same prefix forever. The cursor advances instead.
+    this.sweepCursor = 0;
     this.timer = null;
     this.running = false;
     this.stopped = false;
@@ -110,7 +114,7 @@ export class AutonomousAgentWorker {
         return { ...summary, discoveryFailed: true };
       }
 
-      for (const market of markets.slice(0, this.maxMarketsPerTick)) {
+      for (const market of this.#batchFor(markets)) {
         if (this.stopped) break;
         summary.evaluated += 1;
         try {
@@ -160,5 +164,32 @@ export class AutonomousAgentWorker {
     } finally {
       this.running = false;
     }
+  }
+
+  /**
+   * The markets this tick will evaluate: at most `maxMarketsPerTick`, starting where the last
+   * sweep stopped and wrapping around.
+   *
+   * The bound itself is deliberate — an unbounded sweep would let one tick run for as long as the
+   * factory is large, and ticks must not overlap. What was wrong was always taking that bound from
+   * index zero: with more registered markets than the bound, the markets past it were starved
+   * permanently, because every sweep re-read the same prefix.
+   *
+   * A worker-local cursor is enough. It needs no persistence and no schema: correctness against
+   * double payment is the PostgreSQL epoch claim, not this order, so a cursor that resets on
+   * restart costs a little fairness and nothing else. Wrapping never evaluates the same market
+   * twice in one tick, because the batch is capped at the market count.
+   */
+  #batchFor(markets) {
+    if (markets.length === 0) return [];
+    const size = Math.min(this.maxMarketsPerTick, markets.length);
+    const start = this.sweepCursor % markets.length;
+    const batch = [];
+    for (let offset = 0; offset < size; offset += 1) {
+      batch.push(markets[(start + offset) % markets.length]);
+    }
+    // Advance past what this tick took, so the next one continues rather than repeats.
+    this.sweepCursor = (start + size) % markets.length;
+    return batch;
   }
 }

@@ -18,7 +18,38 @@ export function createAgentPolicy({
   });
 }
 
-export function evaluateAgentSignals(signals, policy, { now, arc, circle, evidence }) {
+/**
+ * What the route that requested this evaluation is allowed to do with it.
+ *
+ * The signal evaluator scores evidence; it has no way of knowing which of the two settlement
+ * routes asked. Both routes share this evaluator, so hardcoding the manual answer here meant an
+ * autonomous payout — one that genuinely executes with no human in the path — persisted nested
+ * metadata claiming a human approval was required. The scoring is identical for both; only this
+ * capability descriptor differs, so the caller that knows the route supplies it.
+ *
+ * The manual descriptor is the default, deliberately: a caller that forgets to say which route it
+ * is gets the restrictive answer rather than an execution permission it never asked for.
+ */
+export const AGENT_EXECUTION_ROUTES = Object.freeze({
+  MANUAL_OPERATOR: Object.freeze({
+    mayQuote: true,
+    mayPrepare: true,
+    mayExecute: false,
+    humanApprovalRequired: true,
+    executionMode: 'MANUAL_OPERATOR',
+  }),
+  AUTONOMOUS_POLICY: Object.freeze({
+    mayQuote: true,
+    mayPrepare: true,
+    mayExecute: true,
+    humanApprovalRequired: false,
+    executionMode: 'AUTONOMOUS_POLICY',
+  }),
+});
+
+export function evaluateAgentSignals(signals, policy, {
+  now, arc, circle, evidence, route = AGENT_EXECUTION_ROUTES.MANUAL_OPERATOR,
+}) {
   assertKnownProvenance(signals.provenance);
   const reasons = [];
   const observedAt = new Date(signals.observedAt);
@@ -93,12 +124,7 @@ export function evaluateAgentSignals(signals, policy, { now, arc, circle, eviden
         usdcBalance: circle.usdcBalance ?? null,
       },
     },
-    autonomy: {
-      mayQuote: true,
-      mayPrepare: true,
-      mayExecute: false,
-      humanApprovalRequired: true,
-      executionMode: 'MANUAL_OPERATOR',
-    },
+    // Supplied by the caller, because only the caller knows which route it is.
+    autonomy: route,
   });
 }

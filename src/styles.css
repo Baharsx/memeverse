@@ -373,3 +373,24 @@ nav a:hover sup,nav a.active sup{color:var(--bg)}
 .not-found-links strong{display:block;margin-top:10px;font:600 20px var(--display)}
 @media(max-width:900px){.not-found-links{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:500px){.not-found-links{grid-template-columns:1fr}.not-found-links a{border-right:0}}
+
+/* The deterministic-policy note sits under the agent's positive framing, not in place of it. */
+.command-head .command-note{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:11px;color:var(--mute)}
+
+/* The manual operator route: preserved in full, but secondary to the autonomous agent above it. */
+.manual-route{margin-top:34px;border:1px solid var(--line);background:var(--bg-2)}
+.manual-route>summary{display:flex;flex-direction:column;gap:6px;padding:20px 24px;cursor:pointer;list-style:none}
+.manual-route>summary::-webkit-details-marker{display:none}
+.manual-route>summary span{font:11px var(--mono);color:var(--acid);letter-spacing:.11em}
+.manual-route>summary small{font:11px/1.6 var(--mono);color:var(--mute);max-width:640px}
+.manual-route>summary::after{content:'▸ EXPAND';font:9px var(--mono);color:var(--mute);letter-spacing:.1em}
+.manual-route[open]>summary::after{content:'▾ COLLAPSE'}
+.manual-route>summary:hover span{text-decoration:underline}
+.manual-route>summary:focus-visible{outline:2px solid var(--acid);outline-offset:-2px}
+.manual-route[open]>summary{border-bottom:1px solid var(--line)}
+.manual-route>*:not(summary){margin-left:24px;margin-right:24px}
+.manual-route>*:last-child{margin-bottom:24px}
+@media(max-width:640px){
+  .manual-route>summary{padding:16px}
+  .manual-route>*:not(summary){margin-left:16px;margin-right:16px}
+}

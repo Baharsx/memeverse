@@ -3,7 +3,7 @@ import {
   derivePayoutUnits, grossForCreatorPayout, payoutEpoch,
 } from './agent-payout.js';
 import { classifyProviderFailure } from './execution-claim.js';
-import { evaluateAgentSignals } from './agent-policy.js';
+import { AGENT_EXECUTION_ROUTES, evaluateAgentSignals } from './agent-policy.js';
 import {
   assertAutonomousAuthorityFresh, mintAutonomousAuthority,
 } from './autonomous-authority.js';
@@ -97,6 +97,10 @@ export class AutonomousAgentService {
         now: this.now(),
         arc,
         circle,
+        // This decision is persisted against a settlement that really does execute with no human
+        // approval, so the stored capability metadata has to say so rather than inherit the
+        // manual route's answer.
+        route: AGENT_EXECUTION_ROUTES.AUTONOMOUS_POLICY,
         evidence: {
           suppliedBy: 'INTERNAL_COLLECTOR',
           collector: evidence.collector,

@@ -446,3 +446,176 @@ test('the worker logs the creator payout, not the gross request', async () => {
     await context.close();
   }
 });
+
+/**
+ * Sweep fairness.
+ *
+ * The per-tick bound is deliberate: a tick must not run for as long as the factory is large, and
+ * ticks never overlap. What was wrong was always taking that bound from index zero — with more
+ * registered markets than the bound, everything past it was starved permanently, because every
+ * sweep re-read the same prefix. Correctness against double payment is the PostgreSQL epoch claim
+ * and is unaffected either way; this is purely about every market eventually being looked at.
+ */
+function marketAddresses(count) {
+  return Array.from(
+    { length: count },
+    (_, index) => `0x${(index + 1).toString(16).padStart(40, '0')}`,
+  );
+}
+
+test('one tick never evaluates more than the per-tick bound', async () => {
+  const fixture = await autonomyDatabase();
+  try {
+    await fixture.store.setAutonomyPaused({ paused: false, changedBy: 'test' });
+    const markets = marketAddresses(60);
+    const service = recordingService();
+    const worker = new AutonomousAgentWorker({
+      autonomousAgentService: service,
+      autonomyStore: fixture.store,
+      collector: { async listRegisteredMarkets() { return markets; } },
+      scheduler: manualScheduler(),
+      logger: silentLogger,
+      maxMarketsPerTick: 25,
+    });
+
+    const summary = await worker.tick();
+
+    assert.equal(summary.evaluated, 25, 'the bound still holds');
+    assert.equal(service.calls.length, 25);
+    assert.equal(new Set(service.calls).size, 25, 'no market is evaluated twice in one tick');
+    assert.deepEqual(service.calls, markets.slice(0, 25), 'the first sweep starts at the top');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('markets beyond the first batch are eventually evaluated across ticks', async () => {
+  const fixture = await autonomyDatabase();
+  try {
+    await fixture.store.setAutonomyPaused({ paused: false, changedBy: 'test' });
+    const markets = marketAddresses(60);
+    const service = recordingService();
+    const worker = new AutonomousAgentWorker({
+      autonomousAgentService: service,
+      autonomyStore: fixture.store,
+      collector: { async listRegisteredMarkets() { return markets; } },
+      scheduler: manualScheduler(),
+      logger: silentLogger,
+      maxMarketsPerTick: 25,
+    });
+
+    // Before the fix, market 26 onwards could never be reached, no matter how long the worker ran.
+    await worker.tick();
+    assert.equal(service.calls.includes(markets[25]), false, 'not in the first batch');
+
+    await worker.tick();
+    assert.deepEqual(service.calls.slice(25), markets.slice(25, 50), 'the sweep continues');
+
+    await worker.tick();
+    assert.equal(
+      new Set(service.calls).size,
+      60,
+      'three ticks of 25 cover all 60 registered markets',
+    );
+    for (const market of markets) {
+      assert.ok(service.calls.includes(market), `${market} must eventually be evaluated`);
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('the sweep cursor wraps around the end of the market list', async () => {
+  const fixture = await autonomyDatabase();
+  try {
+    await fixture.store.setAutonomyPaused({ paused: false, changedBy: 'test' });
+    const markets = marketAddresses(7);
+    const service = recordingService();
+    const worker = new AutonomousAgentWorker({
+      autonomousAgentService: service,
+      autonomyStore: fixture.store,
+      collector: { async listRegisteredMarkets() { return markets; } },
+      scheduler: manualScheduler(),
+      logger: silentLogger,
+      maxMarketsPerTick: 3,
+    });
+
+    await worker.tick();
+    await worker.tick();
+    await worker.tick();
+
+    // 3 + 3 + 3 over a list of 7 must wrap: indices 0-2, 3-5, then 6,0,1.
+    assert.deepEqual(service.calls, [
+      markets[0], markets[1], markets[2],
+      markets[3], markets[4], markets[5],
+      markets[6], markets[0], markets[1],
+    ]);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('a bound larger than the market list evaluates each market exactly once', async () => {
+  const fixture = await autonomyDatabase();
+  try {
+    await fixture.store.setAutonomyPaused({ paused: false, changedBy: 'test' });
+    const markets = marketAddresses(3);
+    const service = recordingService();
+    const worker = new AutonomousAgentWorker({
+      autonomousAgentService: service,
+      autonomyStore: fixture.store,
+      collector: { async listRegisteredMarkets() { return markets; } },
+      scheduler: manualScheduler(),
+      logger: silentLogger,
+      maxMarketsPerTick: 25,
+    });
+
+    const summary = await worker.tick();
+    assert.equal(summary.evaluated, 3);
+    assert.equal(new Set(service.calls).size, 3, 'wrapping must not duplicate within a tick');
+
+    // And an empty factory is not an error.
+    const empty = new AutonomousAgentWorker({
+      autonomousAgentService: recordingService(),
+      autonomyStore: fixture.store,
+      collector: { async listRegisteredMarkets() { return []; } },
+      scheduler: manualScheduler(),
+      logger: silentLogger,
+    });
+    assert.equal((await empty.tick()).evaluated, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('a failing market inside a rotated batch still does not stop the sweep', async () => {
+  const fixture = await autonomyDatabase();
+  try {
+    await fixture.store.setAutonomyPaused({ paused: false, changedBy: 'test' });
+    const markets = marketAddresses(6);
+    const service = recordingService({
+      onEvaluate(market) {
+        if (market === markets[4]) throw new DomainError('COLLECTOR_FAILED', 'boom');
+        return executedResult({ market });
+      },
+    });
+    const worker = new AutonomousAgentWorker({
+      autonomousAgentService: service,
+      autonomyStore: fixture.store,
+      collector: { async listRegisteredMarkets() { return markets; } },
+      scheduler: manualScheduler(),
+      logger: silentLogger,
+      maxMarketsPerTick: 3,
+    });
+
+    await worker.tick();
+    const second = await worker.tick();
+
+    assert.equal(second.evaluated, 3, 'the failure did not shorten the batch');
+    assert.equal(second.failed, 1);
+    assert.equal(second.outcomes.COLLECTOR_FAILED, 1);
+    assert.ok(service.calls.includes(markets[5]), 'the market after the failure still ran');
+  } finally {
+    await fixture.close();
+  }
+});

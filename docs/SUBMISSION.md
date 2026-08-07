@@ -260,7 +260,7 @@ Safety is structural: atomic global and per-market daily spend reservations in P
 payout per market per epoch enforced by a primary key, and capacity that is never released on an
 undetermined provider outcome.
 
-321 tests. Zero dependency vulnerabilities. Arc Public Testnet only.
+336 tests. Zero dependency vulnerabilities. Arc Public Testnet only.
 
 ## Technical summary
 
@@ -302,7 +302,8 @@ zero onchain, which the interface states plainly rather than dressing up as yiel
 
 ## What is autonomous?
 
-The reward decision and its execution. The agent chooses which markets to evaluate, reads the
+The reward decision and its execution. The agent discovers the markets registered in the
+factory and evaluates them autonomously on its bounded sweep, reads the
 evidence itself, scores it, decides, derives the recipient and amount, mints its own execution
 authority in-process, and signs the payout as the Circle Agent Wallet. A human can stop the whole
 system with an emergency pause and can change the policy configuration — but there is no interface,

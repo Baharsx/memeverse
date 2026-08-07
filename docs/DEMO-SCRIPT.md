@@ -96,7 +96,7 @@ it. Otherwise click `02 MARKETS`.)*
 
 **Screen:** `/agent` — the Agent Command Center.
 
-> "This is an economic actor, not a chatbot. There's no language model anywhere in this path."
+> "This is an economic actor. It observes, decides, pays, and proves — on its own."
 
 **Point at** the status block, top-right, then the fact grid.
 

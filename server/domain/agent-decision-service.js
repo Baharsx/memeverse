@@ -1,5 +1,5 @@
 import { getAddress } from 'viem';
-import { evaluateAgentSignals } from './agent-policy.js';
+import { AGENT_EXECUTION_ROUTES, evaluateAgentSignals } from './agent-policy.js';
 import { DomainError } from './errors.js';
 import { assertTrustedProvenance, signalProvenance } from './signal-provenance.js';
 
@@ -65,7 +65,9 @@ export class AgentDecisionService {
     const agentDecision = evaluateAgentSignals(
       { ...input.signals, observedAt, provenance },
       this.policy,
-      { now: this.now(), arc, circle, evidence },
+      // Stated rather than defaulted: this route quotes and prepares only, and a human operator
+      // still has to authorize the execution itself.
+      { now: this.now(), arc, circle, evidence, route: AGENT_EXECUTION_ROUTES.MANUAL_OPERATOR },
     );
     const quote = await this.settlementService.quote({
       recipient: input.recipient,
