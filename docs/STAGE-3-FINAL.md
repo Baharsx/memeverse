@@ -241,13 +241,14 @@ it. See `docs/SUBMISSION.md`.
 | --- | --- |
 | `NODE_ENV=test npm test` — backend | **259 pass**, 0 fail (baseline 237) |
 | `NODE_ENV=test npm test` — contracts | **54 pass**, 0 fail (unchanged) |
-| `NODE_ENV=production npm run build` | Success, largest chunk 268.62 kB |
+| `NODE_ENV=production npm run build` | Success, largest chunk 268.62 kB, no chunk-size warning |
 | `npm audit` | **0 vulnerabilities** |
 | `git diff --check` | Clean |
 | `npm run contracts:audit:onchain` | Runtime bytecode matches local artifacts |
 | `npm run markets:audit:onchain` | Factory and markets verified |
 | `npm run assets:audit:onchain` | Media, marketplace, and vault verified |
 | `npm run demo:preflight` | Every contract and both proof transactions readable |
+| GitHub Actions, run `31156905735`, job `92798273291` | **success** on checkout SHA `eadbf33b713978372b1aacbc05f42f55faa3752a` — 259 backend + 54 contract tests under `NODE_ENV=test`, production build under `NODE_ENV=production`, `npm audit` 0, no chunk-size warning |
 
 **Production bundle**, configured local build:
 
@@ -256,19 +257,20 @@ it. See `docs/SUBMISSION.md`.
 | `chain` (viem, noble, scure) | 268.62 kB | 82.75 kB |
 | `react` | 192.49 kB | 60.35 kB |
 | `wallet` (wagmi, tanstack) | 68.14 kB | 20.36 kB |
-| `index` (application) | 61.19 kB | 17.93 kB |
+| `index` (application) | 61.78 kB | 18.11 kB |
 | `stage3-views` | 22.59 kB | 6.91 kB |
 | `stage2-views` | 14.50 kB | 4.92 kB |
 | `vendor` | 5.38 kB | 2.16 kB |
-| CSS | 52.69 kB | 9.49 kB |
+| CSS | 53.44 kB | 9.57 kB |
 
 Nothing exceeds 500 kB. The Stage 3 surfaces are their own lazily loaded chunk and are not paid for
 by a visitor who only opens the markets page.
 
-**A note on bundle numbers.** A configured local build and a clean unconfigured CI build differ
-slightly, because Vite inlines `VITE_*` contract addresses at build time. The figures above are
-from a **configured local production build**. CI builds without those variables and will report
-marginally smaller application chunks. Both are correct; they measure different builds.
+**A note on bundle numbers.** A configured local build and a clean unconfigured CI build differ,
+because Vite inlines `VITE_*` contract addresses at build time. Measured on this exact commit: the
+local configured application chunk is **61.78 kB**, CI's is **61.57 kB**, and every other chunk —
+including the CSS — is byte-identical. Both are correct; they measure different builds. Always name
+the environment a bundle figure came from.
 
 ### Real browser QA
 

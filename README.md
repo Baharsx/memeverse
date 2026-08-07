@@ -552,15 +552,17 @@ build reports:
 | `chain` | 268.62 kB | 82.75 kB |
 | `react` | 192.49 kB | 60.35 kB |
 | `wallet` | 68.14 kB | 20.36 kB |
-| `index` (application) | 61.19 kB | 17.93 kB |
+| `index` (application) | 61.78 kB | 18.11 kB |
 | `stage3-views` | 22.59 kB | 6.91 kB |
 | `stage2-views` | 14.50 kB | 4.92 kB |
-| CSS | 52.69 kB | 9.49 kB |
+| CSS | 53.44 kB | 9.57 kB |
 
-**On comparing these numbers to CI.** Vite inlines `VITE_*` contract addresses at build time, so a
-**configured local build** and a **clean unconfigured CI build** differ slightly — CI has no
-contract addresses to inline and reports marginally smaller application chunks. Both are correct;
-they measure different builds. Always state which environment a bundle figure came from.
+**On comparing these numbers to CI.** Vite inlines `VITE_*` contract addresses at build time, so
+a **configured local build** and a **clean unconfigured CI build** differ. Measured on this exact
+commit: the local configured application chunk is **61.78 kB** and CI's is **61.57 kB** — CI has no
+contract addresses to inline. Every other chunk, and the CSS, is byte-identical. Both numbers are
+correct; they measure different builds, so always state which environment a bundle figure came
+from.
 
 `VITE_BASE_PATH` sets the build's base path. The committed default is `/memeverse/`; a root-domain
 deployment sets `VITE_BASE_PATH=/`. The client router derives its basename from the same value, so
