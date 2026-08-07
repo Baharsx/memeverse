@@ -601,11 +601,26 @@ edge has to serve `index.html` for unmatched paths under the base:
 location /memeverse/ {
   alias /opt/memeverse/dist/;
   try_files $uri $uri/ /memeverse/index.html;
+
+  # The static document is served by nginx, not by the API, so it does not inherit the API's
+  # security headers. These three have to be sent here or the frontend has none.
+  add_header X-Frame-Options "DENY" always;
+  add_header Referrer-Policy "no-referrer" always;
+  # Deliberately frame-ancestors only. The full policy travels in the built document's
+  # <meta http-equiv="Content-Security-Policy">, and frame-ancestors is the one directive a
+  # browser is defined to ignore there — so it is the one directive that must come over HTTP.
+  # Restating the whole CSP here would create a second copy to keep in sync, and the copy that
+  # drifts is always the one in production.
+  add_header Content-Security-Policy "frame-ancestors 'none';" always;
 }
 location /api/ {
   proxy_pass http://127.0.0.1:8787;
 }
 ```
+
+`add_header` does not merge across levels: a block that declares any `add_header` drops every
+inherited one. Keep these three inside the `location` that serves the frontend rather than at
+`server` level, and if you also set headers on the parent, restate them here too.
 
 Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration identity, **before** rolling out the API and worker. The API and worker use the lower-privilege `DATABASE_URL`; production runtime migration is forcibly disabled. Startup verifies every table *and column* the runtime writes and refuses to start against an outdated schema with `Database schema is outdated. Run npm run db:migrate.`, naming what is missing — so a skipped migration fails immediately rather than on the first settlement write. The readiness check reads the catalog only and runs no DDL. Hardened service templates are under `ops/systemd/`. Credentials must come from a secret manager rather than Git.
 

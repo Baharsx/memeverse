@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { safeMediaUrl } from '../../src/assets.js';
+import { autonomyDisplayState } from '../../src/agent-status.js';
 import {
   CHECK_STATES, describeConfigured, formatCheckLine, overallVerdict,
 } from '../../scripts/demo-preflight.js';
@@ -77,6 +78,161 @@ test('the content security policy still refuses scripts and wildcards after the 
   for (const [name, values] of Object.entries(directives)) {
     assert.equal(values.includes('*'), false, `${name} must never carry a wildcard`);
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Agent status truthfulness
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('the agent never reads ACTIVE unless it is configured, LIVE, loaded, and unpaused', () => {
+  const live = { executor: { configured: true, state: 'LIVE' }, paused: false };
+  assert.equal(autonomyDisplayState({ loaded: true, data: live }), 'ACTIVE');
+
+  // Every way infrastructure can be absent, and none of them may look healthy. The Proof Center
+  // previously answered ACTIVE for the first three of these, because it only checked `paused`.
+  assert.equal(autonomyDisplayState({ loaded: false, data: undefined }), 'UNAVAILABLE', 'pending');
+  assert.equal(autonomyDisplayState({ loaded: false, data: live }), 'UNAVAILABLE', 'not loaded');
+  assert.equal(autonomyDisplayState({ loaded: true, data: undefined }), 'UNAVAILABLE', 'failed');
+  assert.equal(autonomyDisplayState({ loaded: true, data: {} }), 'UNAVAILABLE', 'no executor');
+  assert.equal(
+    autonomyDisplayState({ loaded: true, data: { executor: { configured: false }, paused: false } }),
+    'UNAVAILABLE',
+    'an unconfigured Agent Wallet is not an active agent',
+  );
+  assert.equal(
+    autonomyDisplayState({
+      loaded: true, data: { executor: { configured: true, state: 'UNAVAILABLE' }, paused: false },
+    }),
+    'UNAVAILABLE',
+    'a lapsed Agent Wallet session cannot pay, so it is not active',
+  );
+  assert.equal(autonomyDisplayState(), 'UNAVAILABLE', 'called with nothing at all');
+});
+
+test('a deliberately stopped agent reads PAUSED rather than broken', () => {
+  assert.equal(
+    autonomyDisplayState({
+      loaded: true, data: { executor: { configured: true, state: 'LIVE' }, paused: true },
+    }),
+    'PAUSED',
+  );
+  // Configured but stopped is still PAUSED even if the wallet session has also lapsed: an
+  // operator engaged the emergency stop, and that is the fact worth reporting.
+  assert.equal(
+    autonomyDisplayState({
+      loaded: true, data: { executor: { configured: true, state: 'UNAVAILABLE' }, paused: true },
+    }),
+    'PAUSED',
+  );
+});
+
+test('both agent surfaces derive their status from the one shared rule', async () => {
+  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
+  // The Command Center and the Proof Center drifted once. Neither may re-implement the rule.
+  assert.equal(
+    (stage3.match(/autonomyDisplayState\(/g) ?? []).length,
+    2,
+    'the Agent Command Center and the Proof Center must both call the shared helper',
+  );
+  assert.equal(
+    /paused \? 'PAUSED' : 'ACTIVE'/.test(stage3),
+    false,
+    'no surface may decide ACTIVE from the pause flag alone',
+  );
+});
+
+test('the recorded epoch timestamp is not overstated as every evaluation', async () => {
+  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
+  // The backend derives this from the most recent payout epoch claim, so an evaluation denied
+  // before a claim existed is not represented. The label has to say what the data is.
+  assert.equal(
+    stage3.includes('label="LAST EVALUATION"'),
+    false,
+    'the field is not a record of every evaluation and must not claim to be',
+  );
+  assert.ok(stage3.includes('label="LAST RECORDED EPOCH"'), 'it is a recorded epoch, and says so');
+});
+
+test('creator economy rewards are labelled as a recent window, not a lifetime total', async () => {
+  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
+  // The status endpoint returns a bounded window of recent epochs, never a complete ledger.
+  assert.ok(stage3.includes('RECENT AUTONOMOUS REWARDS'), 'the heading states recency');
+  assert.equal(
+    /<small>04 AUTONOMOUS REWARDS<\/small>/.test(stage3),
+    false,
+    'an unqualified heading would read as a lifetime total',
+  );
+  assert.ok(stage3.includes('IN RECENT WINDOW'), 'and so does the count');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Document metadata and referrer leakage
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('the document metadata describes the shipped product, not the Stage 1 one', async () => {
+  const html = await readFile('index.html', 'utf8');
+
+  // Wording that survived from the manual, human-executed settlement product.
+  for (const stale of [
+    'policy-driven USDC settlement product',
+    'human-controlled execution',
+    'Agent-guided policy decisions',
+    'Programmable settlement built on Arc',
+    'Programmable culture settlement',
+  ]) {
+    assert.equal(html.includes(stale), false, `stale framing must be gone: "${stale}"`);
+  }
+
+  assert.ok(html.includes('A meme becomes an economy on Arc'), 'the title tells the real story');
+  for (const required of ['Arc Testnet', 'USDC', 'Circle Agent Wallet', 'provenance']) {
+    assert.ok(html.includes(required), `metadata must mention ${required}`);
+  }
+
+  // And it must not promise anything the repository cannot prove.
+  for (const overclaim of ['mainnet', 'audited', 'guaranteed', 'AI-powered', 'LLM']) {
+    assert.equal(
+      html.toLowerCase().includes(overclaim.toLowerCase()),
+      false,
+      `metadata must not claim "${overclaim}"`,
+    );
+  }
+});
+
+test('the document and every untrusted media request suppress the referrer', async () => {
+  const html = await readFile('index.html', 'utf8');
+  const stage2 = await readFile('src/stage2-views.jsx', 'utf8');
+
+  assert.ok(
+    /<meta\s+name="referrer"\s+content="no-referrer"\s*\/?>/.test(html),
+    'the document must set a no-referrer policy',
+  );
+  // The image host is chosen by whoever minted the token, so it must not learn which MemeVerse
+  // page the visitor is on — stated on the element itself, not only at document level.
+  assert.ok(
+    /<img[^>]*referrerPolicy="no-referrer"/s.test(stage2),
+    'the untrusted media <img> must carry referrerPolicy="no-referrer"',
+  );
+});
+
+test('the static frontend deployment example carries its own security headers', async () => {
+  const readme = await readFile('README.md', 'utf8');
+  const nginx = /```nginx\n([\s\S]*?)```/.exec(readme)?.[1];
+  assert.ok(nginx, 'README must document the reverse-proxy configuration');
+
+  // nginx serves the built document, so it does not inherit the API's headers.
+  assert.ok(/add_header\s+X-Frame-Options\s+"DENY"/.test(nginx), 'X-Frame-Options DENY');
+  assert.ok(/add_header\s+Referrer-Policy\s+"no-referrer"/.test(nginx), 'Referrer-Policy no-referrer');
+  assert.ok(
+    /add_header\s+Content-Security-Policy\s+"frame-ancestors 'none';"/.test(nginx),
+    "frame-ancestors 'none' must come over HTTP, because a meta tag cannot deliver it",
+  );
+  // Exactly one CSP directive over HTTP: the full policy lives in the built document, and a
+  // second hand-maintained copy is a policy that will drift.
+  assert.equal(
+    /add_header\s+Content-Security-Policy\s+"(?![^"]*frame-ancestors 'none';")/.test(nginx),
+    false,
+    'the nginx CSP header must not restate the full policy',
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

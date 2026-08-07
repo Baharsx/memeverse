@@ -224,11 +224,21 @@ a reverse proxy must too:
 location /memeverse/ {
   alias /opt/memeverse/dist/;
   try_files $uri $uri/ /memeverse/index.html;
+
+  # The static document does not inherit the API's security headers.
+  add_header X-Frame-Options "DENY" always;
+  add_header Referrer-Policy "no-referrer" always;
+  # frame-ancestors only: the full CSP travels in the built document's meta tag, and this is the
+  # one directive a browser is defined to ignore there. A second full copy would only drift.
+  add_header Content-Security-Policy "frame-ancestors 'none';" always;
 }
 location /api/ {
   proxy_pass http://127.0.0.1:8787;
 }
 ```
+
+`add_header` does not merge across levels — a block declaring any `add_header` drops every
+inherited one — so these belong in the `location` that serves the frontend.
 
 **No public host has been chosen.** Provisioning one is a human decision and Stage 3 did not make
 it. See `docs/SUBMISSION.md`.

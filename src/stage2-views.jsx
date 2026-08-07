@@ -148,7 +148,20 @@ function MediaCard({ asset, wallet, onChanged }) {
     <article className="nft-card media-card">
       <div className="art media-art">
         {image
-          ? <img src={image} alt={asset.metadata?.name ?? `MemeVerse media #${asset.tokenId}`} loading="lazy" />
+          ? (
+            /*
+              The host is chosen by whoever minted the token, so the request must not tell it
+              which MemeVerse page the visitor is on. The document-level referrer meta covers
+              this too; the attribute states it on the element that actually reaches a
+              third-party host, where the guarantee has to hold.
+            */
+            <img
+              src={image}
+              alt={asset.metadata?.name ?? `MemeVerse media #${asset.tokenId}`}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+            />
+          )
           : <span className="media-missing">
             {asset.metadata?.image ? 'MEDIA URI NOT RENDERABLE' : 'NO MEDIA URI'}
           </span>}

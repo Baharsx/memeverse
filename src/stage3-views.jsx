@@ -5,6 +5,7 @@ import { getAgentAutonomy, getApiHealth } from './api';
 import { formatUsdc, loadFactoryConfig, marketPublicClient } from './market';
 import { readMediaAssets, stage2Contracts } from './assets';
 import { NextStep } from './router.jsx';
+import { autonomyDisplayState } from './agent-status.js';
 
 /**
  * Stage 3 judge-facing surfaces: the Agent Command Center, the autonomous reward receipt, the
@@ -246,9 +247,7 @@ export function AgentCommandCenter() {
   const executor = data.executor ?? {};
   const budget = data.budget ?? {};
   const executorLive = executor.configured && executor.state === 'LIVE';
-  const state = !executor.configured
-    ? 'UNAVAILABLE'
-    : data.paused ? 'PAUSED' : executorLive ? 'ACTIVE' : 'UNAVAILABLE';
+  const state = autonomyDisplayState({ loaded: status.isSuccess, data });
   const executed = data.recentEpochs?.filter((entry) => entry.outcome === 'EXECUTED') ?? [];
   const latestProof = executed.find((entry) => entry.transactionHash) ?? null;
 
@@ -297,7 +296,12 @@ export function AgentCommandCenter() {
           {budget.available ? `${budget.remainingUsdc} USDC` : 'UNAVAILABLE'}
         </Fact>
         <Fact label="POLICY VERSION">{data.policyVersion}</Fact>
-        <Fact label="LAST EVALUATION">
+        {/*
+          Deliberately not "last evaluation". The backend derives this from the most recent payout
+          epoch *claim*, so an evaluation that was denied before it reached the claim is not
+          represented here. The label states exactly what the data is.
+        */}
+        <Fact label="LAST RECORDED EPOCH">
           {data.lastEvaluationAt
             ? new Date(data.lastEvaluationAt).toISOString().replace('T', ' ').slice(0, 19)
             : 'NEVER'}
@@ -443,14 +447,21 @@ export function CreatorEconomy({ market }) {
           </span>
         </div>
         <div>
-          <small>04 AUTONOMOUS REWARDS</small>
+          {/*
+            The backend returns a bounded window of recent epochs, not a lifetime ledger, so this
+            count is "recent" and says so. Presenting it as a total would invite a judge to read a
+            complete history out of a partial one.
+          */}
+          <small>04 RECENT AUTONOMOUS REWARDS</small>
           <strong>
-            {agent.isError ? 'UNAVAILABLE' : rewards.length ? `${rewards.length} PAID` : 'NONE YET'}
+            {agent.isError
+              ? 'UNAVAILABLE'
+              : rewards.length ? `${rewards.length} IN RECENT WINDOW` : 'NONE RECENTLY'}
           </strong>
           <span>
             {rewardProof
               ? <>ARC <ArcLink kind="tx" value={rewardProof.transactionHash} /></>
-              : 'AGENT HAS NOT REWARDED THIS MARKET'}
+              : 'NO RECENT AGENT REWARD FOR THIS MARKET'}
           </span>
         </div>
       </div>
@@ -600,7 +611,7 @@ export function ProofCenter() {
             {executor.provider === 'CIRCLE_AGENT_WALLET' ? 'CIRCLE AGENT WALLET' : (executor.provider ?? 'UNAVAILABLE')}
           </Fact>
           <Fact label="AUTONOMY">
-            {agent.isError ? 'UNAVAILABLE' : agent.data?.paused ? 'PAUSED' : 'ACTIVE'}
+            {autonomyDisplayState({ loaded: agent.isSuccess, data: agent.data })}
           </Fact>
         </div>
         {proof ? (
