@@ -156,19 +156,24 @@ test('no simulated NFT or vault data remains in the browser bundle sources', asy
   // The real views are routed.
   assert.ok(main.includes('MediaAssets'), '/nft must render the real media view');
   assert.ok(main.includes('UsdcVault'), '/vault must render the real vault view');
-  assert.ok(main.includes('AutonomousAgentPanel'), '/agent must render the autonomous panel');
+  assert.ok(
+    main.includes('AgentCommandCenter'),
+    '/agent must render the Stage 3 command center over real backend state',
+  );
 });
 
 test('the agent surface exposes no account identity', async () => {
-  const stage2 = await readFile('src/stage2-views.jsx', 'utf8');
   // The Circle account email is a personal identifier and must never be rendered. The operator's
   // actual address is deliberately not written here either — asserting on the generic shapes is
   // enough, and embedding it would put a personal identifier in the repository.
-  for (const banned of ['@gmail', '@googlemail', 'mailto:', 'email', 'apiKey', 'entitySecret']) {
-    assert.equal(
-      stage2.toLowerCase().includes(banned.toLowerCase()),
-      false,
-      `the agent view must not reference ${banned}`,
-    );
+  for (const file of ['src/stage2-views.jsx', 'src/stage3-views.jsx']) {
+    const source = await readFile(file, 'utf8');
+    for (const banned of ['@gmail', '@googlemail', 'mailto:', 'email', 'apiKey', 'entitySecret']) {
+      assert.equal(
+        source.toLowerCase().includes(banned.toLowerCase()),
+        false,
+        `${file} must not reference ${banned}`,
+      );
+    }
   }
 });

@@ -39,6 +39,7 @@ export class AutonomousAgentService {
     decisionTtlSeconds,
     workerId,
     creatorShareBps,
+    settlementContractAddress = null,
     now = () => new Date(),
     logger = console,
   }) {
@@ -54,6 +55,9 @@ export class AutonomousAgentService {
     this.workerId = workerId;
     // Needed to turn a decided creator payout into the gross settlement amount that delivers it.
     this.creatorShareBps = creatorShareBps;
+    // The deployed autonomous settlement contract. A public Arc address, carried here only so the
+    // status surface can name the contract a judge should verify a payout against.
+    this.settlementContractAddress = settlementContractAddress;
     this.now = now;
     this.logger = logger;
   }
@@ -371,11 +375,13 @@ export class AutonomousAgentService {
     const autonomy = await this.autonomyStore.autonomyState();
     const recent = await this.autonomyStore.listRecentEpochs(10);
     const executor = await this.#executorStatus();
+    const budget = await this.#dailyBudget();
 
     const payouts = await Promise.all(recent.map(async (entry) => {
       const base = {
         marketAddress: entry.marketAddress,
         creatorAddress: entry.creatorAddress,
+        policyVersion: entry.policyVersion,
         epoch: entry.epoch,
         evidenceDigest: entry.evidenceDigest,
         settlementId: entry.settlementId,
@@ -392,6 +398,9 @@ export class AutonomousAgentService {
       return {
         ...base,
         state: settlement.state,
+        // Server-generated for this path — `AUTONOMOUS <SYMBOL> EPOCH <n>`, built from the market
+        // symbol read onchain. No caller can write into it, because no caller reaches this path.
+        reference: settlement.reference ?? null,
         executionMode: settlement.executionSubmission?.executionMode ?? null,
         // Proof there was no human in this payout, rendered directly rather than inferred.
         humanAuthorization: Boolean(
@@ -441,6 +450,12 @@ export class AutonomousAgentService {
       pauseReason: autonomy.reason,
       changedAt: autonomy.changedAt,
       executor,
+      // The contract a judge should verify an autonomous payout against. Public onchain data.
+      settlementContract: this.settlementContractAddress,
+      // The most recent moment the agent actually looked at a market, evaluated or not. Absent
+      // until it has run once; never back-filled with a plausible-looking timestamp.
+      lastEvaluationAt: recent[0]?.claimedAt ?? null,
+      budget,
       thresholds: {
         minConfidence: this.agentPolicy.minConfidence,
         maxFraudRisk: this.agentPolicy.maxFraudRisk,
@@ -456,6 +471,34 @@ export class AutonomousAgentService {
       },
       recentEpochs: payouts,
     };
+  }
+
+  /**
+   * How much of today's autonomous budget is already committed, and how much is genuinely left.
+   *
+   * Read straight off the same reservation ledger the spend gate admits against, so the number a
+   * judge reads is the number the next payout will be checked against — not a separate estimate
+   * that could drift from it. `committed` deliberately counts reserved *and* consumed capacity:
+   * a payout still holding a reservation has not been spent yet, but it is not available either.
+   */
+  async #dailyBudget() {
+    const capUnits = this.payoutPolicy.dailySpendUnits;
+    try {
+      const state = await this.autonomyStore.dailySpendState({ now: this.now() });
+      const remaining = capUnits > state.committedUnits ? capUnits - state.committedUnits : 0n;
+      return {
+        available: true,
+        spendDay: state.spendDay,
+        capUsdc: formatUsdc(capUnits),
+        usedUsdc: formatUsdc(state.committedUnits),
+        reservedUsdc: formatUsdc(state.reservedUnits),
+        settledUsdc: formatUsdc(state.consumedUnits),
+        remainingUsdc: formatUsdc(remaining),
+      };
+    } catch {
+      // A ledger read failure must read as unknown, never as an empty budget.
+      return { available: false, capUsdc: formatUsdc(capUnits) };
+    }
   }
 
   /** Which wallet actually executes autonomous payouts, described truthfully. */

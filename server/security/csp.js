@@ -43,7 +43,13 @@ export function contentSecurityPolicyDirectives({ connectSources = [] } = {}) {
     // Injected-provider and animation libraries write style attributes at runtime; no inline
     // <script> is permitted, so this does not enable script execution.
     'style-src': ["'self'", "'unsafe-inline'", ...FONT_STYLESHEET_ORIGINS],
-    'img-src': ["'self'", 'data:'],
+    // Media NFT artwork is minted by users and lives on hosts MemeVerse does not control, so an
+    // origin allowlist cannot express the gallery. `https:` is the narrowest expression that still
+    // renders a real collection: it is scheme-restricted rather than a wildcard, images cannot
+    // execute script, and `referrerPolicy: no-referrer` keeps the visited URL from leaking to the
+    // image host. The browser additionally refuses to render any media URL that is not https or a
+    // data: image, so a hostile `javascript:` or `blob:` token URI is dropped before this point.
+    'img-src': ["'self'", 'data:', 'https:'],
     'font-src': ["'self'", ...FONT_FILE_ORIGINS],
     'connect-src': connect,
     'form-action': ["'self'"],

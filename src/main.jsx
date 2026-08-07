@@ -32,7 +32,14 @@ import {
  */
 const MediaAssets = lazy(() => import('./stage2-views.jsx').then((module) => ({ default: module.MediaAssets })));
 const UsdcVault = lazy(() => import('./stage2-views.jsx').then((module) => ({ default: module.UsdcVault })));
-const AutonomousAgentPanel = lazy(() => import('./stage2-views.jsx').then((module) => ({ default: module.AutonomousAgentPanel })));
+/**
+ * The Stage 3 judge surfaces — Agent Command Center, Proof Center, creator economy — live in
+ * their own chunk for the same reason: they are reached deliberately, and the markets page should
+ * not pay for them.
+ */
+const AgentCommandCenter = lazy(() => import('./stage3-views.jsx').then((module) => ({ default: module.AgentCommandCenter })));
+const ProofCenter = lazy(() => import('./stage3-views.jsx').then((module) => ({ default: module.ProofCenter })));
+const CreatorEconomy = lazy(() => import('./stage3-views.jsx').then((module) => ({ default: module.CreatorEconomy })));
 
 function LazySection() {
   return <div className="empty"><span>LOADING…</span></div>;
@@ -44,6 +51,7 @@ import {
   endOperatorSession,
   estimateAppKitSwap,
   executeSettlement,
+  getAgentAutonomy,
   getAppKitCapabilities,
   getApiHealth,
   getOperatorSession,
@@ -56,6 +64,8 @@ import {
   marketSpotLabel,
   marketSpotPerTokenLabel,
 } from './market-display';
+// Read here only to state truthfully whether this build has the Stage 2 addresses configured.
+import { stage2Contracts } from './assets';
 import {
   factoryAbi,
   formatTokenAmount,
@@ -72,6 +82,7 @@ import {
   usdcAbi,
 } from './market';
 import { useOnchainAction } from './use-onchain-action';
+import { BrowserRouter, NavLink, NextStep, Route, Routes } from './router.jsx';
 import './styles.css';
 
 const config = createConfig({
@@ -84,65 +95,13 @@ const routerBase =
   import.meta.env.BASE_URL === '/'
     ? undefined
     : import.meta.env.BASE_URL.replace(/\/$/, '');
-const RouterContext = React.createContext(null);
-
-function BrowserRouter({ basename = '', children }) {
-  const routePath = React.useCallback(() => {
-    const withoutBase = basename && window.location.pathname.startsWith(basename)
-      ? window.location.pathname.slice(basename.length)
-      : window.location.pathname;
-    return withoutBase || '/';
-  }, [basename]);
-  const [pathname, setPathname] = useState(routePath);
-
-  React.useEffect(() => {
-    const onPopState = () => setPathname(routePath());
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, [routePath]);
-
-  function navigate(to) {
-    const href = `${basename}${to === '/' ? '/' : to}`;
-    window.history.pushState({}, '', href);
-    setPathname(to);
-    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-  }
-
-  return <RouterContext.Provider value={{ basename, pathname, navigate }}>{children}</RouterContext.Provider>;
-}
-
-function NavLink({ to, className = '', children }) {
-  const router = React.useContext(RouterContext);
-  const active = router.pathname === to;
-  const href = `${router.basename}${to === '/' ? '/' : to}`;
-
-  function onClick(event) {
-    if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
-      event.preventDefault();
-      router.navigate(to);
-    }
-  }
-
-  return <a href={href} className={`${className}${active ? ' active' : ''}`.trim()} onClick={onClick}>{children}</a>;
-}
-
-function Route() {
-  return null;
-}
-
-function Routes({ children }) {
-  const { pathname } = React.useContext(RouterContext);
-  const route = React.Children.toArray(children).find((child) => child.props.path === pathname);
-  return route?.props.element ?? null;
-}
-
 const network = {
   chain: arc,
   money: 'USDC',
 };
 function ExternalLink({ href, children, className = '', ...props }) {
   return (
-    <a className={className} href={href} target="_blank" rel="noreferrer" {...props}>
+    <a className={className} href={href} target="_blank" rel="noreferrer noopener" {...props}>
       {children}
     </a>
   );
@@ -241,16 +200,21 @@ function BackendStatus() {
   );
 }
 
+/**
+ * Navigation follows the demo path rather than the build order: create, trade, own, reward,
+ * prove. The two supporting surfaces sit after it, because neither is a step of the story.
+ */
+const navItems = [
+  ['01', 'LAUNCH', '/launch'],
+  ['02', 'MARKETS', '/markets'],
+  ['03', 'MEDIA', '/nft'],
+  ['04', 'AGENT', '/agent'],
+  ['05', 'PROOF', '/safety'],
+  ['06', 'VAULT', '/vault'],
+  ['07', 'QUOTE', '/quote'],
+];
+
 function Shell() {
-  const navItems = [
-    ['01', 'MARKETS', '/markets'],
-    ['02', 'LAUNCH', '/launch'],
-    ['03', 'MEDIA', '/nft'],
-    ['04', 'VAULT', '/vault'],
-    ['05', 'AGENT', '/agent'],
-    ['06', 'QUOTE', '/quote'],
-    ['07', 'PROOF', '/safety'],
-  ];
 
   return (
     <>
@@ -302,6 +266,7 @@ function Shell() {
           />
           <Route path="/agent" element={<Agent />} />
           <Route path="/safety" element={<Safety />} />
+          <Route path="/proof" element={<Safety />} />
         </Routes>
       </main>
       <footer>
@@ -313,6 +278,18 @@ function Shell() {
     </>
   );
 }
+
+/**
+ * The economy flow, in the order a judge will watch it happen. Each step names the surface that
+ * performs it, so the hero doubles as the table of contents for the demo.
+ */
+const economySteps = [
+  ['01', 'CREATE', '/launch', 'A meme becomes a real Arc contract: a fixed-supply token and its USDC bonding market, deployed from your own wallet.'],
+  ['02', 'TRADE', '/markets', 'Anyone buys and sells it in USDC against the curve. Every quote, reserve, and receipt is live chain state.'],
+  ['03', 'OWN', '/nft', 'The creator mints media bound onchain to the market they actually created, then sells it for USDC.'],
+  ['04', 'REWARD', '/agent', 'An autonomous agent reads confirmed trading evidence, decides on its own, and pays the creator from a Circle Agent Wallet.'],
+  ['05', 'PROVE', '/safety', 'Every step above resolves to an Arc transaction you can open on ArcScan and check yourself.'],
+];
 
 function Home() {
   const health = useQuery({
@@ -327,13 +304,66 @@ function Home() {
     retry: 1,
     refetchInterval: 30_000,
   });
-  const live = health.data?.status === 'ok';
+  const agent = useQuery({
+    queryKey: ['agent-autonomy'],
+    queryFn: getAgentAutonomy,
+    retry: 1,
+    refetchInterval: 30_000,
+  });
+
+  const executor = agent.data?.executor;
+  const stage2Configured = Boolean(
+    stage2Contracts.mediaNft && stage2Contracts.nftMarketplace && stage2Contracts.usdcVault,
+  );
+  /**
+   * Every card states something the server or this browser actually verified.
+   *
+   * The Agent Wallet card reads the autonomous executor specifically, and is deliberately not the
+   * same check as the Developer-Controlled Wallet below it: conflating the two would claim an
+   * autonomous payout route that might not exist.
+   */
   const checks = [
-    ['ARC RPC', health.data?.arc?.status === 'verified', health.data?.arc?.blockNumber ? `BLOCK ${health.data.arc.blockNumber}` : 'VERIFYING'],
-    ['MARKET FACTORY', Boolean(factory.data), factory.data ? `${factory.data.marketCount} MARKETS` : 'VERIFYING'],
-    ['POSTGRES', health.data?.persistence?.ready === true, 'RESERVATIONS READY'],
-    ['CIRCLE WALLET', health.data?.circle?.configured === true, 'DEV-CONTROLLED'],
-    ['CIRCLE QUOTE', health.data?.appKit?.runtimeEnabled === true, 'LIVE SWAP ESTIMATES'],
+    [
+      'ARC RPC',
+      health.data?.arc?.status === 'verified',
+      health.data?.arc?.blockNumber ? `HEAD BLOCK ${health.data.arc.blockNumber}` : 'VERIFYING',
+      health.isPending,
+    ],
+    [
+      'MARKET FACTORY',
+      Boolean(factory.data),
+      factory.data ? `${factory.data.marketCount} LIVE MARKETS` : 'READING ARC',
+      factory.isPending,
+    ],
+    [
+      'POSTGRES',
+      health.data?.persistence?.ready === true,
+      'DURABLE SPEND RESERVATIONS',
+      health.isPending,
+    ],
+    [
+      'CIRCLE AGENT WALLET',
+      executor?.configured === true && executor?.state === 'LIVE',
+      executor?.configured
+        ? `ERC-4337 / ${executor.state ?? 'UNKNOWN'}`
+        : 'AUTONOMOUS EXECUTOR',
+      agent.isPending,
+    ],
+    [
+      'AUTONOMOUS POLICY',
+      agent.data ? agent.data.paused === false : false,
+      agent.data ? (agent.data.paused ? 'OPERATOR EMERGENCY STOP ENGAGED' : agent.data.policyVersion) : 'UNREACHABLE',
+      agent.isPending,
+      // A paused agent is configured and healthy — it has simply been stopped. Reporting that as
+      // "unavailable" would understate a deliberate, reversible operator action.
+      agent.data?.paused === true ? 'PAUSED' : undefined,
+    ],
+    [
+      'STAGE 2 CONTRACTS',
+      stage2Configured,
+      stage2Configured ? 'MEDIA / MARKETPLACE / VAULT' : 'NOT CONFIGURED IN THIS BUILD',
+      false,
+    ],
   ];
 
   return (
@@ -344,18 +374,19 @@ function Home() {
             {arcCapabilities.phase} / CHAIN {network.chain.id}
           </div>
           <h1>
-            CULTURE MEETS
-            <br />
-            <mark>PROGRAMMABLE</mark>
-            <br />MONEY.
+            A MEME
+            <br />BECOMES AN
+            <br /><mark>ECONOMY.</mark>
           </h1>
           <p>
-            Launch and trade meme assets against real faucet-funded USDC on Arc Public Testnet.
-            Every balance, quote, market, fee allocation, and receipt comes from the chain.
+            MemeVerse turns a meme into a real Arc market. People trade it in USDC, the creator
+            earns from every trade and keeps onchain provenance of their media — and an autonomous
+            agent watches the real trading record and pays that creator without anyone approving it.
           </p>
           <div className="hero-actions">
-            <NavLink className="btn primary" to="/markets">OPEN ONCHAIN MARKETS →</NavLink>
-            <NavLink className="btn secondary" to="/safety">VIEW PROOF &amp; SAFETY</NavLink>
+            <NavLink className="btn primary" to="/markets">EXPLORE LIVE ECONOMY →</NavLink>
+            <NavLink className="btn secondary" to="/agent">WATCH THE AGENT</NavLink>
+            <NavLink className="btn secondary" to="/safety">VERIFY ON ARC</NavLink>
           </div>
         </div>
         <aside>
@@ -364,40 +395,42 @@ function Home() {
             PRODUCT: MEMEVERSE
             <br />INFRASTRUCTURE: <b className="acid">BUILT ON ARC</b>
             <br />MONEY + GAS: USDC
-            <br />STATUS: {live ? 'BACKEND VERIFIED' : 'VERIFYING BACKEND'}
+            <br />AGENT: <b className="acid">CIRCLE AGENT WALLET</b>
+            <br />ASSETS: TESTNET ONLY
           </p>
         </aside>
       </section>
+
+      <section className="economy-flow" aria-label="How the MemeVerse economy works">
+        {economySteps.map(([n, label, to, copy]) => (
+          <NavLink key={n} to={to} className="economy-step">
+            <span>{n}</span>
+            <strong>{label}</strong>
+            <p>{copy}</p>
+            <b aria-hidden="true">→</b>
+          </NavLink>
+        ))}
+      </section>
+
       <section className="runtime-proof" aria-label="Live infrastructure status">
-        {checks.map(([label, ready, detail]) => (
+        {checks.map(([label, ready, detail, pending, overrideState]) => (
           <div key={label} className={ready ? 'ready' : ''}>
-            <span><i />{ready ? 'VERIFIED' : health.isPending ? 'CHECKING' : 'UNAVAILABLE'}</span>
+            <span><i />{overrideState ?? (ready ? 'VERIFIED' : pending ? 'CHECKING' : 'UNAVAILABLE')}</span>
             <strong>{label}</strong>
             <small>{detail}</small>
           </div>
         ))}
       </section>
-      <section className="product-flow">
-        <Title n="01—04" t="A CONTROLLED AUTONOMY LOOP" as="h2" />
-        <div className="flow-grid">
-          {[
-            ['01', 'INGEST', 'Score engagement, retention, liquidity, risk, and confidence.'],
-            ['02', 'ENFORCE', 'Apply server-side caps and reserve treasury funds atomically.'],
-            ['03', 'PREPARE', 'Create a reconciliation memo and a Circle execution plan.'],
-            ['04', 'VERIFY', 'Reconcile the transaction receipt and Arc contract events.'],
-          ].map(([n, title, copy]) => (
-            <article key={n}><span>{n}</span><h3>{title}</h3><p>{copy}</p></article>
-          ))}
-        </div>
-      </section>
+
       <section className="demo-surfaces">
-        <Title n="LAB" t="EXPLORE THE PRODUCT SURFACES" as="h2" />
+        <Title n="PATH" t="THE THREE-MINUTE TOUR" as="h2" />
         <div>
-          <NavLink to="/markets"><small>REAL ARC CONTRACTS</small><strong>USDC MARKETS</strong><span>Buy and sell onchain →</span></NavLink>
-          <NavLink to="/launch"><small>WALLET SIGNED</small><strong>LAUNCH A MEME</strong><span>Deploy a real market →</span></NavLink>
-          <NavLink to="/agent"><small>REAL BACKEND</small><strong>AGENT SETTLEMENT</strong><span>Policy-backed USDC quote →</span></NavLink>
-          <NavLink to="/quote"><small>REAL CIRCLE QUOTE</small><strong>STABLECOIN ESTIMATE</strong><span>USDC / EURC on Arc →</span></NavLink>
-          <NavLink to="/safety"><small>OFFICIAL SOURCES</small><strong>PROOF &amp; SAFETY</strong><span>Contracts and lifecycle →</span></NavLink>
+          <NavLink to="/launch"><small>STEP 01 / WALLET SIGNED</small><strong>LAUNCH A MEME</strong><span>Deploy a real Arc market →</span></NavLink>
+          <NavLink to="/markets"><small>STEP 02 / REAL USDC</small><strong>TRADE THE CURVE</strong><span>Buy, sell, and pay the creator →</span></NavLink>
+          <NavLink to="/nft"><small>STEP 03 / ONCHAIN PROVENANCE</small><strong>OWN THE MEDIA</strong><span>Mint and sell for USDC →</span></NavLink>
+          <NavLink to="/agent"><small>STEP 04 / NO HUMAN APPROVAL</small><strong>AUTONOMOUS REWARDS</strong><span>Watch the agent decide →</span></NavLink>
+          <NavLink to="/safety"><small>STEP 05 / INDEPENDENTLY CHECKABLE</small><strong>PROOF CENTER</strong><span>Contracts, modes, and limits →</span></NavLink>
+          <NavLink to="/vault"><small>SUPPORTING / ERC-4626</small><strong>TREASURY PRIMITIVE</strong><span>Deposit and redeem USDC →</span></NavLink>
         </div>
       </section>
     </>
@@ -459,7 +492,7 @@ function Launch() {
 
   return (
     <section className="page">
-      <Title n="02" t="LAUNCH ON ARC" />
+      <Title n="01 CREATE" t="LAUNCH ON ARC" />
       <p className="lede">Deploy a fixed-supply meme token and its USDC-native bonding market from your connected wallet. Success appears only after Arc includes the transaction in a final block.</p>
       <div className="form-grid">
         <form onSubmit={handleSubmit}>
@@ -520,6 +553,13 @@ function Launch() {
           {review ? <div className="onchain-review" role="region" aria-label="Launch review"><b>REVIEW BEFORE SIGNING</b><span>CREATOR // {address ?? 'CONNECT WALLET'}</span><span>FACTORY // {arcContracts.memeVerseFactory}</span><span>PRICE // {basePrice} + UP TO {slopePrice} USDC</span><span>FEES // {factory.data ? `${Number(factory.data.creatorFeeBps) / 100}% CREATOR + ${Number(factory.data.treasuryFeeBps) / 100}% TREASURY` : 'READING ONCHAIN'}</span><button className="btn primary full" type="button" disabled={!onArc || !factory.data || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(action.state.status)} onClick={launchMarket}>{!isConnected ? 'CONNECT WALLET FIRST' : !onArc ? 'SWITCH TO ARC TESTNET' : 'SIGN + LAUNCH ON ARC →'}</button></div> : null}
           <TransactionStatus state={action.state} />
           {result ? <div className="receipt onchain-receipt" role="status"><b>MARKET CONFIRMED ON ARC</b><span>MARKET + TOKEN // {result.market}</span><span>CREATOR // {result.creator}</span><ExternalLink href={`${arcLinks.explorer}/tx/${result.hash}`}>VIEW TRANSACTION ON ARCSCAN ↗</ExternalLink><ExternalLink href={`${arcLinks.explorer}/address/${result.market}`}>VIEW MARKET CONTRACT ↗</ExternalLink></div> : null}
+          {result ? (
+            <NextStep
+              to="/markets"
+              label="TRADE THIS MARKET"
+              detail="Buy against the curve in USDC and pay the creator their fee"
+            />
+          ) : null}
         </form>
         <aside className="spec">
           <span>DEPLOYMENT SPEC</span>
@@ -661,8 +701,8 @@ function Markets() {
 
   return (
     <section className="page markets-page">
-      <Title n="01" t="ONCHAIN USDC MARKETS" />
-      <p className="lede">Markets are read directly from the deployed MemeVerse factory. Quotes, reserves, positions, fees, and balances are live Arc Public Testnet state.</p>
+      <Title n="02 TRADE" t="ONCHAIN USDC MARKETS" />
+      <p className="lede">Markets are read directly from the deployed MemeVerse factory. Quotes, reserves, positions, fees, and balances are live Arc Public Testnet state. Every buy and sell pays the creator and the treasury inside the same transaction.</p>
       {markets.isError ? <p className="agent-error" role="alert">ARC RPC READ FAILED // {markets.error.shortMessage ?? 'Public RPC unavailable. Retry shortly.'}</p> : null}
       {!markets.isPending && !markets.data?.length ? (
         <div className="empty"><Mascot small /><span>ONCHAIN MARKETS: 0<br /><NavLink to="/launch">LAUNCH THE FIRST MARKET →</NavLink></span></div>
@@ -733,6 +773,18 @@ function Markets() {
             </section>
           </div> : null}
         </div>
+      ) : null}
+      {selected ? (
+        <Suspense fallback={<LazySection />}>
+          <CreatorEconomy market={selected} />
+        </Suspense>
+      ) : null}
+      {selected ? (
+        <NextStep
+          to="/nft"
+          label="MINT CREATOR MEDIA"
+          detail="Bind media to a market you created and list it for USDC"
+        />
       ) : null}
     </section>
   );
@@ -1064,18 +1116,19 @@ function Agent() {
 
   return (
     <section className="page agent-page">
+      <Title n="04 REWARD" t="AUTONOMOUS AGENT" />
       {/*
         The autonomous system comes first: it is the real agent, and it pays creators with no
         human in the execution path. The operator-driven flow below it is the separate, manual
         Developer-Controlled Wallet route and is deliberately presented as such.
       */}
       <Suspense fallback={<LazySection />}>
-        <AutonomousAgentPanel />
+        <AgentCommandCenter />
       </Suspense>
 
       <hr className="route-divider" />
 
-      <Title n="01" t="MANUAL OPERATOR SETTLEMENT" />
+      <Title n="MANUAL" t="OPERATOR SETTLEMENT ROUTE" />
       <p className="lede">
         A separate, human-authorized route. The backend weights engagement, retention, liquidity,
         fraud-risk, and confidence signals against live Arc and Circle treasury evidence. Signal
@@ -1209,35 +1262,19 @@ function Agent() {
   );
 }
 
-function ResourceCard({ label, value, href, note }) {
-  return (
-    <article className="resource-card">
-      <small>{label}</small>
-      <strong>{value}</strong>
-      <p>{note}</p>
-      <ExternalLink href={href}>OPEN OFFICIAL SOURCE ↗</ExternalLink>
-    </article>
-  );
-}
-
 function Safety() {
   return (
     <section className="page safety-page">
-      <Title n="04" t="PROOF / SAFETY / SOURCES" />
+      <Title n="05 PROVE" t="PROOF CENTER" />
+      <p className="lede">
+        Everything MemeVerse claims resolves to something you can open on ArcScan and check without
+        trusting this page. What is live, what is deployed, who executes, and what is not ready.
+      </p>
       <div className="risk-banner">
         <strong>TESTNET ONLY</strong>
-        <span>No MemeVerse screen should ask for a seed phrase or private key. Treat unsolicited support DMs as scams.</span>
+        <span>Arc Public Testnet. Test assets have no real-world value. No MemeVerse screen should ever ask for a seed phrase or private key — treat unsolicited support DMs as scams.</span>
       </div>
-      <div className="resource-grid">
-        <ResourceCard label="NETWORK" value={`CHAIN ${arc.id}`} href={arcLinks.docs} note="Verify network parameters and current Arc documentation before signing." />
-        <ResourceCard label="HEALTH" value="ARC STATUS" href={arcLinks.status} note="Check incidents and degraded service before retrying failed transactions." />
-        <ResourceCard label="TEST FUNDS" value="CIRCLE FAUCET" href={arcLinks.faucet} note="Use only the official faucet. Testnet assets have no real-world value." />
-        <ResourceCard label="VERIFY" value="ARCSCAN" href={arcLinks.explorer} note="A hash is not final proof; confirm the receipt status and expected events." />
-        <ResourceCard label="MARKETS" value="FACTORY" href={`${arcLinks.explorer}/address/${arcContracts.memeVerseFactory}`} note="Immutable registry for real MemeVerse token launches and USDC markets." />
-        <ResourceCard label="RECONCILIATION" value="TX MEMOS" href={arcLinks.memos} note="Memo IDs connect Agent settlement calls to application records. Direct EOA callers only." />
-        <ResourceCard label="MULTI-CALL" value="BATCHED TX" href={arcLinks.batches} note="Define allow-failure policy explicitly and verify every target event." />
-        <ResourceCard label="BRAND" value="BUILT ON ARC" href={arcLinks.brand} note="MemeVerse leads as the product brand; Arc is presented only as its infrastructure." />
-      </div>
+      <Suspense fallback={<LazySection />}><ProofCenter /></Suspense>
       <div className="safety-grid">
         <section>
           <h3>TRANSACTION LIFECYCLE</h3>
@@ -1246,23 +1283,13 @@ function Safety() {
               <span key={phase}><b>0{index + 1}</b>{phase}</span>
             ))}
           </div>
-          <p>Persist the reference, latest hash and failure class. Never rebroadcast blindly after an unknown or post-broadcast failure.</p>
+          <p>Every surface persists the reference, the latest hash, and the failure class. Nothing is ever rebroadcast blindly after an unknown or post-broadcast failure, and no screen shows success before its Arc receipt confirms.</p>
         </section>
         <section>
-          <h3>VERIFIED TESTNET CONTRACTS</h3>
-          <dl>
-            <dt>USDC</dt><dd>{arcContracts.usdc.slice(0, 10)}…{arcContracts.usdc.slice(-6)}</dd>
-            <dt>MEMO</dt><dd>{arcContracts.memo.slice(0, 10)}…{arcContracts.memo.slice(-6)}</dd>
-            <dt>MEMEVERSE</dt><dd><ExternalLink href={`${arcLinks.explorer}/address/${arcContracts.memeVerseSettlement}`}>{arcContracts.memeVerseSettlement.slice(0, 10)}…{arcContracts.memeVerseSettlement.slice(-6)}</ExternalLink></dd>
-            <dt>MARKET FACTORY</dt><dd><ExternalLink href={`${arcLinks.explorer}/address/${arcContracts.memeVerseFactory}`}>{arcContracts.memeVerseFactory.slice(0, 10)}…{arcContracts.memeVerseFactory.slice(-6)}</ExternalLink></dd>
-            <dt>BATCH</dt><dd>{arcContracts.multicall3From.slice(0, 10)}…{arcContracts.multicall3From.slice(-6)}</dd>
-          </dl>
-          <ExternalLink href={arcLinks.contracts}>VERIFY ALL ADDRESSES ↗</ExternalLink>
+          <h3>POST-QUANTUM STATUS</h3>
+          <p>Arc documents post-quantum security as a roadmap item, not a currently available Testnet feature. MemeVerse therefore makes no quantum-security claim today.</p>
+          <ExternalLink href={arcLinks.security}>READ THE OFFICIAL ROADMAP ↗</ExternalLink>
         </section>
-      </div>
-      <div className="roadmap-note">
-        <b>POST-QUANTUM STATUS:</b> Arc documents this as a roadmap and not a currently available Testnet feature. MemeVerse makes no quantum-security claim today.
-        <ExternalLink href={arcLinks.security}> READ OFFICIAL ROADMAP ↗</ExternalLink>
       </div>
     </section>
   );

@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useAccount, useChainId } from 'wagmi';
 import { useQuery } from '@tanstack/react-query';
-import { keccak256, maxUint256, stringToHex } from 'viem';
-import { arc, arcContracts, arcLinks } from './arc';
+import { keccak256 } from 'viem';
+import { arc, arcContracts } from './arc';
 import { usdcAbi } from './market';
 import {
   formatUsdcAmount,
@@ -13,11 +13,12 @@ import {
   readMediaAssets,
   readMarketplaceAllowance,
   readVaultPosition,
+  safeMediaUrl,
   stage2Contracts,
   vaultAbi,
 } from './assets';
 import { useOnchainAction } from './use-onchain-action';
-import { getAgentAutonomy } from './api';
+import { NextStep } from './router.jsx';
 
 /**
  * The Stage 2 product surfaces: real Arc media NFTs, a real USDC marketplace, a real USDC vault,
@@ -127,7 +128,9 @@ function MediaCard({ asset, wallet, onChanged }) {
   const isOwner = wallet.address
     && asset.owner.toLowerCase() === wallet.address.toLowerCase();
   const listing = asset.listing;
-  const image = asset.metadata?.image ?? null;
+  // Minter-supplied and therefore untrusted: anything that is not https or a data: image is
+  // refused outright rather than handed to the browser as an attribute.
+  const image = safeMediaUrl(asset.metadata?.image);
 
   const allowance = useQuery({
     queryKey: ['marketplace-allowance', wallet.address],
@@ -146,7 +149,9 @@ function MediaCard({ asset, wallet, onChanged }) {
       <div className="art media-art">
         {image
           ? <img src={image} alt={asset.metadata?.name ?? `MemeVerse media #${asset.tokenId}`} loading="lazy" />
-          : <span className="media-missing">NO MEDIA URI</span>}
+          : <span className="media-missing">
+            {asset.metadata?.image ? 'MEDIA URI NOT RENDERABLE' : 'NO MEDIA URI'}
+          </span>}
       </div>
       <div className="media-body">
         <small>TOKEN #{String(asset.tokenId)}</small>
@@ -418,7 +423,12 @@ export function MediaAssets() {
   return (
     <section className="page">
       <div className="stage2-header">
-        <h1><sup>LAB A</sup> MEDIA ASSETS</h1>
+        <h1><sup>03 OWN</sup> CREATOR MEDIA</h1>
+        <p className="surface-lede">
+          Creators mint media only against markets they actually created; the contract checks that
+          provenance onchain before a token can exist. Media then trades for USDC like any other
+          asset in the economy.
+        </p>
         <div className="stage2-meta">
           <span>NFT <ArcScanLink value={stage2Contracts.mediaNft} /></span>
           <span>MARKETPLACE <ArcScanLink value={stage2Contracts.nftMarketplace} /></span>
@@ -461,6 +471,12 @@ export function MediaAssets() {
       ) : null}
 
       {blocked ?? <MintMedia wallet={wallet} onMinted={() => assets.refetch()} />}
+
+      <NextStep
+        to="/agent"
+        label="WATCH AUTONOMOUS REWARDS"
+        detail="See the agent read this economy's trading record and pay its creator"
+      />
     </section>
   );
 }
@@ -496,10 +512,17 @@ export function UsdcVault() {
   return (
     <section className="page">
       <div className="stage2-header">
-        <h1><sup>LAB B</sup> USDC VAULT</h1>
+        <h1><sup>SUPPORTING</sup> PROGRAMMABLE TREASURY</h1>
+        <p className="surface-lede">
+          A real ERC-4626 vault over Arc USDC — the composable treasury primitive a MemeVerse
+          creator or DAO would hold funds in. It runs no strategy and generates no yield, and it
+          says so onchain: <code>annualPercentageYieldBps</code> returns zero. Deposits are idle
+          USDC, fully redeemable.
+        </p>
         <div className="stage2-meta">
           <span>VAULT <ArcScanLink value={stage2Contracts.usdcVault} /></span>
           <span>ERC-4626 — ASSET: ARC USDC</span>
+          <span>NO STRATEGY — NO YIELD</span>
         </div>
       </div>
 
@@ -533,7 +556,7 @@ export function UsdcVault() {
             <div>
               <b>YIELD</b>
               <strong>{data.yieldBps} BPS</strong>
-              <span>NO STRATEGY — NO YIELD IS GENERATED</span>
+              <span>READ FROM THE CONTRACT — NOT ASSUMED</span>
             </div>
           </div>
 
@@ -636,193 +659,5 @@ export function UsdcVault() {
         </>
       ) : null}
     </section>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Autonomous agent evidence
-// ─────────────────────────────────────────────────────────────────────────────
-
-function Metric({ label, value, threshold, invert = false }) {
-  const numeric = typeof value === 'number';
-  const pass = !numeric || threshold === undefined
-    ? null
-    : (invert ? value <= threshold : value >= threshold);
-  return (
-    <div className={`agent-metric ${pass === null ? '' : pass ? 'pass' : 'fail'}`}>
-      <dt>{label}</dt>
-      <dd>{numeric ? value : '—'}</dd>
-      {threshold !== undefined
-        ? <small>{invert ? 'MAX' : 'MIN'} {threshold}</small>
-        : null}
-    </div>
-  );
-}
-
-function PayoutEvidence({ payout }) {
-  const verified = payout.reconciliation?.status === 'VERIFIED';
-  return (
-    <article className={`agent-payout ${verified ? 'verified' : ''}`}>
-      <header>
-        <div>
-          <small>MARKET</small>
-          <ArcScanLink value={payout.marketAddress} />
-        </div>
-        <div>
-          <small>CREATOR</small>
-          <ArcScanLink value={payout.creatorAddress} />
-        </div>
-        <div className="agent-amount">
-          <small>CREATOR PAYOUT</small>
-          <b>{payout.creatorPayoutUsdc ?? payout.amountUsdc} USDC</b>
-        </div>
-      </header>
-
-      <div className="agent-chain">
-        <span className="agent-step">
-          <small>SIGNAL SOURCE</small>
-          <b>{payout.provenance ?? '—'}</b>
-        </span>
-        <span className="agent-step">
-          <small>EVIDENCE RANGE</small>
-          <b>{payout.fromBlock ? `${payout.fromBlock} → ${payout.toBlock}` : '—'}</b>
-        </span>
-        <span className="agent-step">
-          <small>POLICY</small>
-          <b className={payout.outcome === 'EXECUTED' ? 'ok' : 'warn'}>
-            {payout.outcome === 'EXECUTED' ? 'PASS' : (payout.outcome ?? 'PENDING')}
-          </b>
-        </span>
-        <span className="agent-step">
-          <small>EXECUTION MODE</small>
-          <b>{payout.executionMode ?? '—'}</b>
-        </span>
-        <span className="agent-step">
-          <small>HUMAN APPROVAL</small>
-          <b className={payout.humanAuthorization ? 'warn' : 'ok'}>
-            {payout.humanAuthorization === undefined ? '—' : payout.humanAuthorization ? 'YES' : 'NO'}
-          </b>
-        </span>
-      </div>
-
-      {payout.signals ? (
-        <dl className="agent-metrics">
-          <Metric label="ENGAGEMENT" value={payout.signals.engagementVelocity} />
-          <Metric label="RETENTION" value={payout.signals.holderRetention} />
-          <Metric label="LIQUIDITY" value={payout.signals.liquidityDepth} />
-          <Metric label="CONFIDENCE" value={payout.signals.confidence} />
-          <Metric label="RISK SCORE" value={payout.signals.fraudRisk} invert />
-          <Metric label="SCORE" value={payout.score} />
-        </dl>
-      ) : null}
-
-      {payout.riskReasons?.length ? (
-        <p className="agent-reasons">RISK FLAGS: {payout.riskReasons.join(', ')}</p>
-      ) : null}
-      {payout.policyReasons?.length ? (
-        <p className="agent-reasons">
-          DENIAL REASONS: {payout.policyReasons.map((reason) => reason.code ?? reason).join(', ')}
-        </p>
-      ) : null}
-
-      <footer className="agent-receipts">
-        <span>EXECUTED BY <ArcScanLink value={payout.executedBy} /></span>
-        <span>CIRCLE {payout.circleState ?? '—'}</span>
-        <span>ARC TX <ArcScanLink kind="tx" value={payout.transactionHash} /></span>
-        <span className={`recon ${verified ? 'ok' : 'warn'}`}>
-          RECONCILIATION {payout.reconciliation?.status ?? 'PENDING'}
-          {payout.reconciliation?.route ? ` (${payout.reconciliation.route})` : ''}
-        </span>
-        {payout.reconciliation?.failures?.length
-          ? <span className="tx-error">{payout.reconciliation.failures.join(', ')}</span>
-          : null}
-        <span className="agent-digest" title={payout.evidenceDigest}>
-          EVIDENCE {shorten(payout.evidenceDigest, 10, 8)}
-        </span>
-      </footer>
-    </article>
-  );
-}
-
-export function AutonomousAgentPanel() {
-  const status = useQuery({
-    queryKey: ['agent-autonomy'],
-    queryFn: getAgentAutonomy,
-    retry: 1,
-    refetchInterval: 15_000,
-  });
-
-  if (status.isLoading) return <div className="empty"><span>READING AGENT STATUS…</span></div>;
-
-  if (status.isError) {
-    const notConfigured = status.error?.code === 'AGENT_NOT_CONFIGURED';
-    return (
-      <Unavailable
-        title={notConfigured ? 'AUTONOMOUS AGENT NOT CONFIGURED' : 'AGENT STATUS UNAVAILABLE'}
-        detail={notConfigured
-          ? 'This deployment has no autonomous agent configured.'
-          : 'The backend could not be reached. No cached decision is shown.'}
-      />
-    );
-  }
-
-  const data = status.data;
-  const executor = data.executor ?? {};
-  const state = data.paused ? 'PAUSED' : 'ACTIVE';
-
-  return (
-    <div className="agent-autonomy">
-      <div className="stage2-header">
-        <h2><sup>AUTONOMY</sup> AGENT EXECUTION</h2>
-        <div className="stage2-meta">
-          <span className={`agent-state ${data.paused ? 'paused' : 'active'}`}>{state}</span>
-          {data.pauseReason ? <span>REASON: {data.pauseReason}</span> : null}
-          <span>{data.policyVersion}</span>
-        </div>
-      </div>
-
-      <div className="assets agent-summary">
-        <div>
-          <b>EXECUTOR</b>
-          <strong>{executor.provider === 'CIRCLE_AGENT_WALLET' ? 'CIRCLE AGENT WALLET' : (executor.provider ?? 'NOT CONFIGURED')}</strong>
-          <span>{executor.accountType ? `${executor.accountType} — ${executor.state}` : 'UNAVAILABLE'}</span>
-          <span><ArcScanLink value={executor.address} /></span>
-        </div>
-        <div>
-          <b>PER-EXECUTION CAP</b>
-          <strong>{data.caps.perExecutionUsdc}</strong>
-          <span>MIN {data.caps.minimumUsdc} USDC</span>
-        </div>
-        <div>
-          <b>DAILY CAPS</b>
-          <strong>{data.caps.globalDailyUsdc}</strong>
-          <span>PER MARKET {data.caps.marketDailyUsdc} USDC</span>
-        </div>
-        <div>
-          <b>GATES</b>
-          <strong>{data.thresholds?.minConfidence ?? '—'} / {data.thresholds?.maxFraudRisk ?? '—'}</strong>
-          <span>MIN CONFIDENCE / MAX RISK</span>
-        </div>
-      </div>
-
-      <p className="mint-note">
-        The agent derives its own recipient from <code>market.creator()</code>, its own payout from
-        the decided score, and its own observation time from the Arc anchor block. No browser
-        request can choose any of them, and no human approves an individual payout.
-      </p>
-
-      {data.recentEpochs.length === 0 ? (
-        <Unavailable
-          title="NO AUTONOMOUS DECISIONS YET"
-          detail="The agent has not evaluated an eligible market in this deployment."
-        />
-      ) : (
-        <div className="agent-payouts">
-          {data.recentEpochs.map((payout) => (
-            <PayoutEvidence key={`${payout.marketAddress}-${payout.epoch}`} payout={payout} />
-          ))}
-        </div>
-      )}
-    </div>
   );
 }

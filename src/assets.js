@@ -151,6 +151,35 @@ export async function readMediaAssets({ limit = 60 } = {}) {
   return { configured: true, assets, totalMinted: count };
 }
 
+/**
+ * The only media URLs the gallery will put in an `<img src>`.
+ *
+ * Token metadata is written by whoever minted the token, so it is untrusted input that this
+ * application renders to every other visitor. React escapes text, but a URL handed to an
+ * attribute is not text: `javascript:`, `blob:`, and non-image `data:` payloads all have to be
+ * refused here rather than relied on the browser to ignore. Anything that is not plain `https:`
+ * or a `data:image/…` payload returns null, and the card renders an explicit "unrenderable media"
+ * state instead of a silently broken image.
+ */
+export function safeMediaUrl(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 2048) return null;
+  if (/^data:image\/(png|jpeg|jpg|gif|webp|avif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(trimmed)) {
+    return trimmed;
+  }
+  let url;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  // https only. Plain http would be blocked as mixed content on a TLS deployment anyway, and
+  // permitting it here would only produce a broken image with no explanation.
+  if (url.protocol !== 'https:') return null;
+  return url.toString();
+}
+
 /** Decodes the self-contained `data:application/json;base64` metadata the mint script writes. */
 export function decodeMetadata(tokenUri) {
   if (typeof tokenUri !== 'string') return null;

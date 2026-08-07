@@ -119,6 +119,7 @@ export async function createSettlementRuntime(config) {
     cooldownSeconds: config.agentMarketCooldownSeconds,
     decisionTtlSeconds: config.agentDecisionTtlSeconds,
     creatorShareBps: config.creatorShareBps,
+    settlementContractAddress: config.agentSettlementContractAddress ?? null,
     // Identifies which process owns an epoch claim. Never surfaced publicly.
     workerId: `${hostname()}:${process.pid}`,
   }) : null;
