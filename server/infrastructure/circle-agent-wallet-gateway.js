@@ -122,18 +122,30 @@ export class CircleAgentWalletGateway {
     const configuration = this.configuration();
     if (!configuration.configured) return configuration;
     try {
-      const status = await this.#cli(['wallet', 'status'], 'status');
+      /*
+        Two independent CLI reads, issued together rather than one after the other.
+
+        Each is a separate `circle` subprocess — a Node process start plus a network round trip,
+        about three seconds each — and the second never used the first's result. Awaiting them in
+        sequence simply added the two waits together, which is what pushed the public agent status
+        past the browser's request timeout. Neither the values nor the failure behaviour change:
+        `Promise.all` still rejects on the first failure, and the catch below still turns any
+        failure into the same DomainError it always did.
+      */
+      const [status, balances] = await Promise.all([
+        this.#cli(['wallet', 'status'], 'status'),
+        this.#cli([
+          'wallet', 'balance',
+          '--address', this.config.agentWalletAddress,
+          '--chain', this.blockchain,
+        ], 'balance'),
+      ]);
       // `circle wallet status` reports one session per network keyed by network name. Arc Testnet
       // lives under `testnet`; a missing or non-VALID token means the agent cannot sign at all.
       const network = this.blockchain.endsWith('-TESTNET') || this.blockchain.includes('SEPOLIA')
         ? 'testnet'
         : 'mainnet';
       const session = status[network] ?? {};
-      const balances = await this.#cli([
-        'wallet', 'balance',
-        '--address', this.config.agentWalletAddress,
-        '--chain', this.blockchain,
-      ], 'balance');
       // Prefer the six-decimal ERC-20 interface; Arc also reports an 18-decimal native view.
       const entries = balances.balances ?? [];
       const usdc = entries.find((entry) => entry.token?.symbol === 'USDC' && entry.token?.decimals === 6)

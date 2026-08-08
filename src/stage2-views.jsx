@@ -19,6 +19,7 @@ import {
 } from './assets';
 import { useOnchainAction } from './use-onchain-action';
 import { MEDIA_ACTIONS } from './media-authorization';
+import { publicMediaAssets } from './media-display';
 import {
   AttachImageButton,
   ImagePicker,
@@ -150,8 +151,21 @@ function MediaCard({ asset, wallet, onChanged }) {
     staleTime: 10_000,
   });
 
+  /*
+    Runs a marketplace transaction and refreshes the card afterwards.
+
+    A declined wallet prompt is an ordinary outcome, not a crash: `execute` records it on the
+    action's own state — which `TxStatus` renders — and then rethrows. Left uncaught in an async
+    click handler that became an unhandled promise rejection in the console while the user saw a
+    perfectly good error message. Swallowing it here matches how the Markets page already treats
+    the same situation, and the refresh is skipped because nothing changed onchain.
+  */
   async function run(action, request) {
-    await action.execute(request);
+    try {
+      await action.execute(request);
+    } catch {
+      return; // The action state presents the wallet/provider error.
+    }
     await onChanged();
   }
 
@@ -205,6 +219,9 @@ function MediaCard({ asset, wallet, onChanged }) {
         {/* Owner actions */}
         {isOwner && !listing ? (
           <div className="media-actions">
+            {/* Which side of the marketplace this panel is. Stated as text rather than implied by
+                colour, so the intent survives for anyone who cannot distinguish the accent. */}
+            <span className="marketplace-mode">MARKETPLACE ACTION // SELL</span>
             <label>
               ASK PRICE
               <input
@@ -249,10 +266,13 @@ function MediaCard({ asset, wallet, onChanged }) {
                 args: [asset.tokenId, priceUnits],
               })}
             >
-              2. LIST FOR USDC →
+              2. LIST FOR SALE →
             </button>
             <TxStatus state={approveNft.state} label="APPROVE" />
-            <TxStatus state={list.state} label="LIST" />
+            {/* `list()` offers the token at a price; it does not move it and nobody has bought
+                anything yet. Labelling this transaction "SELL" would announce a sale that has not
+                happened. */}
+            <TxStatus state={list.state} label="LIST FOR SALE" />
           </div>
         ) : null}
 
@@ -277,17 +297,22 @@ function MediaCard({ asset, wallet, onChanged }) {
         {/* Buyer actions */}
         {!isOwner && listing?.fillable && wallet.isConnected ? (
           <div className="media-actions">
+            <span className="marketplace-mode buy">MARKETPLACE ACTION // BUY</span>
             {(allowance.data ?? 0n) < listing.priceUnits ? (
               <button
                 type="button"
                 className="btn"
                 onClick={async () => {
-                  await approveUsdc.execute({
-                    address: arcContracts.usdc,
-                    abi: usdcAbi,
-                    functionName: 'approve',
-                    args: [stage2Contracts.nftMarketplace, listing.priceUnits],
-                  });
+                  try {
+                    await approveUsdc.execute({
+                      address: arcContracts.usdc,
+                      abi: usdcAbi,
+                      functionName: 'approve',
+                      args: [stage2Contracts.nftMarketplace, listing.priceUnits],
+                    });
+                  } catch {
+                    return; // Reported by TxStatus below; BUY simply stays disabled.
+                  }
                   await allowance.refetch();
                 }}
               >
@@ -543,6 +568,12 @@ export function MediaAssets() {
   });
 
   const blocked = guard(wallet, stage2Contracts.mediaNft, 'MEDIA NFT');
+  /*
+    What the gallery shows: the whole collection minus the project's own early test mint. The
+    contract enumeration in `assets.data.assets` is untouched and still describes every token on
+    Arc — this is the presentation view of it, and it is the only thing rendered below.
+  */
+  const visibleAssets = publicMediaAssets(assets.data?.assets);
 
   return (
     <section className="page">
@@ -577,13 +608,13 @@ export function MediaAssets() {
         />
       ) : null}
 
-      {assets.data?.configured && assets.data.assets.length === 0 ? (
+      {assets.data?.configured && visibleAssets.length === 0 ? (
         <Unavailable title="NO MEDIA MINTED YET" detail="This collection is empty on Arc." />
       ) : null}
 
-      {assets.data?.assets?.length ? (
+      {visibleAssets.length ? (
         <div className="nft-grid">
-          {assets.data.assets.map((asset) => (
+          {visibleAssets.map((asset) => (
             <MediaCard
               key={String(asset.tokenId)}
               asset={asset}

@@ -507,3 +507,30 @@ input[type="file"]:focus-visible{outline:2px solid var(--acid);outline-offset:2p
   .market-image-md{width:56px;height:56px}
   .image-preview img{width:72px;height:72px}
 }
+
+/* ── Media card marketplace buttons ─────────────────────────────────────────
+   `.coin-row button,.nft-card button` sets `background:none` and a smaller font, and at (0,1,1)
+   it outranks `.btn`/`.primary` at (0,1,0). Inside a media card that silently stripped the primary
+   button's acid fill while leaving `color:var(--bg)` in place — near-black text on the dark card,
+   which is why BUY FOR … USDC read as an empty box. It affected the enabled button just as much
+   as the disabled one. These rules restore the button styling the markup already asks for; the
+   small unstyled buttons elsewhere in a card are deliberately left alone. */
+.nft-card .btn{font:700 12px var(--mono);padding:16px 20px;border:1px solid var(--ink);background:transparent;color:var(--ink)}
+.nft-card .btn.primary{background:var(--acid);border-color:var(--acid);color:var(--bg)}
+
+/* A disabled primary action is the *next* step, not a dead control, so it stays fully legible:
+   acid on the card ground, outlined rather than filled. Fading it toward the background would
+   repeat the bug this section exists to fix. */
+.nft-card .btn.primary:disabled,.btn.primary:disabled{
+  background:transparent;border-color:var(--acid);color:var(--acid);
+  opacity:1;cursor:not-allowed;box-shadow:none;transform:none;
+}
+/* A disabled control must not animate on hover — the lift and shadow read as "clickable". */
+.btn:disabled:hover,.nft-card button:disabled:hover,.coin-row button:disabled:hover{
+  transform:none;box-shadow:none;
+}
+
+/* Which side of the marketplace a panel acts on, stated in text rather than by colour alone. */
+.marketplace-mode{display:block;font:9px var(--mono);letter-spacing:.09em;color:var(--mute);
+  padding-bottom:2px;border-bottom:1px solid var(--line);margin-bottom:2px}
+.marketplace-mode.buy{color:var(--acid)}

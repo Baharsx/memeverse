@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import { ZodError, z } from 'zod';
 import { DomainError } from './domain/errors.js';
 import { readUploadAuthorization } from './domain/media-service.js';
+import { PublicStatusCache } from './domain/public-status-cache.js';
 import { OPERATOR_SESSION_COOKIE, parseCookies, serializeCookie } from './security/cookies.js';
 import { contentSecurityPolicyDirectives } from './security/csp.js';
 import { ALLOWED_IMAGE_TYPES, normalizeImageMimeType } from '../src/media-authorization.js';
@@ -459,14 +460,23 @@ export function createApp({
    * Safe for an unauthenticated browser: it carries policy versions, caps, decision outcomes,
    * and Arc-verifiable identities, but no Circle wallet IDs, no internal worker identity, and
    * no credentials.
+   *
+   * Served through a few-second cache because assembling it costs two Circle CLI subprocess reads.
+   * The cache is created here and reachable from this route alone — the worker, the payout path,
+   * and every policy check call their services directly, so none of them can read a cached value.
+   * It holds only this sanitized document, it expires on a hard TTL, and a failed refresh is never
+   * stored, so a paused agent or a dead wallet session still surfaces within one short window.
    */
+  const agentStatusCache = new PublicStatusCache({ ttlMs: config.agentStatusCacheMs ?? 15_000 });
+
   app.get('/api/v1/agent/autonomy', limiter.global, async (request, response) => {
     if (!autonomousAgentService) {
       throw new DomainError('AGENT_NOT_CONFIGURED', 'Autonomous agent is unavailable.', {
         status: 503,
       });
     }
-    response.json(responseData(await autonomousAgentService.status()));
+    const status = await agentStatusCache.read(() => autonomousAgentService.status());
+    response.json(responseData(status));
   });
 
   /** Operator-only emergency stop. Never required for an eligible payout to execute. */
@@ -483,6 +493,10 @@ export function createApp({
         reason: reason ?? null,
         changedBy: request.operator.address,
       });
+      // An emergency stop must be visible immediately rather than after the status TTL. The cache
+      // would expire on its own within seconds regardless; this makes the operator's action and
+      // what the public sees agree at once.
+      agentStatusCache.invalidate();
       response.json(responseData({
         paused: state.paused, reason: state.reason, changedAt: state.changedAt,
       }));

@@ -133,7 +133,19 @@ export async function getCircleWallet() {
  * but no Circle wallet identifiers or credentials.
  */
 export async function getAgentAutonomy() {
-  const payload = await request('/api/v1/agent/autonomy');
+  /*
+    A longer deadline than the 8s default, for the one endpoint that legitimately needs it.
+
+    A cold assembly of this status reads the Circle Agent Wallet, and even with those reads issued
+    concurrently and a short server-side cache in front of them it can sit a little past eight
+    seconds. Aborting at that point did not make the page faster — it produced a failed poll, a
+    retry, and another cold read, so the visitor waited far longer than if the first request had
+    simply been allowed to finish. The extra headroom is what stops that loop; it is not a way to
+    hide slowness, and every other call keeps the tighter default.
+  */
+  const payload = await request('/api/v1/agent/autonomy', {
+    signal: AbortSignal.timeout(20_000),
+  });
   return payload.data;
 }
 

@@ -79,6 +79,9 @@ const environmentSchema = z.object({
   AGENT_AUTONOMOUS_SCORE_FLOOR: z.coerce.number().int().min(0).max(99).default(70),
   AGENT_DECISION_TTL_SECONDS: z.coerce.number().int().min(30).max(3600).default(300),
   AGENT_WORKER_INTERVAL_MS: z.coerce.number().int().min(5_000).max(3_600_000).default(60_000),
+  // How long the public agent status may be served from cache. Presentation only — no financial
+  // path reads it — and bounded so a paused agent or an expired wallet session surfaces quickly.
+  AGENT_STATUS_CACHE_MS: z.coerce.number().int().min(0).max(60_000).default(15_000),
   // Circle Agent Stack. The Agent Wallet is an ERC-4337 smart contract account created with the
   // official Circle CLI; it executes autonomous payouts through its own settlement contract,
   // whose immutable operator is that wallet. Absent values simply leave autonomy unconfigured.
@@ -199,6 +202,7 @@ export function loadServerConfig(environment = process.env) {
     agentAutonomousScoreFloor: parsed.AGENT_AUTONOMOUS_SCORE_FLOOR,
     agentDecisionTtlSeconds: parsed.AGENT_DECISION_TTL_SECONDS,
     agentWorkerIntervalMs: parsed.AGENT_WORKER_INTERVAL_MS,
+    agentStatusCacheMs: parsed.AGENT_STATUS_CACHE_MS,
     agentWalletAddress: parsed.AGENT_WALLET_ADDRESS
       ? getAddress(parsed.AGENT_WALLET_ADDRESS) : undefined,
     agentSettlementContractAddress: parsed.AGENT_SETTLEMENT_CONTRACT_ADDRESS
