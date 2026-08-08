@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { fallback, parseEventLogs } from 'viem';
 import {
@@ -63,6 +63,7 @@ import {
   marketAvailability,
   marketSpotLabel,
   marketSpotPerTokenLabel,
+  publicMarkets,
 } from './market-display';
 // Read here only to state truthfully whether this build has the Stage 2 addresses configured.
 import { stage2Contracts } from './assets';
@@ -136,7 +137,9 @@ function Marquee() {
     retry: 1,
     refetchInterval: 15_000,
   });
-  const items = markets.data ?? [];
+  // Same presentation filter as the Markets selector, so the ticker and the list can never
+  // disagree about what a visitor is being shown.
+  const items = publicMarkets(markets.data);
   return (
     <div className="marquee" role="group" aria-label="Live Arc Testnet market ticker">
       <div>
@@ -812,24 +815,41 @@ function Markets() {
     refetchInterval: 12_000,
   });
   /*
+    What this page browses: every registered market except the project's own legacy test markets.
+    The full factory result stays in `markets.data` and is untouched — this is the presentation
+    view of it, and it is the only thing rendered, selected, or quoted below.
+  */
+  const visibleMarkets = useMemo(() => publicMarkets(markets.data), [markets.data]);
+  const visibleAddresses = visibleMarkets.map((market) => market.address).join(',');
+
+  /*
     Artwork for every listed market, in one request rather than one per row. Deliberately a
     separate query from the market data: if media is slow or down, prices, reserves, and quotes
     still render on time and the rows simply show the mark.
   */
   const marketImages = useQuery({
-    queryKey: ['market-images', (markets.data ?? []).map((market) => market.address).join(',')],
-    queryFn: () => getMarketImages((markets.data ?? []).map((market) => market.address)),
-    enabled: Boolean(markets.data?.length),
+    queryKey: ['market-images', visibleAddresses],
+    queryFn: () => getMarketImages(visibleMarkets.map((market) => market.address)),
+    enabled: visibleMarkets.length > 0,
     staleTime: 30_000,
   });
   const imageFor = (market) => mediaContentUrl(marketImages.data?.[market?.address]?.url);
 
-  const selected = markets.data?.find((market) => market.address === selectedAddress)
-    ?? markets.data?.[0]
+  const selected = visibleMarkets.find((market) => market.address === selectedAddress)
+    ?? visibleMarkets[0]
     ?? null;
+  /*
+    Keep the stored selection pointing at something this page can actually show. Selecting only
+    when nothing is selected would leave a stale address behind whenever the current market stops
+    being visible — the terminal would fall back to the first market while the list highlighted
+    none of them. Reconciling against the visible set covers the empty first render and that case
+    with one rule.
+  */
   useEffect(() => {
-    if (!selectedAddress && markets.data?.[0]) setSelectedAddress(markets.data[0].address);
-  }, [markets.data, selectedAddress]);
+    if (!visibleMarkets.length) return;
+    const stillVisible = visibleMarkets.some((market) => market.address === selectedAddress);
+    if (!stillVisible) setSelectedAddress(visibleMarkets[0].address);
+  }, [visibleAddresses, selectedAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   let buyUnits = 0n;
   let sellUnits = 0n;
@@ -915,13 +935,13 @@ function Markets() {
       <Title n="02 TRADE" t="ONCHAIN USDC MARKETS" />
       <p className="lede">Markets are read directly from the deployed MemeVerse factory. Quotes, reserves, positions, fees, and balances are live Arc Public Testnet state. Every buy and sell pays the creator and the treasury inside the same transaction.</p>
       {markets.isError ? <p className="agent-error" role="alert">ARC RPC READ FAILED // {markets.error.shortMessage ?? 'Public RPC unavailable. Retry shortly.'}</p> : null}
-      {!markets.isPending && !markets.data?.length ? (
+      {!markets.isPending && !visibleMarkets.length ? (
         <div className="empty"><Mascot small /><span>ONCHAIN MARKETS: 0<br /><NavLink to="/launch">LAUNCH THE FIRST MARKET →</NavLink></span></div>
       ) : null}
-      {markets.data?.length ? (
+      {visibleMarkets.length ? (
         <div className="market-layout">
           <div className="market-list" role="group" aria-label="Onchain markets">
-            {markets.data.map((market) => (
+            {visibleMarkets.map((market) => (
               <button key={market.address} type="button" className={selected?.address === market.address ? 'active' : ''} onClick={() => setSelectedAddress(market.address)}>
                 <MarketImage src={imageFor(market)} alt={`${market.symbol} artwork`} size="sm" />
                 <span className="market-list-facts">
