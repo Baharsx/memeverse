@@ -61,23 +61,6 @@ export function NavLink({ to, className = '', children, ...props }) {
   );
 }
 
-/**
- * The contextual hand-off at the end of a surface.
- *
- * Every step of the judged demo path ends by naming the next one, so nobody has to return to the
- * homepage to discover where the story continues.
- */
-export function NextStep({ to, label, detail }) {
-  return (
-    <NavLink className="next-step" to={to}>
-      <small>NEXT STEP</small>
-      <strong>{label}</strong>
-      {detail ? <span>{detail}</span> : null}
-      <b aria-hidden="true">→</b>
-    </NavLink>
-  );
-}
-
 export function Route() {
   return null;
 }

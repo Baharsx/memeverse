@@ -28,7 +28,7 @@ you to trust that something is probably fine.
 
 **System**
 
-- [ ] `npm ci && NODE_ENV=test npm test` — 354 pass (300 backend, 54 contract).
+- [ ] `npm ci && NODE_ENV=test npm test` — 356 pass (302 backend, 54 contract).
 - [ ] `NODE_ENV=production npm run build` — succeeds, no chunk over 500 kB.
 - [ ] `npm run db:migrate` has been run against the demo database.
 - [ ] `npm run demo:preflight` — **DEMO READY**, or the only warnings are ones you have decided to
@@ -57,7 +57,7 @@ you to trust that something is probably fine.
 - [ ] Worker running: `npm run dev:worker` (or `start:worker`). Its startup log must show
       `"autonomousAgent":{"enabled":true}` — if it says `AGENT_AUTONOMOUS_ENABLED_FALSE` or
       `AGENT_WALLET_NOT_CONFIGURED`, the agent will not evaluate anything.
-- [ ] Frontend running and reachable at the URL you will actually present from.
+- [ ] Live site reachable: <https://memeverse.biz> — load `/`, `/agent`, `/safety` once to warm them.
 - [ ] **Autonomy is unpaused.** The Agent Command Center must read ACTIVE, not PAUSED. The
       committed default is paused as a fail-safe; an operator has to turn it on.
 - [ ] PostgreSQL reachable. Preflight reports the epoch count.

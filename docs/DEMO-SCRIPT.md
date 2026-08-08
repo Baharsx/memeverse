@@ -3,6 +3,8 @@
 The official submission asks for a **3-minute video pitch and demo covering core functionality and
 use of Circle tools**. This is that three minutes, timeboxed, with the exact click at each moment.
 
+Present from the live public site: **<https://memeverse.biz>**.
+
 Run `npm run demo:preflight` before recording. Do not start until it prints `DEMO READY`.
 
 **Two rules, both non-negotiable:**

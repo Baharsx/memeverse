@@ -50,15 +50,15 @@ and deliverable list, and correct this section before submitting.**
 
 ### Gaps against the deliverables — read before submitting
 
-1. **No hosted demo URL exists yet.** The contracts are deployed and live on Arc Public Testnet,
-   and the frontend and backend both run, but the application itself is not yet hosted at a public
-   address. Deployment topology and configuration are documented in `README.md` and
-   `docs/STAGE-3-FINAL.md`; choosing and provisioning a host is **a human action item**.
-2. **The 3-minute video has not been recorded.** `docs/DEMO-SCRIPT.md` is the timeboxed script for
-   it, including the Circle-tools coverage the official criteria ask for.
-3. **No deck exists in this repository.** A deck is not among the three publicly listed
+1. **The 3-minute video has not been recorded.** This is the one outstanding deliverable.
+   `docs/DEMO-SCRIPT.md` is the timeboxed script for it, including the Circle-tools coverage the
+   official criteria ask for.
+2. **No deck exists in this repository.** A deck is not among the three publicly listed
    deliverables, so this may not be required at all — see the unverified table above. An outline is
    provided at the end of this file in case it is.
+
+The functional-MVP deliverable is met: the application is deployed and publicly reachable at
+**<https://memeverse.biz>**, with a working frontend, API, autonomous worker, and PostgreSQL.
 
 ---
 
@@ -200,9 +200,14 @@ Seller balance delta: exactly **+0.250000 USDC**.
 
 ## Demo URL
 
-Not yet hosted. The contracts are live on Arc Public Testnet at the addresses above and can be
-verified independently right now; the application runs locally with `npm run dev`. Production
-deployment topology is documented in `README.md`.
+**<https://memeverse.biz>** — live, public, HTTPS.
+
+- Autonomous agent: <https://memeverse.biz/agent>
+- Proof Center: <https://memeverse.biz/safety>
+- Circle Stablecoin Kits quote: <https://memeverse.biz/quote>
+
+Deployed on Arc Public Testnet. Frontend, API, autonomous worker, and PostgreSQL all run in
+production; deployment topology is documented in `README.md`.
 
 ---
 
@@ -260,7 +265,7 @@ Safety is structural: atomic global and per-market daily spend reservations in P
 payout per market per epoch enforced by a primary key, and capacity that is never released on an
 undetermined provider outcome.
 
-354 tests. Zero dependency vulnerabilities. Arc Public Testnet only.
+356 tests. Zero dependency vulnerabilities. Arc Public Testnet only.
 
 ## Technical summary
 
@@ -317,9 +322,10 @@ real creator and treasury fees, a real media NFT sold between two distinct walle
 USDC, a real vault deposit and redemption, and two real autonomous creator payouts executed by the
 Circle Agent Wallet and reconciled to VERIFIED against Arc events.
 
-## What is not production-ready?
+## What is not mainnet-ready?
 
-Testnet only, and stated on every screen. No independent security audit has been performed. Agent
+The application is deployed and publicly reachable at <https://memeverse.biz>, but it runs on Arc
+Public Testnet only, and that is stated on every screen. No independent security audit has been performed. Agent
 spending caps are application-level, because Circle wallet-level spend limits are a mainnet
 feature — the caps are transactionally enforced in PostgreSQL, but that is this application's own
 control rather than the wallet's. Risk scoring detects onchain shape, not intent. The backend
@@ -406,8 +412,9 @@ that value from the contract rather than asserting it. It is a composable treasu
 yield product.
 
 **Is this mainnet ready?**
-No, and nothing in the product says otherwise. Testnet only, no independent audit, application-level
-rather than wallet-level spend limits.
+No — this is a live Arc Public Testnet MVP and it is **not mainnet-ready**, which the product says
+on its own Proof Center. No independent audit, and application-level rather than wallet-level spend
+limits.
 
 **What would productionization require?**
 An independent professional smart-contract audit. Wallet-level Circle spend limits, available on

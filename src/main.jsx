@@ -84,7 +84,7 @@ import {
   usdcAbi,
 } from './market';
 import { useOnchainAction } from './use-onchain-action';
-import { BrowserRouter, NavLink, NextStep, Route, Routes } from './router.jsx';
+import { BrowserRouter, NavLink, Route, Routes } from './router.jsx';
 import './styles.css';
 
 const config = createConfig({
@@ -620,13 +620,6 @@ function Launch() {
           {review ? <div className="onchain-review" role="region" aria-label="Launch review"><b>REVIEW BEFORE SIGNING</b><span>CREATOR // {address ?? 'CONNECT WALLET'}</span><span>FACTORY // {arcContracts.memeVerseFactory}</span><span>PRICE // {basePrice} + UP TO {slopePrice} USDC</span><span>FEES // {factory.data ? `${Number(factory.data.creatorFeeBps) / 100}% CREATOR + ${Number(factory.data.treasuryFeeBps) / 100}% TREASURY` : 'READING ONCHAIN'}</span><button className="btn primary full" type="button" disabled={!onArc || !factory.data || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(action.state.status)} onClick={launchMarket}>{!isConnected ? 'CONNECT WALLET FIRST' : !onArc ? 'SWITCH TO ARC TESTNET' : 'SIGN + LAUNCH ON ARC →'}</button></div> : null}
           <TransactionStatus state={action.state} />
           {result ? <div className="receipt onchain-receipt" role="status"><b>MARKET CONFIRMED ON ARC</b><span>MARKET + TOKEN // {result.market}</span><span>CREATOR // {result.creator}</span><ExternalLink href={`${arcLinks.explorer}/tx/${result.hash}`}>VIEW TRANSACTION ON ARCSCAN ↗</ExternalLink><ExternalLink href={`${arcLinks.explorer}/address/${result.market}`}>VIEW MARKET CONTRACT ↗</ExternalLink></div> : null}
-          {result ? (
-            <NextStep
-              to="/markets"
-              label="TRADE THIS MARKET"
-              detail="Buy against the curve in USDC and pay the creator their fee"
-            />
-          ) : null}
         </form>
         <aside className="spec">
           <span>DEPLOYMENT SPEC</span>
@@ -845,13 +838,6 @@ function Markets() {
         <Suspense fallback={<LazySection />}>
           <CreatorEconomy market={selected} />
         </Suspense>
-      ) : null}
-      {selected ? (
-        <NextStep
-          to="/nft"
-          label="MINT CREATOR MEDIA"
-          detail="Bind media to a market you created and list it for USDC"
-        />
       ) : null}
     </section>
   );

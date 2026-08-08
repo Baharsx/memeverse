@@ -150,15 +150,6 @@ nav a:hover sup,nav a.active sup{color:var(--bg)}
 .surface-lede{margin:12px 0 0;max-width:760px;color:var(--mute);font:12px/1.7 var(--mono)}
 .surface-lede code{color:var(--acid)}
 
-/* Contextual hand-off between demo steps */
-.next-step{display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 18px;margin-top:28px;padding:20px 24px;border:1px solid var(--acid);background:var(--bg-2);transition:100ms}
-.next-step:hover{background:var(--acid);color:var(--bg)}
-.next-step small{grid-column:1;font:9px var(--mono);color:var(--mute);letter-spacing:.12em}
-.next-step strong{grid-column:1;font:600 22px var(--display);color:var(--acid)}
-.next-step span{grid-column:1;font:11px/1.6 var(--mono);color:var(--mute)}
-.next-step b{grid-column:2;grid-row:1/-1;font:700 26px var(--mono);color:var(--acid)}
-.next-step:hover small,.next-step:hover strong,.next-step:hover span,.next-step:hover b{color:var(--bg)}
-
 /* Home: the economy in five steps */
 .economy-flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-bottom:1px solid var(--line)}
 .economy-step{position:relative;display:flex;flex-direction:column;min-height:230px;padding:26px 22px;border-right:1px solid var(--line);background:var(--bg-2);transition:100ms}
@@ -351,8 +342,6 @@ nav a:hover sup,nav a.active sup{color:var(--bg)}
   .creator-layers>div:last-child{border-bottom:0}
   .proof-cards{grid-template-columns:1fr}
   .proof-cards .fact,.proof-cards .fact:nth-child(2n),.proof-cards .fact:nth-child(3n){border-right:0}
-  .next-step{padding:18px}
-  .next-step strong{font-size:19px}
   .proof-sources a{flex-basis:100%;border-right:0;border-bottom:1px solid var(--line)}
   .proof-sources a:last-child{border-bottom:0}
   .boundary-list{padding:18px 18px 18px 34px}

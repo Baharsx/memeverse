@@ -712,26 +712,69 @@ test('an unmatched deep link renders a real surface rather than an empty page', 
   assert.ok(main.includes('NO SUCH SURFACE'), 'and it must say what happened');
 });
 
-test('each demo step hands off to the next one without returning to the homepage', async () => {
+test('inner routes carry no guided-tour card, and the dead component is fully gone', async () => {
   const main = await readFile('src/main.jsx', 'utf8');
   const stage2 = await readFile('src/stage2-views.jsx', 'utf8');
   const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
-  const sources = `${main}\n${stage2}\n${stage3}`;
+  const router = await readFile('src/router.jsx', 'utf8');
+  const css = await readFile('src/styles.css', 'utf8');
 
-  // launch → markets → nft → agent → safety, each expressed as a NextStep.
-  for (const [from, to] of [
-    ['LAUNCH', '/markets'], ['MARKETS', '/nft'], ['MEDIA', '/agent'], ['AGENT', '/safety'],
+  // The homepage now carries the whole guided journey. Repeating it at the bottom of every inner
+  // route made finished pages read like a prototype, so those cards are gone — and nothing dead is
+  // left behind: no component, no import, no CSS.
+  for (const [name, source] of [
+    ['main.jsx', main], ['stage2-views.jsx', stage2], ['stage3-views.jsx', stage3],
+    ['router.jsx', router],
   ]) {
+    assert.equal(/<NextStep/.test(source), false, `${name} must not render a NextStep card`);
+    assert.equal(/\bNextStep\b/.test(source), false, `${name} must not reference NextStep at all`);
+  }
+  assert.equal(/\.next-step/.test(css), false, 'the .next-step styles must be removed');
+});
+
+test('current-facing documentation points at the live deployment, not a local one', async () => {
+  const readme = await readFile('README.md', 'utf8');
+  const submission = await readFile('docs/SUBMISSION.md', 'utf8');
+
+  // The site is deployed and public. A judge reading either document must not be told otherwise.
+  for (const [name, doc] of [['README.md', readme], ['docs/SUBMISSION.md', submission]]) {
+    assert.ok(doc.includes('https://memeverse.biz'), `${name} must link the live deployment`);
+    for (const stale of [
+      'not yet hosted', 'no hosted demo', 'No hosted demo URL exists yet',
+      'is not hosted at a public URL', 'deployment pending',
+    ]) {
+      assert.equal(
+        doc.toLowerCase().includes(stale.toLowerCase()),
+        false,
+        `${name} must not still claim: "${stale}"`,
+      );
+    }
+    // And it must keep saying what is genuinely not true yet.
     assert.ok(
-      new RegExp(`<NextStep[^>]*\\n?[^>]*to="${to}"`, 's').test(sources),
-      `the step after ${from} must link onward to ${to}`,
+      /not mainnet-ready|not mainnet ready/i.test(doc),
+      `${name} must keep the mainnet caveat`,
     );
   }
-  assert.equal(
-    /<NextStep[^>]*to="\/"/s.test(sources),
-    false,
-    'a hand-off must never send the judge back to the homepage',
-  );
+
+  const html = await readFile('index.html', 'utf8');
+  assert.ok(html.includes('rel="canonical" href="https://memeverse.biz/"'), 'canonical URL');
+  assert.ok(html.includes('property="og:url" content="https://memeverse.biz/"'), 'og:url');
+});
+
+test('the homepage keeps the one guided journey a judge follows', async () => {
+  const main = await readFile('src/main.jsx', 'utf8');
+
+  assert.ok(main.includes('THE THREE-MINUTE TOUR'), 'the homepage tour must remain');
+  for (const step of [
+    'LAUNCH A MEME', 'TRADE THE CURVE', 'OWN THE MEDIA',
+    'AUTONOMOUS REWARDS', 'PROOF CENTER', 'TREASURY PRIMITIVE',
+  ]) {
+    assert.ok(main.includes(step), `the tour must still offer: ${step}`);
+  }
+  // And the five-step economy strip that frames the whole product.
+  for (const step of ['CREATE', 'TRADE', 'OWN', 'REWARD', 'PROVE']) {
+    assert.ok(main.includes(`'${step}'`), `the economy flow must still name ${step}`);
+  }
 });
 
 test('the Stage 3 surfaces state absence rather than inventing a value', async () => {
@@ -739,7 +782,7 @@ test('the Stage 3 surfaces state absence rather than inventing a value', async (
 
   // Explicit unavailability is the whole point of these surfaces.
   for (const required of [
-    'NOT CONFIGURED', 'UNAVAILABLE', 'NO AUTONOMOUS DECISIONS YET', 'NONE YET',
+    'NOT CONFIGURED', 'UNAVAILABLE', 'NO AUTONOMOUS REWARD IN THIS DEPLOYMENT YET', 'NONE YET',
   ]) {
     assert.ok(stage3.includes(required), `Stage 3 must be able to render "${required}"`);
   }
@@ -748,7 +791,7 @@ test('the Stage 3 surfaces state absence rather than inventing a value', async (
   // allowed — the Proof Center has to be able to say "nothing here is mainnet" — so what is
   // banned is the affirmative claim.
   for (const banned of [
-    'mainnet ready', 'independently audited', 'security audited',
+    'is mainnet-ready', 'now mainnet-ready', 'independently audited', 'security audited',
     'guaranteed', 'generates yield', 'earn yield', 'exactly-once', 'simulated', 'demo data',
     'example value', 'placeholder',
   ]) {
@@ -774,9 +817,8 @@ test('the proof receipt cannot render for a payout that did not execute onchain'
 test('the Proof Center states the project limitations it must not hide', async () => {
   const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
   for (const admission of [
-    'Arc Public Testnet only',
+    'Arc Public Testnet MVP — not mainnet-ready',
     'No independent security audit',
-    'Not production ready',
     'application-level',
     'deterministic and does not use an LLM',
   ]) {

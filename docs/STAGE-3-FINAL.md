@@ -49,9 +49,10 @@ the Stage 2 baseline.
 CREATE      TRADE         OWN      REWARD     PROVE
 ```
 
-Navigation is ordered to match. Each surface ends in a `NextStep` card naming the next one, so
-nobody has to return to the homepage between steps. A test asserts the chain exists and that no
-hand-off points back at `/`.
+Navigation is ordered to match. *(Superseded after Stage 3: each surface originally ended in a
+`NextStep` hand-off card. Once the homepage gained its Three-Minute Tour those cards were
+repetitive, so they were removed from every inner route and the guided journey now lives on the
+homepage alone.)*
 
 The home page opens with the sentence the whole product reduces to — *A MEME BECOMES AN ECONOMY* —
 followed by the five steps as clickable cards, then six runtime cards each stating something the
@@ -117,9 +118,9 @@ misleading thing this page could do.
   type, routing, authorization, and whether a human approves each payout.
 - **Autonomous executor** — the Agent Wallet, its state, and the latest verified reward receipt.
 - **Trust boundary** — five sentences on what actually prevents misuse.
-- **Limitations** — testnet, no independent audit, not production ready, application-level caps,
-  deterministic not intelligent, heuristic risk scoring, expiring wallet session. In red, at the
-  bottom, unavoidable.
+- **Limitations** — Arc Public Testnet MVP and not mainnet-ready, no independent audit,
+  application-level caps, deterministic policy with no LLM, heuristic risk scoring, expiring wallet
+  session. In red, at the bottom, unavoidable.
 
 ---
 
@@ -331,7 +332,7 @@ documentation:
 
 New to Stage 3:
 
-11. **No public demo host.** The application runs locally and the contracts are live, but nothing
-    is hosted at a public URL yet.
+11. ~~No public demo host.~~ **Resolved after Stage 3**: the application is deployed and publicly
+    reachable at <https://memeverse.biz>.
 12. **No submission deck.** An outline exists in `docs/SUBMISSION.md`; the deck itself is a human
     action item.

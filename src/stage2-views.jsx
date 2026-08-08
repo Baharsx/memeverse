@@ -19,7 +19,6 @@ import {
   vaultAbi,
 } from './assets';
 import { useOnchainAction } from './use-onchain-action';
-import { NextStep } from './router.jsx';
 
 /**
  * The Stage 2 product surfaces: real Arc media NFTs, a real USDC marketplace, a real USDC vault,
@@ -500,12 +499,6 @@ export function MediaAssets() {
       ) : null}
 
       {blocked ?? <MintMedia wallet={wallet} onMinted={() => assets.refetch()} />}
-
-      <NextStep
-        to="/agent"
-        label="WATCH AUTONOMOUS REWARDS"
-        detail="See the agent read this economy's trading record and pay its creator"
-      />
     </section>
   );
 }

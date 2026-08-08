@@ -18,20 +18,31 @@ executed by Circle Agent Wallet [`0x65da73c6…0FE3`](https://testnet.arcscan.ap
 reconciled **VERIFIED**, `operatorAddress: null`, human authorization consumed: **no** —
 [`0xffad62e6…6b6799`](https://testnet.arcscan.app/tx/0xffad62e616262a682dcfd0ac85a7ced9f7b16290b29beadec6225e008c6b6799).
 
-**Demo:** not yet hosted publicly. The contracts below are live and independently verifiable today;
-the application runs locally with `npm run dev` (see [Run locally](#run-locally)).
+## ▶ Live demo: **<https://memeverse.biz>**
+
+| | |
+| --- | --- |
+| **Primary track** | Agentic |
+| **Supporting track** | DeFi |
+| **Network** | Arc Public Testnet (chain `5042002`) |
+| **Settlement asset & gas** | USDC |
 
 ### Judge in 60 seconds
 
-1. Create a real Arc meme market
-2. Trade it in USDC
-3. The agent observes confirmed activity and autonomously rewards the creator
-4. Open the payout on ArcScan and verify it
+1. Open **<https://memeverse.biz>** — the five-step economy and live runtime checks are on the homepage
+2. **[/markets](https://memeverse.biz/markets)** — real factory-deployed USDC markets, live curve state
+3. **[/agent](https://memeverse.biz/agent)** — the autonomous agent: Circle Agent Wallet, budget, policy, decisions
+4. **[/safety](https://memeverse.biz/safety)** — every deployed contract, both execution modes, the limits
+5. Open any ArcScan link and verify the payout yourself — no need to trust this page
 
 ### Start here
 
 | If you want to… | Go to |
 | --- | --- |
+| **Use the live product** | **<https://memeverse.biz>** |
+| Watch the autonomous agent | <https://memeverse.biz/agent> |
+| Verify contracts and proofs | <https://memeverse.biz/safety> |
+| See the Circle Stablecoin Kits quote | <https://memeverse.biz/quote> |
 | Read the submission copy, contracts, proofs, and judge Q&A | [`docs/SUBMISSION.md`](./docs/SUBMISSION.md) |
 | See the 3-minute demo, click by click, with fallbacks | [`docs/DEMO-SCRIPT.md`](./docs/DEMO-SCRIPT.md) |
 | Prepare a live presentation | [`docs/DEMO-CHECKLIST.md`](./docs/DEMO-CHECKLIST.md) |
@@ -75,7 +86,7 @@ npm run demo:preflight        # read-only: RPC, chain ID, every contract's bytec
 npm run contracts:audit:onchain
 npm run markets:audit:onchain
 npm run assets:audit:onchain
-NODE_ENV=test npm test        # 300 backend + 54 contract = 354
+NODE_ENV=test npm test        # 302 backend + 54 contract = 356
 NODE_ENV=production npm run build
 npm audit
 ```
@@ -97,7 +108,6 @@ The current release is an Arc Public Testnet product. Markets, balances, quotes,
 
 **Circle Agent Stack is integrated.** Autonomous payouts execute through a Circle **Agent Wallet** (`0x65da73c6d9300F3dAb1dF785219f76DeCA5e0FE3`), created with the official `@circle-fin/cli` on Arc Testnet. Because an Agent Wallet is an ERC-4337 smart contract account, and Arc's Memo `CallFrom` only preserves a directly signing EOA, the autonomous route calls its own settlement contract directly while the manual operator route keeps the Developer-Controlled Wallet and the Memo hop. The two routes share no wallet, contract, or allowance. Circle's wallet-level spending policies are mainnet-only, so on testnet every cap is application-level — see [`docs/PHASE-6B-STAGE-2.md`](./docs/PHASE-6B-STAGE-2.md).
 
-MemeVerse is not independently audited and is not mainnet ready.
 
 ## Built on Arc
 
@@ -110,49 +120,41 @@ The product explores two Arc ecosystem tracks:
 
 ## Current MVP
 
-- Arc Testnet wallet connection and network switching through wagmi
-- Connected-wallet balance through the official six-decimal Arc USDC ERC-20 interface
-- Real wallet-signed meme token and market deployment through `MemeVerseFactory`
-- Factory-discovered markets with onchain supply, price, reserve, position, and allocation state
-- Real USDC approval, buy, and sell transactions with minimum-output slippage protection
-- Immediate 1% creator and 1% MemeVerse treasury allocation on every trade
-- ArcScan transaction/contract links shown only after a real hash or final receipt exists
-- Centralized Arc RPC, explorer, official links, and contract registry
-- Express settlement API with Arc RPC chain verification and structured errors
-- Server-enforced USDC spend/virality policy using exact six-decimal integer math
-- Durable transactional PostgreSQL/PGlite settlement records
-- Idempotent quote creation, five-minute expiry, and explicit transaction state transitions
-- Manual operator Agent flow connected to `quote → prepare → persisted record` (manual route only)
-- Official Circle Developer-Controlled Wallets SDK integration for Arc Testnet USDC
-- Manual operator route uses an explicit `prepare → execute → reconcile` flow with no automatic or hidden signing on that route; the autonomous creator-reward route is separate and takes no per-payout human approval
-- Autonomous creator-reward route: an autonomous worker discovers registered markets, scores confirmed Arc trading evidence with a deterministic policy, and pays the creator from a Circle **Agent Wallet** with **no per-payout human approval**
-- Every autonomous payout is reconciled against `SettlementExecuted` and the USDC `Transfer` on Arc before it is reported as verified
-- Signed Circle webhook verification with durable `notificationId` deduplication
-- Circle wallet readiness and USDC balance endpoint without secret exposure
-- Verified MemeVerseSettlement contract deployed on Arc Testnet
-- Direct EOA Arc Memo execution with persisted calldata and calldata hash
-- Independent Memo, SettlementExecuted, and USDC Transfer event reconciliation
-- Transactional treasury reservations that prevent concurrent overspend
-- Durable reconciliation worker for submitted Circle transactions
-- Multi-signal Agent Policy V2 with evidence freshness and server-assigned provenance
-- Wallet-signed operator sessions with one-time expiring sign-in challenges
-- Settlement-bound, single-use execution approvals enforced server-side
-- One durable execution claim per settlement, so only one caller can ever reach Circle
-- Bounded claim leases, renewed by heartbeat while a provider call is genuinely alive
-- Quote expiry frozen once execution is committed, so capacity is never released mid-payout
-- Immutable original execution authority with separately audited recovery attempts
-- Startup verification of every database column the runtime writes
-- Database-level optimistic concurrency for every settlement state write
-- Route-class rate limits, strict Content Security Policy, and explicit proxy trust
-- Transactional agent daily payout cap
-- Separately supervised reconciliation worker with expiring PostgreSQL leases
-- PostgreSQL webhook replay protection
-- Fail-closed Circle Stablecoin Kits quote boundary and capability discovery
-- Presentation UI for live server-authenticated Circle Stablecoin Kits estimates
-- USDC-native gas and settlement presentation
-- Reconciliation reference and deterministic `bytes32` Memo ID generation
-- Safety center with verified Arc resources, contract links, and transaction lifecycle
-- Responsive tactile-brutalist interface
+Everything below is implemented and running against Arc Public Testnet. Grouped so the shape is
+readable; the detailed mechanics are in the sections further down and in `docs/`.
+
+**Meme markets (DeFi)** — wallet-signed token + bonding-market deployment through
+`MemeVerseFactory`; factory-discovered markets with live supply, price, reserve, and position;
+real USDC approve/buy/sell with minimum-output slippage protection; 1% creator + 1% treasury
+allocation settled inside the same trade; exact six-decimal integer math throughout.
+
+**Creator ownership** — media NFTs whose mint path verifies factory-registered market provenance
+onchain and de-duplicates the creator's content commitment; a zero-fee USDC marketplace that
+refuses to fill a listing whose seller no longer owns or approves the token; an ERC-4626 USDC
+vault as a composable treasury primitive (no strategy, `annualPercentageYieldBps()` returns zero).
+
+**Autonomous creator rewards (Agentic)** — a separately supervised worker discovers registered
+markets, derives signals from confirmed Arc trades, scores them with a versioned deterministic
+policy, derives the recipient from `market.creator()` and the amount from the score, and pays from
+a Circle **Agent Wallet** with **no per-payout human approval**. Every payout is reconciled against
+`SettlementExecuted` and the USDC `Transfer` before it is reported as verified.
+
+**Spend safety** — transactional global and per-market daily caps admitted inside one PostgreSQL
+transaction under an exclusive lock; one payout per market per policy epoch enforced by a primary
+key; capacity held (never released) on an undetermined provider outcome; one durable execution
+claim per settlement with heartbeat-renewed leases; deterministic provider idempotency keys.
+
+**Manual operator route (isolated)** — wallet-signed operator sessions with one-time expiring
+challenges, settlement-bound single-use execution approvals, explicit
+`quote → prepare → execute → reconcile` with no automatic or hidden signing, Developer-Controlled
+Wallet execution through Arc Memo `CallFrom`. Shares no wallet, contract, or allowance with the
+autonomous route.
+
+**Platform** — Express 5 API with Arc chain verification and structured errors; durable PostgreSQL
+persistence with optimistic concurrency and startup schema verification; signed Circle webhook
+verification with replay protection; route-class rate limits, strict CSP, and explicit proxy trust;
+fail-closed Circle Stablecoin Kits quote boundary with server-only Kit Key; ArcScan links shown
+only after a real hash or final receipt exists; responsive tactile-brutalist interface.
 
 ## Arc Testnet configuration
 
@@ -695,8 +697,7 @@ Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration
 - **The Agent Wallet session is time-bounded** (current Circle docs: 7 days; testnet and mainnet sessions are stored separately). Verify it with the Circle CLI before relying on it — when it lapses the agent reports `UNAVAILABLE` and stops paying until a human logs in again.
 - **Autonomous execution needs the `circle` CLI on `PATH`** in the worker's environment; it is a subprocess dependency, not a library call.
 - **Single Arc RPC** for the backend collector: a sustained outage means no autonomous decisions. The collector fails closed rather than guessing.
-- **No public demo host yet.** The contracts are live on Arc Testnet and independently verifiable; the application itself is not hosted at a public URL.
-- Not independently audited, and not mainnet ready.
+- **Arc Public Testnet MVP — not mainnet-ready.** The deployment at <https://memeverse.biz> is a live public Testnet MVP. Independent security review, operational hardening, custody review, and production monitoring are all required before any mainnet deployment.
 
 ## Post-hackathon hardening
 

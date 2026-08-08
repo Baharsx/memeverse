@@ -4,7 +4,6 @@ import { arc, arcContracts, arcLinks } from './arc';
 import { getAgentAutonomy, getApiHealth } from './api';
 import { formatUsdc, loadFactoryConfig, marketPublicClient } from './market';
 import { readMediaAssets, stage2Contracts } from './assets';
-import { NextStep } from './router.jsx';
 import { autonomyDisplayState } from './agent-status.js';
 
 /**
@@ -366,8 +365,8 @@ export function AgentCommandCenter() {
         <h3>DECISION TIMELINE</h3>
         {!data.recentEpochs?.length ? (
           <AgentUnavailable
-            title="NO AUTONOMOUS DECISIONS YET"
-            detail="The agent has not evaluated an eligible market in this deployment. Nothing is shown in place of a decision it has not made."
+            title="NO AUTONOMOUS REWARD IN THIS DEPLOYMENT YET"
+            detail="The agent is running and evaluating, but has not yet paid a creator from this deployment — so nothing is shown in place of a decision it has not made. Previously verified Arc Testnet payout proofs are linked in the Proof Center and the project documentation, and are labelled as historical."
           />
         ) : (
           data.recentEpochs.map((payout) => (
@@ -375,12 +374,6 @@ export function AgentCommandCenter() {
           ))
         )}
       </div>
-
-      <NextStep
-        to="/safety"
-        label="VERIFY THE PAYMENT PROOF"
-        detail="Contracts, execution modes, and live network state in the Proof Center"
-      />
     </div>
   );
 }
@@ -624,9 +617,10 @@ export function ProofCenter() {
           <ProofReceipt payout={proof} settlementContract={agent.data?.settlementContract} />
         ) : (
           <p className="proof-note">
-            No verified autonomous payout is recorded in this deployment yet, so no receipt is
-            shown. Historical proofs from previous runs are listed in the project documentation
-            with their Arc transaction hashes.
+            No autonomous payout has been executed from <em>this</em> deployment yet, so no receipt
+            is shown here rather than a borrowed one. Previously verified Arc Testnet payouts from
+            earlier runs are recorded in the project documentation with their transaction hashes,
+            and are historical — not events of this deployment.
           </p>
         )}
       </section>
@@ -645,9 +639,9 @@ export function ProofCenter() {
       <section className="proof-block limitations">
         <h2>LIMITATIONS — STATED PLAINLY</h2>
         <ul className="boundary-list">
-          <li><b>Arc Public Testnet only.</b> Test assets have no real-world value. Nothing here is mainnet.</li>
+          <li><b>Arc Public Testnet MVP — not mainnet-ready.</b> This deployment is live and publicly hosted on Arc Public Testnet. Test assets have no real-world value, and nothing here runs on mainnet.</li>
           <li><b>No independent security audit.</b> No third party has reviewed this code.</li>
-          <li><b>Not production ready.</b> Operational hardening, key custody review, and monitoring remain open.</li>
+          <li><b>Mainnet would require more.</b> Independent security review, operational hardening, key custody review, and production monitoring are all prerequisites before any mainnet deployment.</li>
           <li><b>Agent spending caps are application-level.</b> Circle wallet-level spend limits are a mainnet feature, so every cap in force here is enforced by this application&rsquo;s database, not by the wallet.</li>
           <li><b>The payout policy is deterministic and does not use an LLM.</b> It is arithmetic over confirmed onchain trade data, which is what makes every decision reproducible and auditable.</li>
           <li><b>Risk scoring detects shape, not intent.</b> A patient, well-funded adversary can trade a market into a passing profile; the caps bound the damage rather than preventing it.</li>
