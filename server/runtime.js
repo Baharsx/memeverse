@@ -7,6 +7,7 @@ import {
   AUTONOMOUS_POLICY_VERSION, AutonomousAgentService,
 } from './domain/autonomous-agent-service.js';
 import { defaultMetricConfig } from './domain/agent-signal-metrics.js';
+import { MediaService } from './domain/media-service.js';
 import { OperatorAuthService } from './domain/operator-auth-service.js';
 import { createSettlementPolicy } from './domain/policy.js';
 import { SettlementService } from './domain/settlement-service.js';
@@ -16,6 +17,7 @@ import { ArcSettlementIndexer } from './infrastructure/arc-settlement-indexer.js
 import { createCircleAgentWalletGateway } from './infrastructure/circle-agent-wallet-gateway.js';
 import { createCircleAppKitGateway } from './infrastructure/circle-app-kit-gateway.js';
 import { createCircleWalletGateway } from './infrastructure/circle-wallet-gateway.js';
+import { createMediaStore } from './infrastructure/media-store.js';
 import { AgentAutonomyStore } from './repositories/agent-autonomy-store.js';
 import { PostgresOperatorAuthStore } from './repositories/operator-auth-store.js';
 import { createPostgresSettlementStore } from './repositories/postgres-settlement-store.js';
@@ -93,6 +95,22 @@ export async function createSettlementRuntime(config) {
     metricConfig: defaultMetricConfig,
     policyVersion: AUTONOMOUS_POLICY_VERSION,
   });
+
+  /**
+   * Creator media.
+   *
+   * Constructed unconditionally, and deliberately not downstream of Circle or the agent: attaching
+   * artwork must keep working on a deployment that has no Agent Wallet, and a media outage must
+   * never be able to stop a payout. The collector is shared purely to reuse its trusted
+   * `resolveMarket()` — factory registration plus an onchain `creator()` read — so there is exactly
+   * one definition in this codebase of who owns a market.
+   */
+  const mediaService = new MediaService({
+    store: createMediaStore(config),
+    collector: signalCollector,
+    chainId: config.arcChainId,
+  });
+
   /**
    * Autonomy exists only when the Circle Agent Wallet route exists.
    *
@@ -139,6 +157,7 @@ export async function createSettlementRuntime(config) {
     autonomousAgentService,
     appKitGateway,
     operatorAuthService,
+    mediaService,
     /**
      * Deleting long-expired challenges, sessions, and approvals is idempotent and safe to run
      * from any process. A failure is reported by the caller and never blocks startup or

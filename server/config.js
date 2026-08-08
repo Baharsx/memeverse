@@ -52,6 +52,10 @@ const environmentSchema = z.object({
   DATABASE_MIGRATION_URL: z.string().url().optional(),
   RUN_DATABASE_MIGRATIONS: z.enum(['true', 'false']).default('true'),
   PGLITE_DATA_DIR: z.string().min(1).default('.data/postgres'),
+  // Creator media lives on the filesystem rather than in the settlement database: it is
+  // presentation, it is content-addressed, and it must never be able to lock or fill the tables
+  // that carry money. Production points this at a dedicated directory the unit may write.
+  MEDIA_STORAGE_DIR: z.string().min(1).default('.data/media'),
   RECONCILIATION_INTERVAL_MS: z.coerce.number().int().min(1000).max(300000).default(5000),
   RECONCILIATION_LEASE_SECONDS: z.coerce.number().int().min(10).max(600).default(30),
   QUOTE_TTL_SECONDS: z.coerce.number().int().min(30).max(3600).default(300),
@@ -120,7 +124,7 @@ function createRateLimits(nodeEnv) {
   if (nodeEnv === 'test') {
     return Object.freeze({
       global: 10_000, authChallenge: 10_000, authVerify: 10_000, settlementWrite: 10_000,
-      settlementExecute: 10_000, appKitEstimate: 10_000,
+      settlementExecute: 10_000, appKitEstimate: 10_000, mediaUpload: 10_000,
     });
   }
   return Object.freeze({
@@ -130,6 +134,9 @@ function createRateLimits(nodeEnv) {
     settlementWrite: 40,
     settlementExecute: 15,
     appKitEstimate: 20,
+    // A signed upload costs a disk write and a chain read. Generous enough that a creator can
+    // iterate on artwork, tight enough that one wallet cannot fill the volume.
+    mediaUpload: 20,
   });
 }
 
@@ -171,6 +178,7 @@ export function loadServerConfig(environment = process.env) {
     runDatabaseMigrations: parsed.NODE_ENV !== 'production'
       && parsed.RUN_DATABASE_MIGRATIONS === 'true',
     pgliteDataDir: resolve(process.cwd(), parsed.PGLITE_DATA_DIR),
+    mediaStorageDir: resolve(process.cwd(), parsed.MEDIA_STORAGE_DIR),
     reconciliationIntervalMs: parsed.RECONCILIATION_INTERVAL_MS,
     reconciliationLeaseSeconds: parsed.RECONCILIATION_LEASE_SECONDS,
     quoteTtlSeconds: parsed.QUOTE_TTL_SECONDS,

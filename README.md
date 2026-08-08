@@ -133,6 +133,27 @@ onchain and de-duplicates the creator's content commitment; a zero-fee USDC mark
 refuses to fill a listing whose seller no longer owns or approves the token; an ERC-4626 USDC
 vault as a composable treasury primitive (no strategy, `annualPercentageYieldBps()` returns zero).
 
+**Creator media** — a creator can attach artwork to a market they launched and upload the image
+file behind a media NFT. Both are authorized by an EIP-191 wallet signature that binds the action,
+the Arc chain ID, the exact market, the keccak256 of the exact bytes, and a five-minute expiry; the
+server recomputes that hash from the bytes it actually received and accepts the upload only if the
+recovered signer equals the `creator()` the market contract reports on Arc. No server key, operator
+session, or Circle credential participates. Uploads are limited to PNG, JPEG, and WebP verified by
+file signature rather than by declared type — SVG is refused outright as a scriptable format —
+capped at 5 MB, and stored under a name derived from the content hash, so an uploaded filename
+never reaches the filesystem. These are two deliberately different trust models:
+
+| | Market artwork | NFT media |
+|---|---|---|
+| What it is | Authenticated **offchain presentation metadata**, keyed by market address | Hosted **file bytes** plus an **onchain keccak256 commitment** |
+| Where it lives | Content-addressed file + one pointer document per market | Bytes on the media host; the digest in the existing Media NFT contract |
+| Onchain? | **No.** Deployed market contracts have no image field and none was added | Yes — the content hash, through the existing mint path |
+| Replaceable | Yes, by the creator, by moving the pointer | No — a mint's commitment is permanent |
+
+A market with no artwork renders the MemeVerse pixel mark, exactly as before. Media is presentation
+only: if its storage is unavailable the markets, the agent, and settlement are unaffected, and the
+health endpoint reports it without ever letting it change the service's verdict.
+
 **Autonomous creator rewards (Agentic)** — a separately supervised worker discovers registered
 markets, derives signals from confirmed Arc trades, scores them with a versioned deterministic
 policy, derives the recipient from `market.creator()` and the amount from the score, and pays from
@@ -633,6 +654,12 @@ inherited one. Keep these three inside the `location` that serves the frontend r
 `server` level, and if you also set headers on the parent, restate them here too.
 
 Run `db:migrate` once with `DATABASE_MIGRATION_URL` from a DDL-capable migration identity, **before** rolling out the API and worker. The API and worker use the lower-privilege `DATABASE_URL`; production runtime migration is forcibly disabled. Startup verifies every table *and column* the runtime writes and refuses to start against an outdated schema with `Database schema is outdated. Run npm run db:migrate.`, naming what is missing — so a skipped migration fails immediately rather than on the first settlement write. The readiness check reads the catalog only and runs no DDL. Hardened service templates are under `ops/systemd/`. Credentials must come from a secret manager rather than Git.
+
+Creator media needs one writable directory, set through `MEDIA_STORAGE_DIR` (production:
+`/var/lib/memeverse/media`). Create it owned by the service account with mode `0750` — never
+world-writable — and note that the API unit runs with `ProtectSystem=strict`, so that exact path
+must appear in its `ReadWritePaths`. Only the API touches it; the worker needs no access. It holds
+no secrets, and losing it degrades artwork to the MemeVerse mark without affecting any market.
 
 ## Phase 3 verification evidence
 

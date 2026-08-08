@@ -17,6 +17,7 @@ export const unlimitedRateLimits = Object.freeze({
   settlementWrite: 10_000,
   settlementExecute: 10_000,
   appKitEstimate: 10_000,
+  mediaUpload: 10_000,
 });
 
 export function baseTestConfig(overrides = {}) {
@@ -90,6 +91,7 @@ export async function startTestApp({
   store = new MemorySettlementStore(),
   autonomousAgentService,
   autonomyStore,
+  mediaService,
 } = {}) {
   const config = baseTestConfig(configOverrides);
   const settlementService = new SettlementService({
@@ -118,6 +120,7 @@ export async function startTestApp({
     autonomousAgentService,
     autonomyStore,
     operatorAuthService,
+    mediaService,
     logger: { info() {}, error() {} },
   });
   const server = app.listen(0, '127.0.0.1');
@@ -131,6 +134,7 @@ export async function startTestApp({
     autonomousAgentService,
     autonomyStore,
     operatorAuthService,
+    mediaService,
     circleGateway,
     async close() {
       await new Promise((resolve, reject) => {

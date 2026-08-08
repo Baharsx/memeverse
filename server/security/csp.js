@@ -48,8 +48,15 @@ export function contentSecurityPolicyDirectives({ connectSources = [] } = {}) {
     // renders a real collection: it is scheme-restricted rather than a wildcard, images cannot
     // execute script, and `referrerPolicy: no-referrer` keeps the visited URL from leaking to the
     // image host. The browser additionally refuses to render any media URL that is not https or a
-    // data: image, so a hostile `javascript:` or `blob:` token URI is dropped before this point.
-    'img-src': ["'self'", 'data:', 'https:'],
+    // data: image, so a hostile `javascript:` token URI is dropped before this point.
+    //
+    // `blob:` covers one narrow case: the local preview of a file the visitor has just chosen from
+    // their own disk, before anything is signed or uploaded. A blob URL can only be minted by this
+    // page's own script and only ever refers to memory this document already holds, so it grants
+    // no reach that the page did not already have. It is emphatically not a channel for untrusted
+    // metadata — `safeMediaUrl()` still refuses a `blob:` token URI outright, so a minter cannot
+    // use this to point the gallery at anything.
+    'img-src': ["'self'", 'data:', 'blob:', 'https:'],
     'font-src': ["'self'", ...FONT_FILE_ORIGINS],
     'connect-src': connect,
     'form-action': ["'self'"],

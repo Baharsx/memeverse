@@ -16,6 +16,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+# The single writable path this service needs. ProtectSystem=strict keeps the entire filesystem
+# read-only otherwise, so creator media is the one exception rather than a general relaxation.
+# Narrowed to the media directory itself: nothing else under /var/lib becomes writable.
+ReadWritePaths=/var/lib/memeverse/media
 
 [Install]
 WantedBy=multi-user.target

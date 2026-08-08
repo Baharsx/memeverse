@@ -11,7 +11,7 @@ const config = loadServerConfig();
 const runtime = await createSettlementRuntime(config);
 const { store, circleGateway, arcIndexer, settlementService, arcRpc,
   agentDecisionService, autonomousAgentService, autonomyStore,
-  appKitGateway, operatorAuthService } = runtime;
+  appKitGateway, operatorAuthService, mediaService } = runtime;
 const webhookVerifier = new CircleWebhookVerifier({
   circleGateway,
   cacheSeconds: config.circleWebhookKeyCacheSeconds,
@@ -34,6 +34,7 @@ const app = createApp({
   autonomyStore,
   appKitGateway,
   operatorAuthService,
+  mediaService,
 });
 // One best-effort sweep at boot; the supervised worker repeats it on an interval.
 runtime.purgeExpiredAuthRecords().catch((error) => console.error(JSON.stringify({

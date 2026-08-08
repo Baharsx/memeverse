@@ -70,7 +70,11 @@ test('the content security policy still refuses scripts and wildcards after the 
 
   // Media NFT artwork lives on hosts MemeVerse does not control, so img-src is scheme-restricted
   // rather than origin-listed. Everything that can actually execute stays locked to 'self'.
-  assert.deepEqual(directives['img-src'], ["'self'", 'data:', 'https:']);
+  // `blob:` is present only so a creator can preview a file they just chose from their own disk;
+  // the test above proves `safeMediaUrl` still refuses a `blob:` URL arriving as token metadata,
+  // so widening the policy here does not widen what untrusted metadata can point at.
+  assert.deepEqual(directives['img-src'], ["'self'", 'data:', 'blob:', 'https:']);
+  assert.equal(safeMediaUrl('blob:https://example.com/9b1deb4d'), null);
   assert.deepEqual(directives['script-src'], ["'self'"]);
   assert.deepEqual(directives['object-src'], ["'none'"]);
   assert.deepEqual(directives['frame-ancestors'], ["'none'"]);

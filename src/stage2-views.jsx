@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useAccount, useChainId } from 'wagmi';
 import { useQuery } from '@tanstack/react-query';
-import { keccak256 } from 'viem';
 import { arc, arcContracts } from './arc';
 import { usdcAbi } from './market';
 import {
@@ -19,6 +18,14 @@ import {
   vaultAbi,
 } from './assets';
 import { useOnchainAction } from './use-onchain-action';
+import { MEDIA_ACTIONS } from './media-authorization';
+import {
+  AttachImageButton,
+  ImagePicker,
+  mediaContentUrl,
+  useImageSelection,
+  useMediaUpload,
+} from './media-views.jsx';
 
 /**
  * The Stage 2 product surfaces: real Arc media NFTs, a real USDC marketplace, a real USDC vault,
@@ -310,8 +317,13 @@ function MediaCard({ asset, wallet, onChanged }) {
 }
 
 function MintMedia({ wallet, onMinted }) {
-  const [form, setForm] = useState({ market: '', mediaUrl: '', contentHash: '', name: '' });
+  const [form, setForm] = useState({ market: '', name: '' });
+  const [advanced, setAdvanced] = useState(false);
+  // The manual path this panel has always had. It is no longer how anyone mints normally, but a
+  // creator who already hosts their media somewhere should not be forced to re-upload it here.
+  const [manual, setManual] = useState({ mediaUrl: '', contentHash: '' });
   const mint = useOnchainAction();
+  const image = useImageSelection();
 
   const markets = useQuery({
     queryKey: ['creatable-markets', wallet.address],
@@ -320,19 +332,52 @@ function MintMedia({ wallet, onMinted }) {
     staleTime: 30_000,
   });
 
-  const validHash = /^0x[a-fA-F0-9]{64}$/.test(form.contentHash);
-  const canMint = form.market && validHash && form.mediaUrl.trim();
+  const upload = useMediaUpload({
+    action: MEDIA_ACTIONS.NFT_MEDIA,
+    market: form.market || undefined,
+    selection: image.selection,
+  });
+
+  /*
+    Where the media actually is, and what the onchain commitment covers.
+
+    In the normal flow both come from one verified upload: the URL is the same-origin address the
+    server returned, and the hash is the digest the server independently recomputed from the exact
+    bytes it received. They cannot describe different files, because the upload is only treated as
+    successful when the server's hash matches the one the browser signed over.
+  */
+  const uploaded = upload.state.status === 'UPLOADED' ? upload.state.result : null;
+  const uploadedUrl = uploaded ? mediaContentUrl(uploaded.url) : null;
+  const absoluteUploadedUrl = uploadedUrl
+    ? new URL(uploadedUrl, window.location.origin).toString()
+    : null;
+
+  const manualHashValid = /^0x[a-fA-F0-9]{64}$/.test(manual.contentHash);
+  const usingManual = advanced && Boolean(manual.mediaUrl.trim()) && manualHashValid;
+
+  const mediaUrl = usingManual ? manual.mediaUrl.trim() : absoluteUploadedUrl;
+  const contentHash = usingManual ? manual.contentHash : uploaded?.contentHash ?? '';
+  const validHash = /^0x[a-fA-F0-9]{64}$/.test(contentHash);
+  const canMint = Boolean(form.market) && validHash && Boolean(mediaUrl);
+  /*
+    The digest shown to the creator, which is not the same thing as the digest that may be minted.
+    A freshly picked file has a locally computed hash immediately — useful to see — but it only
+    becomes mintable once the server has recomputed it from the bytes it actually received.
+  */
+  const displayHash = usingManual
+    ? manual.contentHash
+    : uploaded?.contentHash ?? image.selection?.contentHash ?? '';
 
   const metadataUri = useMemo(() => {
     if (!canMint) return null;
     const metadata = {
       name: form.name.trim() || 'MemeVerse Media',
       description: 'MemeVerse media asset bound onchain to a registered MemeVerse market.',
-      image: form.mediaUrl.trim(),
+      image: mediaUrl,
       attributes: [
         { trait_type: 'market', value: form.market },
         { trait_type: 'creator', value: wallet.address },
-        { trait_type: 'contentHash', value: form.contentHash },
+        { trait_type: 'contentHash', value: contentHash },
         { trait_type: 'contentHashScheme', value: 'keccak256(file bytes)' },
       ],
     };
@@ -340,12 +385,7 @@ function MintMedia({ wallet, onMinted }) {
     // Encoded through the UTF-8-safe helper, because a meme name is exactly where emoji and
     // non-Latin script show up and raw btoa throws on both.
     return jsonDataUri(metadata);
-  }, [canMint, form, wallet.address]);
-
-  async function hashFile(file) {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    setForm((current) => ({ ...current, contentHash: keccak256(bytes) }));
-  }
+  }, [canMint, form.market, form.name, mediaUrl, contentHash, wallet.address]);
 
   if (markets.isLoading) return <div className="empty"><span>CHECKING YOUR MARKETS…</span></div>;
 
@@ -382,31 +422,19 @@ function MintMedia({ wallet, onMinted }) {
           ))}
         </select>
       </label>
-      <label>
-        MEDIA URL
-        <input
-          value={form.mediaUrl}
-          onChange={(event) => setForm({ ...form, mediaUrl: event.target.value })}
-          placeholder="https://…"
-        />
-      </label>
-      <label>
-        MEDIA FILE (COMPUTES THE REAL DIGEST)
-        <input
-          type="file"
-          onChange={(event) => event.target.files?.[0] && hashFile(event.target.files[0])}
-        />
-        <small>keccak256 of the exact file bytes</small>
-      </label>
-      <label>
-        CONTENT HASH
-        <input
-          value={form.contentHash}
-          onChange={(event) => setForm({ ...form, contentHash: event.target.value })}
-          placeholder="0x… (64 hex)"
-        />
-        {form.contentHash && !validHash ? <small className="tx-error">Not a 32-byte hash.</small> : null}
-      </label>
+      <ImagePicker
+        id="mint-media-file"
+        label="IMAGE FILE"
+        hint="PNG, JPEG, or WebP, up to 5 MB. The digest below is computed from these exact bytes."
+        selection={image.selection}
+        error={image.error}
+        onSelect={image.select}
+        onClear={image.clear}
+        disabled={!form.market}
+      />
+      {!form.market && image.selection
+        ? <small className="tx-error">Select a market before uploading.</small>
+        : null}
       <label>
         NAME
         <input
@@ -415,6 +443,72 @@ function MintMedia({ wallet, onMinted }) {
           placeholder="MemeVerse Media"
         />
       </label>
+      {/*
+        The commitment is read-only and derived, never typed. It is the keccak256 of the bytes the
+        picker read, and the mint below sends exactly this value — so what the contract stores and
+        what anyone can recompute from the file are the same number by construction.
+      */}
+      <label>
+        CONTENT COMMITMENT
+        <output className="content-commitment">
+          {displayHash || 'SELECT AN IMAGE FILE'}
+        </output>
+        <small>
+          {contentHash
+            ? 'keccak256 of the exact file bytes — verified by the server'
+            : displayHash
+              ? 'keccak256 of the exact file bytes — upload to verify before minting'
+              : 'keccak256 of the exact file bytes'}
+        </small>
+      </label>
+      {image.selection && !usingManual ? (
+        <AttachImageButton
+          state={upload.state}
+          onStart={upload.start}
+          disabled={!form.market}
+        >
+          SIGN + UPLOAD IMAGE →
+        </AttachImageButton>
+      ) : null}
+      {uploaded ? (
+        <div className="upload-receipt" role="status">
+          <b>IMAGE HOSTED + HASH VERIFIED</b>
+          <span>The server independently recomputed this digest from the uploaded bytes and it matches what you signed.</span>
+        </div>
+      ) : null}
+      <details
+        className="advanced-media"
+        open={advanced}
+        onToggle={(event) => setAdvanced(event.currentTarget.open)}
+      >
+        <summary>ADVANCED — USE AN EXTERNAL MEDIA URL</summary>
+        <p className="mint-note">
+          For media you already host. You are responsible for the URL staying resolvable and for
+          the hash matching its bytes; nothing here verifies either.
+        </p>
+        <label>
+          MEDIA URL
+          <input
+            value={manual.mediaUrl}
+            onChange={(event) => setManual({ ...manual, mediaUrl: event.target.value })}
+            placeholder="https://…"
+          />
+        </label>
+        <label>
+          CONTENT HASH
+          <input
+            value={manual.contentHash}
+            onChange={(event) => setManual({ ...manual, contentHash: event.target.value })}
+            placeholder="0x… (64 hex)"
+          />
+          {manual.contentHash && !manualHashValid
+            ? <small className="tx-error">Not a 32-byte hash.</small>
+            : null}
+        </label>
+        {usingManual
+          ? <small className="media-status">EXTERNAL URL MODE ACTIVE — the upload above is ignored.</small>
+          : null}
+      </details>
       <button
         type="button"
         className="btn primary full"
@@ -424,7 +518,9 @@ function MintMedia({ wallet, onMinted }) {
             address: stage2Contracts.mediaNft,
             abi: mediaNftAbi,
             functionName: 'mint',
-            args: [form.market, form.contentHash, metadataUri],
+            // Exactly the digest the server verified against the uploaded bytes — or, in advanced
+            // mode, the one the creator vouched for. Never a separately typed third value.
+            args: [form.market, contentHash, metadataUri],
           });
           await onMinted();
         }}

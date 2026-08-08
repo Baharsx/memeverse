@@ -84,6 +84,16 @@ import {
   usdcAbi,
 } from './market';
 import { useOnchainAction } from './use-onchain-action';
+import {
+  AttachImageButton,
+  ImagePicker,
+  MarketImage,
+  mediaContentUrl,
+  useImageSelection,
+  useMediaUpload,
+} from './media-views.jsx';
+import { getMarketImages } from './api';
+import { MEDIA_ACTIONS } from './media-authorization';
 import { BrowserRouter, NavLink, Route, Routes } from './router.jsx';
 import './styles.css';
 
@@ -485,6 +495,19 @@ function Launch() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const action = useOnchainAction();
+  /*
+    The image is entirely separate from the launch. It is chosen before signing purely so the
+    creator can see what they are making, but it is not part of `createMarket` calldata, it is not
+    part of the transaction, and it is attached — if at all — only after Arc has confirmed. A
+    launch with no image is exactly as valid as one with an image.
+  */
+  const image = useImageSelection();
+  const attach = useMediaUpload({
+    action: MEDIA_ACTIONS.MARKET_AVATAR,
+    market: result?.market,
+    selection: image.selection,
+    onUploaded: () => queryClient.invalidateQueries({ queryKey: ['market-images'] }),
+  });
   const factory = useQuery({
     queryKey: ['market-factory-config'],
     queryFn: loadFactoryConfig,
@@ -611,6 +634,15 @@ function Launch() {
             LORE / DESCRIPTION
             <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength="280" placeholder="Why does this deserve liquidity?" />
           </label>
+          <ImagePicker
+            id="launch-market-image"
+            label="MARKET IMAGE (OPTIONAL)"
+            hint="PNG, JPEG, or WebP, up to 5 MB. Attached after the launch confirms — it is not part of the transaction and costs no gas."
+            selection={image.selection}
+            error={image.error}
+            onSelect={image.select}
+            onClear={image.clear}
+          />
           <div className="receive">
             <span>FIXED ONCHAIN SUPPLY</span>
             <b>{Number(supply || 0).toLocaleString()} ${symbol || 'TOKEN'}</b>
@@ -620,6 +652,39 @@ function Launch() {
           {review ? <div className="onchain-review" role="region" aria-label="Launch review"><b>REVIEW BEFORE SIGNING</b><span>CREATOR // {address ?? 'CONNECT WALLET'}</span><span>FACTORY // {arcContracts.memeVerseFactory}</span><span>PRICE // {basePrice} + UP TO {slopePrice} USDC</span><span>FEES // {factory.data ? `${Number(factory.data.creatorFeeBps) / 100}% CREATOR + ${Number(factory.data.treasuryFeeBps) / 100}% TREASURY` : 'READING ONCHAIN'}</span><button className="btn primary full" type="button" disabled={!onArc || !factory.data || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(action.state.status)} onClick={launchMarket}>{!isConnected ? 'CONNECT WALLET FIRST' : !onArc ? 'SWITCH TO ARC TESTNET' : 'SIGN + LAUNCH ON ARC →'}</button></div> : null}
           <TransactionStatus state={action.state} />
           {result ? <div className="receipt onchain-receipt" role="status"><b>MARKET CONFIRMED ON ARC</b><span>MARKET + TOKEN // {result.market}</span><span>CREATOR // {result.creator}</span><ExternalLink href={`${arcLinks.explorer}/tx/${result.hash}`}>VIEW TRANSACTION ON ARCSCAN ↗</ExternalLink><ExternalLink href={`${arcLinks.explorer}/address/${result.market}`}>VIEW MARKET CONTRACT ↗</ExternalLink></div> : null}
+          {/*
+            A separate, explicitly optional step that begins only after the market is confirmed.
+            Whatever happens here — declined signature, failed upload, closed tab — the market
+            above is already live on Arc and stays that way. Nothing in this block can turn a
+            confirmed launch into a failure.
+          */}
+          {result && image.selection ? (
+            <div className="attach-image" role="region" aria-label="Attach market image">
+              <b>ATTACH MARKET IMAGE</b>
+              <span>
+                Your market is live. Attaching its image is a free wallet signature — no gas, no
+                transaction, and it moves no funds.
+              </span>
+              {address && result.creator && address.toLowerCase() !== result.creator.toLowerCase()
+                ? (
+                  <small className="tx-error" role="alert">
+                    Connected wallet is not this market’s creator. Reconnect {shortAddress(result.creator)} to attach the image.
+                  </small>
+                )
+                : null}
+              <AttachImageButton
+                state={attach.state}
+                onStart={attach.start}
+                disabled={!onArc || !address
+                  || address.toLowerCase() !== result.creator?.toLowerCase()}
+              >
+                SIGN + ATTACH SELECTED IMAGE →
+              </AttachImageButton>
+              {attach.state.status === 'FAILED' ? (
+                <small>The market itself is unaffected — you can set its image any time from Markets.</small>
+              ) : null}
+            </div>
+          ) : null}
         </form>
         <aside className="spec">
           <span>DEPLOYMENT SPEC</span>
@@ -629,8 +694,19 @@ function Launch() {
             <dt>SETTLEMENT</dt><dd>USDC</dd>
             <dt>CURVE</dt><dd>LINEAR / WHOLE TOKEN</dd>
             <dt>BROADCAST</dt><dd>WALLET SIGNED</dd>
+            <dt>IMAGE</dt><dd>{image.selection ? 'SELECTED / OFFCHAIN' : 'NONE'}</dd>
           </dl>
-          <Mascot />
+          {/* The chosen artwork stands in for the mark, so the spec previews the market as it
+              will look. Falling back to the mark when nothing is chosen keeps this panel
+              identical to what it has always been for an image-less launch. */}
+          {image.selection
+            ? (
+              <figure className="spec-artwork">
+                <img src={image.selection.previewUrl} alt="Selected market artwork preview" />
+                <figcaption>OFFCHAIN PRESENTATION IMAGE</figcaption>
+              </figure>
+            )
+            : <Mascot />}
         </aside>
       </div>
     </section>
@@ -650,6 +726,68 @@ function TransactionStatus({ state }) {
 
 function shortAddress(address) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+/**
+ * Creator-only artwork management for an existing market.
+ *
+ * Secondary by design: it sits below the order form, it is collapsed until asked for, and it
+ * never competes with the live financial data above it. Only the market's creator sees it — but
+ * that is presentation. The server reads `creator()` from the market contract on Arc and refuses
+ * anyone else, so hiding this control is convenience and the real boundary is elsewhere.
+ */
+function MarketImageManager({ market, hasImage, onChanged }) {
+  const { address } = useAccount();
+  const [open, setOpen] = useState(false);
+  const image = useImageSelection();
+  const attach = useMediaUpload({
+    action: MEDIA_ACTIONS.MARKET_AVATAR,
+    market: market.address,
+    selection: image.selection,
+    onUploaded: async () => {
+      image.clear();
+      await onChanged();
+    },
+  });
+
+  const isCreator = address && market.creator
+    && address.toLowerCase() === market.creator.toLowerCase();
+  if (!isCreator) return null;
+
+  return (
+    <section className="market-image-manager">
+      <button
+        type="button"
+        className="btn ghost full"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {hasImage ? 'REPLACE MARKET IMAGE' : 'SET MARKET IMAGE'} {open ? '▲' : '▼'}
+      </button>
+      {open ? (
+        <div className="market-image-manager-body">
+          <p>
+            Market artwork is authenticated offchain presentation metadata keyed to this market’s
+            address. Attaching it is a free wallet signature that proves you are the market’s
+            onchain <code>creator()</code>. It costs no gas and moves no funds.
+          </p>
+          <ImagePicker
+            id={`market-image-${market.address}`}
+            label="NEW MARKET IMAGE"
+            selection={image.selection}
+            error={image.error}
+            onSelect={image.select}
+            onClear={image.clear}
+          />
+          {image.selection ? (
+            <AttachImageButton state={attach.state} onStart={attach.start}>
+              SIGN + {hasImage ? 'REPLACE' : 'SET'} MARKET IMAGE →
+            </AttachImageButton>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 function Markets() {
@@ -673,6 +811,19 @@ function Markets() {
     enabled: onArc,
     refetchInterval: 12_000,
   });
+  /*
+    Artwork for every listed market, in one request rather than one per row. Deliberately a
+    separate query from the market data: if media is slow or down, prices, reserves, and quotes
+    still render on time and the rows simply show the mark.
+  */
+  const marketImages = useQuery({
+    queryKey: ['market-images', (markets.data ?? []).map((market) => market.address).join(',')],
+    queryFn: () => getMarketImages((markets.data ?? []).map((market) => market.address)),
+    enabled: Boolean(markets.data?.length),
+    staleTime: 30_000,
+  });
+  const imageFor = (market) => mediaContentUrl(marketImages.data?.[market?.address]?.url);
+
   const selected = markets.data?.find((market) => market.address === selectedAddress)
     ?? markets.data?.[0]
     ?? null;
@@ -772,13 +923,19 @@ function Markets() {
           <div className="market-list" role="group" aria-label="Onchain markets">
             {markets.data.map((market) => (
               <button key={market.address} type="button" className={selected?.address === market.address ? 'active' : ''} onClick={() => setSelectedAddress(market.address)}>
-                <span>{market.symbol}</span><strong>{market.name}</strong><small>{marketSpotPerTokenLabel(market, formatUsdc)}</small><em>{market.soldTokenCount.toLocaleString()} / {market.totalSupplyTokens.toLocaleString()} SOLD</em>
+                <MarketImage src={imageFor(market)} alt={`${market.symbol} artwork`} size="sm" />
+                <span className="market-list-facts">
+                  <span>{market.symbol}</span><strong>{market.name}</strong><small>{marketSpotPerTokenLabel(market, formatUsdc)}</small><em>{market.soldTokenCount.toLocaleString()} / {market.totalSupplyTokens.toLocaleString()} SOLD</em>
+                </span>
               </button>
             ))}
           </div>
           {selected ? <div className="market-terminal">
             <section className="market-proof">
-              <div><small>MARKET</small><strong>{selected.name} / ${selected.symbol}</strong><ExternalLink href={`${arcLinks.explorer}/address/${selected.address}`}>{shortAddress(selected.address)} ↗</ExternalLink></div>
+              <div className="market-identity">
+                <MarketImage src={imageFor(selected)} alt={`${selected.symbol} artwork`} size="md" />
+                <div><small>MARKET</small><strong>{selected.name} / ${selected.symbol}</strong><ExternalLink href={`${arcLinks.explorer}/address/${selected.address}`}>{shortAddress(selected.address)} ↗</ExternalLink></div>
+              </div>
               <dl>
                 <dt>SPOT QUOTE</dt><dd>{marketSpotLabel(selected, formatUsdc)}</dd>
                 <dt>CURVE RESERVE</dt><dd>{formatUsdc(selected.reserveUsdc)} USDC</dd>
@@ -830,6 +987,11 @@ function Markets() {
                 <button className="btn primary full" disabled={!onArc || !sellQuote.data || sellQuote.data[0] === 0n || sellUnits > selected.userBalance || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(sell.state.status)}>SIGN SELL ON ARC →</button>
                 <TransactionStatus state={sell.state} />
               </form>}
+              <MarketImageManager
+                market={selected}
+                hasImage={Boolean(marketImages.data?.[selected.address])}
+                onChanged={() => marketImages.refetch()}
+              />
             </section>
           </div> : null}
         </div>

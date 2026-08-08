@@ -4,8 +4,10 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { ZodError, z } from 'zod';
 import { DomainError } from './domain/errors.js';
+import { readUploadAuthorization } from './domain/media-service.js';
 import { OPERATOR_SESSION_COOKIE, parseCookies, serializeCookie } from './security/cookies.js';
 import { contentSecurityPolicyDirectives } from './security/csp.js';
+import { ALLOWED_IMAGE_TYPES, normalizeImageMimeType } from '../src/media-authorization.js';
 
 const quoteSchema = z.object({
   recipient: z.string().trim().min(1).max(64),
@@ -89,6 +91,7 @@ export function createApp({
   autonomyStore,
   appKitGateway,
   operatorAuthService,
+  mediaService,
   logger = console,
 }) {
   const app = express();
@@ -110,6 +113,7 @@ export function createApp({
     settlementWrite: createLimiter(limits.settlementWrite ?? 40),
     settlementExecute: createLimiter(limits.settlementExecute ?? 15),
     appKitEstimate: createLimiter(limits.appKitEstimate ?? 20),
+    mediaUpload: createLimiter(limits.mediaUpload ?? 20),
   };
 
   app.disable('x-powered-by');
@@ -142,7 +146,11 @@ export function createApp({
     if (origin === config.appOrigin) {
       response.set('access-control-allow-origin', origin);
       response.set('vary', 'Origin');
-      response.set('access-control-allow-headers', 'Content-Type, Idempotency-Key, X-Request-Id');
+      response.set(
+        'access-control-allow-headers',
+        'Content-Type, Idempotency-Key, X-Request-Id, X-MemeVerse-Action, X-MemeVerse-Market, '
+        + 'X-MemeVerse-Content-Hash, X-MemeVerse-Expires-At, X-MemeVerse-Signature',
+      );
       response.set('access-control-allow-methods', 'GET, POST, OPTIONS');
     }
     if (request.method === 'OPTIONS') return response.sendStatus(204);
@@ -239,10 +247,14 @@ export function createApp({
   }
 
   app.get('/api/health', async (_request, response) => {
-    const [arc, persistenceReady] = await Promise.all([
+    const [arc, persistenceReady, media] = await Promise.all([
       arcRpc.health(),
       store?.health?.() ?? Promise.resolve(true),
+      mediaService?.readiness() ?? Promise.resolve({ configured: false, status: 'NOT_CONFIGURED' }),
     ]);
+    // Media is presentation, so it is reported but deliberately excluded from the health verdict:
+    // a full or unwritable media volume must never make this API look down to a load balancer
+    // while trading, settlement, and the agent are all fine.
     const healthy = arc.status === 'verified' && persistenceReady;
     // Public readiness only: no Circle wallet identifiers, no missing-credential inventory.
     response.status(healthy ? 200 : 503).json({
@@ -252,6 +264,7 @@ export function createApp({
       circle: { ready: circleGateway?.configuration().configured === true },
       settlementContract: { configured: arcIndexer?.configuration().configured === true },
       persistence: { ready: persistenceReady },
+      media,
       appKit: { runtimeEnabled: appKitGateway?.configuration().runtimeEnabled === true },
       operatorAuth: { configured: operatorAuthService?.configured === true },
       checkedAt: new Date().toISOString(),
@@ -524,6 +537,78 @@ export function createApp({
     });
   });
 
+  /**
+   * Creator media.
+   *
+   * These three routes are deliberately outside every operator and Circle code path. Media is
+   * presentation: it is authorized by the market creator's own wallet signature, it never moves
+   * money, and when it is unavailable the rest of the product is unaffected — the surfaces that
+   * read it fall back to the MemeVerse mark.
+   *
+   * The upload body is raw image bytes rather than JSON or multipart, so nothing has to be
+   * base64-inflated and no parser has to be trusted with a filename. The authorization travels in
+   * headers alongside it, and the server hashes what it actually received.
+   */
+  const rawImageBody = express.raw({
+    type: Object.keys(ALLOWED_IMAGE_TYPES),
+    // Above the 5 MB product limit on purpose: the service rejects oversize uploads with a
+    // specific, translatable error rather than a body-parser exception.
+    limit: '6mb',
+  });
+
+  app.post('/api/v1/media/uploads', limiter.mediaUpload, requireOrigin, rawImageBody,
+    async (request, response) => {
+      if (!mediaService?.available) {
+        throw new DomainError('MEDIA_NOT_AVAILABLE', 'Media uploads are not available.', {
+          status: 503,
+        });
+      }
+      const declaredMimeType = normalizeImageMimeType(request.get('content-type'));
+      if (!declaredMimeType) {
+        throw new DomainError('MEDIA_TYPE_UNSUPPORTED', 'Images must be PNG, JPEG, or WebP.', {
+          status: 415,
+        });
+      }
+      const result = await mediaService.authorize({
+        bytes: Buffer.isBuffer(request.body) ? request.body : null,
+        declaredMimeType,
+        ...readUploadAuthorization(request),
+      });
+      response.status(201).json(responseData(result));
+    });
+
+  /**
+   * Serves a stored image by its content address.
+   *
+   * Public and immutable: the identifier *is* the hash of the bytes, so the response can be
+   * cached forever and a changed image is simply a different URL. `nosniff` plus the format
+   * allowlist means a browser only ever renders these as the raster images they were proven to be.
+   */
+  app.get('/api/v1/media/content/:contentId', async (request, response) => {
+    const content = await mediaService?.content(request.params.contentId);
+    if (!content) {
+      throw new DomainError('MEDIA_NOT_FOUND', 'That image is not available.', { status: 404 });
+    }
+    response.set('content-type', content.mimeType);
+    response.set('cache-control', 'public, max-age=31536000, immutable');
+    response.set('content-disposition', 'inline');
+    response.set('x-content-type-options', 'nosniff');
+    response.send(content.bytes);
+  });
+
+  /**
+   * Batch lookup for a market list. Markets without media are absent rather than an error, which
+   * is what lets image-less markets from before this feature keep rendering unchanged.
+   */
+  app.get('/api/v1/media/markets', async (request, response) => {
+    const requested = String(request.query.markets ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .slice(0, 100);
+    response.json(responseData(await mediaService?.marketImages(requested) ?? {}));
+  });
+
   app.get('/api/v1/settlements/:id', requireOperator, async (request, response) => {
     const record = await settlementService.get(request.params.id);
     response.json(responseData(record));
@@ -539,6 +624,25 @@ export function createApp({
   });
 
   app.use((error, request, response, _next) => {
+    // body-parser rejects a body past the route limit with its own error long before any handler
+    // runs. Reported as-is that would be an opaque 500, so it is translated into the same
+    // oversize answer the service gives for a body that does reach it.
+    if (error?.type === 'entity.too.large') {
+      return response.status(413).json({
+        error: { code: 'MEDIA_TOO_LARGE', message: 'Images must be 5 MB or smaller.' },
+        requestId: request.requestId,
+      });
+    }
+    // A body that is not the JSON it claims to be is the caller's mistake, not the server's. Left
+    // unmapped it surfaced as a 500, which both misreports fault and invites an attacker to keep
+    // probing for a payload that produces a more interesting internal error.
+    if (error?.type === 'entity.parse.failed' || error?.type === 'charset.unsupported'
+      || error?.type === 'encoding.unsupported') {
+      return response.status(400).json({
+        error: { code: 'MALFORMED_BODY', message: 'The request body could not be parsed.' },
+        requestId: request.requestId,
+      });
+    }
     const known = error instanceof DomainError || error instanceof ZodError;
     const status = error instanceof ZodError ? 400 : known ? error.status : 500;
     const code = error instanceof ZodError ? 'VALIDATION_ERROR' : known ? error.code : 'INTERNAL_ERROR';

@@ -146,6 +146,71 @@ export async function setAgentAutonomyPaused(paused, reason) {
   return payload.data;
 }
 
+/**
+ * Uploads image bytes under a creator's wallet authorization.
+ *
+ * The body is the file itself, unmodified: no base64, no multipart, no filename. Everything the
+ * server needs to check the authorization rides in headers, and the server hashes the bytes it
+ * actually receives — so this helper cannot misrepresent what is being attached even if it wanted
+ * to. The timeout is long relative to other calls because a 5 MB body on a phone connection is a
+ * legitimately slow request, not a hung one.
+ */
+export async function uploadMedia({
+  bytes, mimeType, action, market, contentHash, expiresAt, signature, signal,
+}) {
+  const response = await fetch(`${API_BASE_URL}/api/v1/media/uploads`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      accept: 'application/json',
+      'content-type': mimeType,
+      'x-memeverse-action': action,
+      'x-memeverse-market': market,
+      'x-memeverse-content-hash': contentHash,
+      'x-memeverse-expires-at': expiresAt,
+      'x-memeverse-signature': signature,
+    },
+    body: bytes,
+    signal: signal ?? AbortSignal.timeout(60_000),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new ApiError(payload?.error?.message ?? `Upload failed with HTTP ${response.status}.`, {
+      code: payload?.error?.code,
+      status: response.status,
+      requestId: payload?.requestId ?? response.headers.get('x-request-id'),
+      details: payload?.error?.details,
+    });
+  }
+  return payload.data;
+}
+
+/**
+ * Resolves artwork for a list of markets in one request.
+ *
+ * Markets without an image are simply absent from the result, and a failure resolves to an empty
+ * map rather than throwing: artwork is decoration over live financial data, and a media outage
+ * must never stop a market list from rendering its prices.
+ */
+export async function getMarketImages(markets) {
+  const addresses = [...new Set((markets ?? []).filter(Boolean))].slice(0, 100);
+  if (addresses.length === 0) return {};
+  try {
+    const payload = await request(
+      `/api/v1/media/markets?markets=${encodeURIComponent(addresses.join(','))}`,
+    );
+    return payload?.data ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** Absolute, same-origin URL for a stored image. */
+export function mediaContentUrl(path) {
+  if (typeof path !== 'string' || !path.startsWith('/api/v1/media/content/')) return null;
+  return `${API_BASE_URL}${path}`;
+}
+
 export function createIdempotencyKey() {
   return `memeverse-${crypto.randomUUID()}`;
 }

@@ -440,3 +440,70 @@ input[type="file"]:focus-visible{outline:2px solid var(--acid);outline-offset:2p
    floors at min-content, a long label such as CIRCLE AGENT WALLET pushed the grid past the
    viewport between 801 and 1000px. The 3×2 layout below already fits six cards; it now starts at
    the same breakpoint the five-column rule did, and its tracks may shrink to zero. */
+
+/* ── Creator media ──────────────────────────────────────────────────────────
+   Artwork is decoration over live financial data, and the sizes below say so: a market row's
+   thumbnail is small and fixed, the selected market's mark sits beside its name rather than above
+   it, and nothing here is allowed to push a price off the screen. Every image box reserves its
+   own space so a slow or missing image never reflows the numbers next to it. */
+.market-image{display:block;flex:0 0 auto;overflow:hidden;border:1px solid var(--line);background:var(--bg-2);line-height:0}
+.market-image img{width:100%;height:100%;object-fit:cover;display:block}
+.market-image-fallback{object-fit:contain!important;padding:14%;opacity:.55}
+.market-image-sm{width:44px;height:44px}
+.market-image-md{width:76px;height:76px}
+
+.market-list button{grid-template-columns:auto 1fr;align-items:center;gap:14px}
+.market-list-facts{display:grid;min-width:0}
+.market-list-facts strong,.market-list-facts small,.market-list-facts em{overflow-wrap:anywhere}
+.market-identity{display:flex;align-items:center;gap:16px;min-width:0}
+.market-identity>div{min-width:0;flex:1 1 auto}
+
+/* The picker and its preview. The preview is a local blob and costs nothing, so it is shown at a
+   useful size — but capped, because a 5 MB photo must not turn the launch form into a scroll. */
+.image-picker{display:flex;flex-direction:column;gap:9px}
+.image-picker label{display:flex;flex-direction:column;gap:5px;font:10px var(--mono);color:var(--mute)}
+.image-picker input[type=file]{background:var(--bg-2);border:1px solid var(--line);color:var(--ink);padding:10px 12px;font:11px var(--mono);width:100%;max-width:100%}
+.image-picker input[type=file]::file-selector-button{background:transparent;border:1px solid var(--line);color:var(--ink);font:10px var(--mono);padding:6px 10px;margin-right:10px;cursor:pointer}
+.image-preview{display:flex;align-items:flex-start;gap:14px;padding:12px;border:1px solid var(--line);background:var(--bg-2);flex-wrap:wrap}
+.image-preview img{width:96px;height:96px;object-fit:cover;border:1px solid var(--line);flex:0 0 auto}
+.image-preview-facts{display:flex;flex-direction:column;gap:7px;font:10px var(--mono);color:var(--mute);min-width:0;flex:1 1 140px}
+.image-preview-facts code{font:10px var(--mono);color:var(--ink);overflow-wrap:anywhere}
+
+.spec-artwork{margin:18px 0 0;display:flex;flex-direction:column;gap:8px}
+.spec-artwork img{width:100%;max-height:230px;object-fit:contain;border:1px solid var(--line);background:var(--bg)}
+.spec-artwork figcaption{font:9px var(--mono);color:var(--mute)}
+
+.media-status{font:10px var(--mono);color:var(--mute)}
+.media-status.ok{color:var(--acid)}
+
+/* The post-launch attach step. Visually subordinate to the confirmation receipt above it: the
+   market is already live, and this is an optional extra rather than an unfinished step. */
+.attach-image{display:flex;flex-direction:column;gap:10px;padding:20px;margin-top:16px;border:1px solid var(--line);background:var(--bg-2)}
+.attach-image b{font:11px var(--mono);letter-spacing:.06em}
+.attach-image span,.attach-image small{font:11px/1.6 var(--ui);color:var(--mute)}
+
+.market-image-manager{margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}
+.market-image-manager-body{display:flex;flex-direction:column;gap:12px;padding-top:14px}
+.market-image-manager-body p{margin:0;font:11px/1.6 var(--ui);color:var(--mute)}
+.market-image-manager-body code{font:10px var(--mono);color:var(--ink)}
+.btn.ghost{border-color:var(--line);color:var(--mute);font-size:10px;padding:11px 14px}
+.btn.ghost:hover{color:var(--ink);border-color:var(--ink)}
+.btn.small{min-height:0;padding:7px 11px;font-size:9px}
+
+.content-commitment{display:block;background:var(--bg-2);border:1px solid var(--line);color:var(--ink);padding:10px 12px;font:11px var(--mono);overflow-wrap:anywhere;min-height:40px}
+.upload-receipt{display:flex;flex-direction:column;gap:6px;padding:14px;border:1px solid var(--acid);background:var(--bg-2)}
+.upload-receipt b{font:10px var(--mono);color:var(--acid);letter-spacing:.06em}
+.upload-receipt span{font:11px/1.6 var(--ui);color:var(--mute)}
+.advanced-media{border:1px solid var(--line);background:var(--bg-2);padding:0 14px}
+.advanced-media summary{cursor:pointer;padding:13px 0;font:10px var(--mono);color:var(--mute);list-style:none}
+.advanced-media summary::-webkit-details-marker{display:none}
+.advanced-media summary:hover{color:var(--ink)}
+.advanced-media[open]{padding-bottom:16px}
+.advanced-media label{display:flex;flex-direction:column;gap:5px;font:10px var(--mono);color:var(--mute);margin-bottom:11px}
+.advanced-media input{background:var(--bg);border:1px solid var(--line);color:var(--ink);padding:10px 12px;font:12px var(--mono);width:100%}
+.advanced-media .mint-note{margin:0 0 12px}
+
+@media(max-width:640px){
+  .market-image-md{width:56px;height:56px}
+  .image-preview img{width:72px;height:72px}
+}
