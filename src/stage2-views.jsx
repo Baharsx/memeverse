@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useAccount, useChainId } from 'wagmi';
+import { useArcNetwork } from './use-arc-network.js';
 import { useQuery } from '@tanstack/react-query';
 import { arc, arcContracts } from './arc';
 import { usdcAbi } from './market';
@@ -92,14 +92,9 @@ function Unavailable({ title, detail, children }) {
 }
 
 function useWalletContext() {
-  const { address, isConnected } = useAccount();
-  const chainId = useChainId();
-  return {
-    address,
-    isConnected,
-    wrongNetwork: isConnected && chainId !== arc.id,
-    chainId,
-  };
+  // `useArcNetwork` reads the wallet's real chain rather than the config's default, so a wallet
+  // on another network is recognised as being on another network here too.
+  return useArcNetwork();
 }
 
 /** Shared preconditions: wallet, network, and contract configuration. */

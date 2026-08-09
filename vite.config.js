@@ -46,18 +46,26 @@ export default defineConfig({
     rollupOptions: {
       output: {
         /**
-         * The wallet and chain libraries dominate the bundle and change far less often than
-         * MemeVerse's own code. Splitting them out keeps the application chunk small and lets a
-         * returning visitor reuse the cached vendor chunks across deploys.
+         * Chunking is left to Rollup, with one exception below.
+         *
+         * This used to be a substring-matched map of the wallet and chain libraries into fixed
+         * `wallet` / `chain` / `vendor` buckets. Reown AppKit cannot survive that: its packages
+         * import each other cyclically, and a hand-drawn boundary through a cycle produces chunks
+         * that evaluate in the wrong order — the built site died on load with "Cannot access 'E_'
+         * before initialization", which no test that stops at `vite build` would have caught.
+         * Rollup's own chunking respects those cycles, and it also preserves the dynamic-import
+         * boundaries AppKit already has, so the modal, the on-ramp, the swap, and the social
+         * surfaces stay in chunks that are never fetched by a visitor who does not open them.
+         *
+         * React is the exception: it is a leaf as far as the wallet stack is concerned, it cannot
+         * take part in one of those cycles, and it is the largest dependency that genuinely never
+         * changes between deploys — so it stays separately cacheable. The path is matched exactly
+         * rather than by substring, which is what previously swept unrelated packages in.
          */
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
-          if (id.includes('wagmi') || id.includes('@tanstack')) return 'wallet';
-          if (id.includes('viem') || id.includes('ox') || id.includes('@noble')
-            || id.includes('@scure') || id.includes('abitype')) return 'chain';
-          if (id.includes('react') || id.includes('scheduler')) return 'react';
-          if (id.includes('framer-motion') || id.includes('motion')) return 'motion';
-          return 'vendor';
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'react';
+          return undefined;
         },
       },
     },

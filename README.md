@@ -200,6 +200,63 @@ cp .env.example .env.local
 
 Only public browser configuration may use a `VITE_*` variable. Never place private keys or privileged Circle credentials in a Vite environment variable.
 
+## Wallet connection (Reown AppKit)
+
+**Reown AppKit is not Circle App Kit.** Reown AppKit is the WalletConnect-ecosystem wallet modal
+that visitors connect their own wallet through. Circle App Kit / Stablecoin Kits is a separate,
+server-side integration documented under "Circle Stablecoin Kits boundary". They share nothing but
+an unfortunate name; everything belonging to the wallet modal is prefixed `reown` in the source.
+
+The browser reaches a wallet two ways. A desktop browser extension announces itself over EIP-6963
+and is connected directly. Every other case — Safari and Chrome on a phone, where no injected
+provider exists and never will — pairs over WalletConnect and opens the wallet app. Before this
+existed the app offered only the injected path, so an ordinary mobile browser was told
+`WALLET UNAVAILABLE`.
+
+### Required configuration
+
+| Variable | Value |
+|---|---|
+| `VITE_REOWN_PROJECT_ID` | The project id from <https://dashboard.reown.com> |
+
+The project id is public configuration rather than a secret — it ships in the browser bundle — but
+it is per deployment, so no value is committed. **Without it there is no relay: desktop extension
+wallets still connect, and mobile cannot connect at all.** The header says so plainly rather than
+pretending otherwise.
+
+### Required Reown dashboard settings
+
+| Setting | Value | Why |
+|---|---|---|
+| Allowed origin | `https://memeverse.biz` | Must match `metadata.url`, or wallets show a mismatched-origin warning |
+| Email login | Disabled | MemeVerse authenticates with a wallet signature, not an email |
+| Social login | Disabled | Same |
+| Swaps | Disabled | Not a MemeVerse product |
+| On-ramp | Disabled | Not a MemeVerse product |
+
+Those four **must** be turned off in the dashboard, not only in code. Since AppKit 1.7 they are
+remote features: when the project configuration is fetched successfully, the dashboard's values
+override whatever `features` the code passes, and AppKit logs a warning saying so. The code sets
+them to `false` as the intended configuration and as the fallback when that fetch fails.
+
+### What is deliberately not enabled
+
+Coinbase Wallet connects as a browser extension over EIP-6963 and from the WalletConnect
+catalogue on mobile. Its third path, the Coinbase / Base Account popup SDK, bootstraps by
+injecting an inline `<script>`, which this site's `script-src 'self'` refuses — so AppKit does not
+register that connector and the modal shows no dead entry for it. Relaxing the policy to
+`unsafe-inline` would permit every injected script, not just that one, and is not a trade this
+project makes.
+
+### Known platform limitation
+
+Discord, Telegram, and most other Android in-app browsers block navigation to a wallet's URL
+scheme at the WebView or OS level. No application JavaScript can open a wallet app from inside
+one. When the app recognises such a browser *and* a connection has been attempted, it says
+`OPEN MEMEVERSE IN SAFARI / CHROME OR YOUR WALLET BROWSER` and nothing more. Ordinary Safari and
+Chrome visitors never see it. iOS in-app browsers largely cannot be detected at all — a `WKWebView`
+reports a user agent nearly identical to Safari's — so they are not guessed at.
+
 ## Verified Testnet contracts
 
 | Contract | Address | Purpose |

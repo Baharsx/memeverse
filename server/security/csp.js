@@ -19,6 +19,31 @@ const FONT_STYLESHEET_ORIGINS = Object.freeze([
 const FONT_FILE_ORIGINS = Object.freeze([
   'https://cdn.fontshare.com',
   'https://fonts.gstatic.com',
+  // Reown AppKit's modal declares @font-face rules for its own typeface. MemeVerse overrides the
+  // family through AppKit's theme variables, but the declarations are injected regardless and the
+  // browser reports a policy violation for each one unless the host is named.
+  'https://fonts.reown.com',
+]);
+
+/**
+ * Reown AppKit — the wallet modal — reaches exactly these hosts. Nothing here is Circle: Circle
+ * App Kit and the Circle wallets are server-side and never contacted from the browser.
+ *
+ * - api.web3modal.org: the project configuration and the WalletConnect wallet catalogue.
+ * - relay.walletconnect.org: the WalletConnect v2 relay. This is the socket a mobile wallet pairs
+ *   over, so without it the entire mobile connection path fails.
+ * - rpc.walletconnect.org: Reown's Blockchain API, used for identity lookups. It is deliberately
+ *   NOT an Arc RPC — Arc is not a chain that API serves, so MemeVerse's own Arc endpoints above
+ *   remain the only place a MemeVerse transaction is ever sent.
+ * - pulse.walletconnect.org: AppKit analytics are disabled, but two lifecycle events are sent
+ *   unconditionally by the SDK. Naming the host keeps that from surfacing as a policy violation.
+ */
+const REOWN_APPKIT_ORIGINS = Object.freeze([
+  'https://api.web3modal.org',
+  'https://rpc.walletconnect.org',
+  'https://pulse.walletconnect.org',
+  'https://relay.walletconnect.org',
+  'wss://relay.walletconnect.org',
 ]);
 
 export function originOf(url) {
@@ -31,7 +56,7 @@ export function originOf(url) {
 
 export function contentSecurityPolicyDirectives({ connectSources = [] } = {}) {
   const connect = ["'self'", ...new Set(
-    [...ARC_RPC_ORIGINS, ...connectSources].map(originOf).filter(Boolean),
+    [...ARC_RPC_ORIGINS, ...REOWN_APPKIT_ORIGINS, ...connectSources].map(originOf).filter(Boolean),
   )];
   return {
     'default-src': ["'self'"],

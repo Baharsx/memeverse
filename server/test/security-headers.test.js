@@ -40,8 +40,21 @@ test('responses carry a strict Content Security Policy with no wildcard source',
     "'self'", "'unsafe-inline'", 'https://api.fontshare.com', 'https://fonts.googleapis.com',
   ]);
   assert.deepEqual(directives['font-src'], [
-    "'self'", 'https://cdn.fontshare.com', 'https://fonts.gstatic.com',
+    "'self'", 'https://cdn.fontshare.com', 'https://fonts.gstatic.com', 'https://fonts.reown.com',
   ]);
+  // The wallet modal's hosts, and no more. The relay in particular is what a mobile wallet pairs
+  // over, so a policy that omits it silently breaks every mobile connection.
+  for (const origin of [
+    'https://api.web3modal.org',
+    'https://rpc.walletconnect.org',
+    'https://pulse.walletconnect.org',
+    'wss://relay.walletconnect.org',
+  ]) {
+    assert.ok(directives['connect-src'].includes(origin), `connect-src must allow ${origin}`);
+  }
+  // AppKit's email/social flows run in an iframe on secure.walletconnect.org. Those features are
+  // off, so the frame stays forbidden.
+  assert.deepEqual(directives['frame-src'], ["'none'"]);
   assert.equal(directives['style-src'].includes("'unsafe-eval'"), false);
   assert.equal(policy.includes('*'), false);
   assert.equal(policy.includes("'unsafe-eval'"), false);

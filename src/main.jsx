@@ -1,27 +1,27 @@
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { fallback, parseEventLogs } from 'viem';
+import { parseEventLogs } from 'viem';
 import {
   WagmiProvider,
-  createConfig,
-  http,
   useAccount,
-  useChainId,
   useConnect,
-  useDisconnect,
   useSignMessage,
   useSwitchChain,
 } from 'wagmi';
-import { injected } from 'wagmi/connectors';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import {
-  ARC_FALLBACK_RPC_URL,
-  ARC_RPC_URL,
   arc,
   arcCapabilities,
   arcContracts,
   arcLinks,
 } from './arc';
+import { openWalletModal, wagmiConfig, walletModalAvailable } from './reown-appkit.js';
+import { useArcNetwork } from './use-arc-network.js';
+import {
+  RESTRICTED_BROWSER_HINT,
+  isRestrictedEmbeddedBrowser,
+  walletButtonLabel,
+} from './wallet-connection.js';
 import {
   transactionPhases,
 } from './transaction-lifecycle';
@@ -99,11 +99,6 @@ import { canRetryLaunchArtwork, launchArtworkStage } from './media-upload';
 import { BrowserRouter, NavLink, Route, Routes } from './router.jsx';
 import './styles.css';
 
-const config = createConfig({
-  chains: [arc],
-  connectors: [injected()],
-  transports: { [arc.id]: fallback([http(ARC_RPC_URL), http(ARC_FALLBACK_RPC_URL)]) },
-});
 const queryClient = new QueryClient();
 const routerBase =
   import.meta.env.BASE_URL === '/'
@@ -154,34 +149,109 @@ function Marquee() {
   );
 }
 
+/**
+ * Opens the Reown AppKit modal, and remembers that it was asked to.
+ *
+ * The second part only matters inside an embedded in-app browser. Discord, Telegram, and most
+ * other Android WebViews block navigation to a wallet's URL scheme at the OS level, so the modal
+ * opens and then nothing happens — a dead end this page cannot fix from JavaScript. The hint is
+ * therefore shown only after a real attempt in a browser known to block them, never pre-emptively
+ * and never to an ordinary Safari or Chrome visitor.
+ */
+function useWalletModal() {
+  const [attempted, setAttempted] = useState(false);
+  const restricted = useMemo(
+    () => isRestrictedEmbeddedBrowser(typeof navigator === 'undefined' ? '' : navigator.userAgent),
+    [],
+  );
+
+  function open(view = 'Connect') {
+    setAttempted(true);
+    return openWalletModal(view);
+  }
+
+  return { open, attempted, showRestrictedBrowserHint: restricted && attempted };
+}
+
+/**
+ * The only path left for a build that shipped without VITE_REOWN_PROJECT_ID. There is no relay to
+ * pair over in that case, so a browser extension is all that can still be offered; the header says
+ * as much rather than pretending the modal exists. A correctly configured deployment never reaches
+ * this code.
+ */
+function useInjectedFallback() {
+  const { connect, connectors, isPending } = useConnect();
+  return {
+    isPending,
+    connect() {
+      const injectedConnector = connectors.find((connector) => connector.type === 'injected');
+      if (injectedConnector) connect({ connector: injectedConnector });
+    },
+  };
+}
+
 function Wallet() {
-  const { address, isConnected } = useAccount();
-  const chainId = useChainId();
-  const { connect, isPending, error } = useConnect();
-  const { disconnect } = useDisconnect();
+  const { address, isConnected, isConnecting, isReconnecting } = useAccount();
+  const { onArc } = useArcNetwork();
+  const modal = useWalletModal();
+  const connectInjected = useInjectedFallback();
   const balance = useQuery({
     queryKey: ['wallet-usdc', address],
     queryFn: () => loadUsdcBalance(address),
-    enabled: isConnected && chainId === arc.id,
+    enabled: onArc,
     refetchInterval: 12_000,
   });
+  const balanceLabel = onArc && balance.data !== undefined
+    ? `${formatUsdc(balance.data, 4)} USDC`
+    : 'TESTNET';
 
-  return isConnected ? (
-    <button className="wallet" type="button" onClick={() => disconnect()} aria-label={`Disconnect testnet wallet ${address}`}>
-      <i /><span className="wallet-balance">{chainId === arc.id && balance.data !== undefined ? `${formatUsdc(balance.data, 4)} USDC // ` : 'TESTNET // '}</span><span>{address.slice(0, 6)}…{address.slice(-4)}</span>
-    </button>
-  ) : (
-    <button className="wallet" type="button" onClick={() => connect({ connector: injected() })}>
-      {isPending ? 'REQUESTING…' : error ? 'WALLET UNAVAILABLE // RETRY' : 'CONNECT TESTNET WALLET'}
-    </button>
+  /*
+    One button, two destinations, and never a disconnect. Tapping while connected opens the
+    Account view — which is where disconnect lives — because a header button that drops the
+    session on an accidental tap is a trap on a touch screen.
+
+    Disconnected, the label is unconditional. It used to read WALLET UNAVAILABLE whenever no
+    injected provider answered, which is the normal state of every ordinary mobile browser: the
+    button announced failure to precisely the visitors WalletConnect exists to serve.
+  */
+  if (isConnected) {
+    return (
+      <button
+        className="wallet connected"
+        type="button"
+        onClick={() => modal.open('Account')}
+        aria-label={`Wallet ${address} — open account controls`}
+      >
+        <i />
+        <span className="wallet-balance">{balanceLabel} // </span>
+        <span className="wallet-address">{walletButtonLabel({ isConnected, address })}</span>
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <button
+        className="wallet"
+        type="button"
+        onClick={() => { if (!modal.open('Connect')) connectInjected.connect(); }}
+        aria-label="Connect a wallet"
+      >
+        <span className="wallet-address">
+          {walletButtonLabel({ isConnecting: isConnecting || isReconnecting || connectInjected.isPending })}
+        </span>
+      </button>
+      {modal.showRestrictedBrowserHint ? <p className="wallet-hint" role="status">{RESTRICTED_BROWSER_HINT}</p> : null}
+      {modal.attempted && !walletModalAvailable
+        ? <p className="wallet-hint" role="status">WALLETCONNECT UNCONFIGURED // BROWSER EXTENSION ONLY</p>
+        : null}
+    </>
   );
 }
 
 function NetworkStatus() {
-  const chainId = useChainId();
-  const { isConnected } = useAccount();
+  const { isConnected, onArc } = useArcNetwork();
   const { switchChain, isPending } = useSwitchChain();
-  const onArc = isConnected && chainId === arc.id;
 
   return (
     <div className="network-switch" role="group" aria-label="Arc Testnet connection status">
@@ -496,8 +566,7 @@ function Launch() {
   const [review, setReview] = useState(false);
   const [result, setResult] = useState(null);
   const [formError, setFormError] = useState(null);
-  const { address, isConnected } = useAccount();
-  const chainId = useChainId();
+  const { address, isConnected, onArc } = useArcNetwork();
   const action = useOnchainAction();
   /*
     The image is entirely separate from the launch. It is chosen before signing purely so the
@@ -574,7 +643,6 @@ function Launch() {
     queryFn: loadFactoryConfig,
     retry: 1,
   });
-  const onArc = isConnected && chainId === arc.id;
 
   /*
     Validated with the parsers the transaction uses, not with the browser's field validation
@@ -864,14 +932,12 @@ function MarketImageManager({ market, hasImage, onChanged }) {
 }
 
 function Markets() {
-  const { address, isConnected } = useAccount();
-  const chainId = useChainId();
+  const { address, isConnected, onArc } = useArcNetwork();
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [side, setSide] = useState('BUY');
   const [buyAmount, setBuyAmount] = useState('0.01');
   const [sellAmount, setSellAmount] = useState('1');
   const slippageBps = 100;
-  const onArc = isConnected && chainId === arc.id;
   const markets = useQuery({
     queryKey: ['onchain-markets', address ?? 'anonymous'],
     queryFn: () => loadMarkets(address),
@@ -1229,8 +1295,9 @@ function useOperatorSession() {
  * can never read. Connecting an ordinary MemeVerse trading wallet grants nothing.
  */
 function OperatorSessionPanel({ session }) {
-  const { address, isConnected } = useAccount();
-  const { connect, isPending: connectPending } = useConnect();
+  const { address, isConnected, isConnecting } = useAccount();
+  const modal = useWalletModal();
+  const connectInjected = useInjectedFallback();
   const { signMessageAsync } = useSignMessage();
   const [state, setState] = useState({ status: 'idle', error: null });
 
@@ -1284,8 +1351,13 @@ function OperatorSessionPanel({ session }) {
               {state.status === 'loading' ? 'AWAITING WALLET SIGNATURE…' : 'SIGN OPERATOR SESSION →'}
             </button>
           ) : (
-            <button className="btn primary" type="button" onClick={() => connect({ connector: injected() })} disabled={connectPending}>
-              {connectPending ? 'REQUESTING…' : 'CONNECT WALLET →'}
+            <button
+              className="btn primary"
+              type="button"
+              onClick={() => { if (!modal.open('Connect')) connectInjected.connect(); }}
+              disabled={connectInjected.isPending || isConnecting}
+            >
+              {connectInjected.isPending || isConnecting ? 'REQUESTING…' : 'CONNECT WALLET →'}
             </button>
           )}
         </div>
@@ -1616,7 +1688,7 @@ function Safety() {
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <WagmiProvider config={config}>
+    <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter basename={routerBase}>
           <Shell />
