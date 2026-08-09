@@ -6,7 +6,7 @@ import {
   parseAbi,
   parseUnits,
 } from 'viem';
-import { ARC_FALLBACK_RPC_URL, ARC_RPC_URL, arc, arcContracts } from './arc.js';
+import { ARC_READ_FALLBACK_RPC_URL, ARC_READ_RPC_URL, arc, arcContracts } from './arc.js';
 
 export const USDC_DECIMALS = 6;
 export const TOKEN_DECIMALS = 18;
@@ -65,7 +65,7 @@ export const marketAbi = parseAbi([
 
 export const marketPublicClient = createPublicClient({
   chain: arc,
-  transport: fallback([http(ARC_RPC_URL), http(ARC_FALLBACK_RPC_URL)]),
+  transport: fallback([http(ARC_READ_RPC_URL), http(ARC_READ_FALLBACK_RPC_URL)]),
 });
 
 export function parseUsdc(value) {

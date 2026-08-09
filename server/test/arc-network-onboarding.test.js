@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { ARC_CHAIN_ID_HEX, ARC_RPC_URL, ARC_FALLBACK_RPC_URL, arc } from '../../src/arc.js';
+import {
+  ARC_CHAIN_ID_HEX,
+  ARC_READ_FALLBACK_RPC_URL,
+  ARC_READ_RPC_URL,
+  ARC_WALLET_RPC_URL,
+  arc,
+} from '../../src/arc.js';
 import {
   ARC_CHAIN_ID,
   ARC_MANUAL_NETWORK,
@@ -93,18 +99,61 @@ test('the chain id is 5042002 and its hex is 0x4cef52, not 0x4CF4B2', () => {
 
 /* ── I. The registration payload ────────────────────────────────────────────── */
 
-test('the EIP-3085 payload names the canonical Arc endpoints', () => {
+test('the application read transport is the pair proven under Markets-page concurrency', () => {
+  // The rollback in one assertion. Both of these answered 95/95 under a burst matching one
+  // Markets page load; the canonical pair did not, and the page died with ARC RPC READ FAILED.
+  assert.equal(ARC_READ_RPC_URL, 'https://rpc.testnet.arc.io');
+  assert.equal(ARC_READ_FALLBACK_RPC_URL, 'https://rpc.drpc.testnet.arc.io');
+  assert.deepEqual(arc.rpcUrls.default.http, [ARC_READ_RPC_URL, ARC_READ_FALLBACK_RPC_URL]);
+});
+
+test('quicknode is never the application read fallback again', () => {
+  // 90 of 95 concurrent calls returned HTTP 429. As a fallback it gave viem nowhere to spill.
+  const quicknode = 'https://rpc.quicknode.testnet.arc.network';
+  assert.notEqual(ARC_READ_RPC_URL, quicknode);
+  assert.notEqual(ARC_READ_FALLBACK_RPC_URL, quicknode);
+  assert.equal(arc.rpcUrls.default.http.includes(quicknode), false);
+  assert.equal(arc.rpcUrls.public.http.includes(quicknode), false);
+  assert.equal(arcAddEthereumChainParams().rpcUrls.includes(quicknode), false,
+    'nor is it offered to a wallet, where it would only give the wallet a way to fail');
+});
+
+test('the EIP-3085 payload uses the wallet endpoint and does not inherit the read transport', () => {
   const params = arcAddEthereumChainParams();
+  assert.equal(ARC_WALLET_RPC_URL, 'https://rpc.testnet.arc.network');
+  assert.deepEqual(params.rpcUrls, [ARC_WALLET_RPC_URL], 'one canonical wallet endpoint');
   assert.equal(params.chainId, '0x4cef52');
   assert.equal(params.chainName, 'Arc Testnet');
   assert.deepEqual(params.blockExplorerUrls, ['https://testnet.arcscan.app']);
-  assert.ok(params.rpcUrls.length > 0, 'an empty rpcUrls is rejected by every wallet');
-  assert.equal(params.rpcUrls[0], 'https://rpc.testnet.arc.network');
+  assert.ok(params.rpcUrls.every((url) => url.startsWith('https://')));
+
+  // The coupling that caused the rollback: the payload must not be built from the chain object.
+  assert.equal(params.rpcUrls.includes(ARC_READ_RPC_URL), false);
+  assert.equal(params.rpcUrls.includes(ARC_READ_FALLBACK_RPC_URL), false);
   for (const url of params.rpcUrls) {
-    assert.ok(url.startsWith('https://'), `${url} must be https`);
-    assert.ok(url.endsWith('.arc.network'), `${url} must be a canonical Arc endpoint`);
+    assert.equal(arc.rpcUrls.default.http.includes(url), false,
+      `${url} must not be the application read transport`);
   }
-  assert.deepEqual(params.rpcUrls, [ARC_RPC_URL, ARC_FALLBACK_RPC_URL]);
+});
+
+test('the wallet payload is built from the wallet constant, not from arc.rpcUrls', async () => {
+  const source = await readFile(new URL('../../src/arc-network-onboarding.js', import.meta.url), 'utf8');
+  const fn = source.slice(source.indexOf('export function arcAddEthereumChainParams'),
+    source.indexOf('/** Every place a provider hides a numeric error code'));
+  assert.match(fn, /rpcUrls: \[ARC_WALLET_RPC_URL\]/);
+  // Comments stripped: prose explaining the rule must not be able to break the rule.
+  assert.equal(/arc\.rpcUrls/.test(codeOnly(fn)), false,
+    'reading the chain object here recreates the coupling');
+});
+
+test('the exact EIP-3085 payload', () => {
+  assert.deepEqual(arcAddEthereumChainParams(), {
+    chainId: '0x4cef52',
+    chainName: 'Arc Testnet',
+    rpcUrls: ['https://rpc.testnet.arc.network'],
+    blockExplorerUrls: ['https://testnet.arcscan.app'],
+    nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+  });
 });
 
 test('the payload declares the 18-decimal NATIVE currency, which is not the 6-decimal token', async () => {
@@ -124,7 +173,10 @@ test('the payload declares the 18-decimal NATIVE currency, which is not the 6-de
 test('the manual fallback quotes settings a person can actually type in', () => {
   assert.equal(ARC_MANUAL_NETWORK.chainIdDecimal, '5042002');
   assert.equal(ARC_MANUAL_NETWORK.chainIdHex, '0x4cef52');
+  assert.equal(ARC_MANUAL_NETWORK.rpcUrl, ARC_WALLET_RPC_URL);
   assert.equal(ARC_MANUAL_NETWORK.rpcUrl, 'https://rpc.testnet.arc.network');
+  // A person typing this into their wallet is configuring the wallet, not this page.
+  assert.notEqual(ARC_MANUAL_NETWORK.rpcUrl, ARC_READ_RPC_URL);
   assert.equal(ARC_MANUAL_NETWORK.explorer, 'https://testnet.arcscan.app');
 });
 
@@ -204,8 +256,7 @@ test('B: an unknown chain is added with the exact canonical params, on an author
   const add = wc.walletRequests.find((c) => c.method === 'wallet_addEthereumChain');
   assert.ok(add, 'the wallet must actually receive the add request');
   assert.deepEqual(add.params, [arcAddEthereumChainParams()]);
-  assert.deepEqual(add.params[0].rpcUrls,
-    ['https://rpc.testnet.arc.network', 'https://rpc.quicknode.testnet.arc.network']);
+  assert.deepEqual(add.params[0].rpcUrls, ['https://rpc.testnet.arc.network']);
   // The defect in one assertion: addressed to a chain the session authorises, or sign-client
   // rejects it locally and the wallet never shows a prompt at all.
   assert.equal(add.chainId, 'eip155:1');

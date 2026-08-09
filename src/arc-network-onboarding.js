@@ -23,7 +23,7 @@
  * function over a `request`-shaped callback, so the exact provider conversation can be asserted in
  * a test without a wallet, a relay, or a browser.
  */
-import { ARC_CHAIN_ID, ARC_CHAIN_ID_HEX, arc } from './arc.js';
+import { ARC_CHAIN_ID, ARC_CHAIN_ID_HEX, ARC_WALLET_RPC_URL, arc } from './arc.js';
 
 export { ARC_CHAIN_ID, ARC_CHAIN_ID_HEX };
 
@@ -43,7 +43,13 @@ export function arcAddEthereumChainParams() {
   return {
     chainId: ARC_CHAIN_ID_HEX,
     chainName: arc.name,
-    rpcUrls: [...arc.rpcUrls.default.http],
+    /*
+      The wallet endpoint, explicitly — NOT `arc.rpcUrls`. Reading the chain object here is what
+      previously tied the wallet's copy of Arc to whatever this page reads through, so a change
+      made for the wallet's benefit silently repointed every Markets query and took the page down.
+      The two are separate concerns and are now separate constants.
+    */
+    rpcUrls: [ARC_WALLET_RPC_URL],
     blockExplorerUrls: [arc.blockExplorers.default.url],
     nativeCurrency: {
       name: arc.nativeCurrency.name,
@@ -298,7 +304,9 @@ export const ARC_MANUAL_NETWORK = Object.freeze({
   chainName: arc.name,
   chainIdDecimal: String(ARC_CHAIN_ID),
   chainIdHex: ARC_CHAIN_ID_HEX,
-  rpcUrl: arc.rpcUrls.default.http[0],
+  // Wallet-facing, for the same reason: a person typing this into their wallet is configuring the
+  // wallet, not this page.
+  rpcUrl: ARC_WALLET_RPC_URL,
   explorer: arc.blockExplorers.default.url,
   currencySymbol: arc.nativeCurrency.symbol,
 });

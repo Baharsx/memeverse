@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { arcTestnet as reownPublishedArcTestnet } from '@reown/appkit/networks';
 import { arcTestnet as viemArcTestnet } from 'viem/chains';
-import { ARC_FALLBACK_RPC_URL, ARC_RPC_URL, arc } from '../../src/arc.js';
+import { ARC_READ_FALLBACK_RPC_URL, ARC_READ_RPC_URL, arc } from '../../src/arc.js';
 import {
   ARC_TESTNET_CHAIN_ID,
   MEMEVERSE_ORIGIN,
@@ -57,13 +57,14 @@ test('the wallet layer reuses the existing Arc definition rather than a second c
 
 test('AppKit is told to use MemeVerse Arc endpoints, not an unrelated RPC', () => {
   const urls = reownCustomRpcUrls[reownArcCaipNetworkId].map((entry) => entry.url);
-  assert.deepEqual(urls, [ARC_RPC_URL, ARC_FALLBACK_RPC_URL]);
-  // Reown's Blockchain API does not serve Arc, so nothing of theirs may appear here. The hosts
-  // are the canonical `.arc.network` endpoints: these are no longer only a read transport, they
-  // are what a wallet is asked to register for Arc through EIP-3085.
+  assert.deepEqual(urls, [ARC_READ_RPC_URL, ARC_READ_FALLBACK_RPC_URL]);
+  // Reown's Blockchain API does not serve Arc, so nothing of theirs may appear here. These are the
+  // APPLICATION READ endpoints — what AppKit's own reads go through. The endpoint a wallet is
+  // asked to register is a separate constant and is asserted in arc-network-onboarding.test.js.
   for (const url of urls) {
-    assert.ok(url.endsWith('.arc.network'), `${url} must be a canonical Arc endpoint`);
+    assert.ok(url.endsWith('.arc.io'), `${url} must be a proven Arc read endpoint`);
     assert.equal(url.includes('walletconnect'), false);
+    assert.equal(url.includes('quicknode'), false, 'quicknode rate-limits under Markets load');
   }
 });
 
@@ -124,7 +125,7 @@ test('AppKit is constructed at module scope, never inside a component or an effe
 
 test('the Arc transport keeps its primary-then-fallback shape', async () => {
   const source = await readFile(new URL('../../src/reown-appkit.js', import.meta.url), 'utf8');
-  assert.match(source, /fallback\(\[http\(ARC_RPC_URL\), http\(ARC_FALLBACK_RPC_URL\)\]\)/);
+  assert.match(source, /fallback\(\[http\(ARC_READ_RPC_URL\), http\(ARC_READ_FALLBACK_RPC_URL\)\]\)/);
   assert.match(source, /transports: arcTransports/);
 });
 
@@ -267,6 +268,6 @@ test('the policy permits the relay a mobile wallet pairs over', async () => {
   assert.ok(connect.includes('wss://relay.walletconnect.org'), 'no relay means no mobile wallet');
   assert.ok(connect.includes('https://api.web3modal.org'), 'no catalogue means an empty modal');
   // The Arc endpoints the application transacts against, canonical ones first.
-  assert.ok(connect.includes('https://rpc.testnet.arc.network'));
-  assert.ok(connect.includes('https://rpc.quicknode.testnet.arc.network'));
+  assert.ok(connect.includes('https://rpc.testnet.arc.io'));
+  assert.ok(connect.includes('https://rpc.drpc.testnet.arc.io'));
 });

@@ -186,9 +186,10 @@ MemeVerse uses only parameters currently published in the official Arc documenta
 | Chain ID | `5042002` |
 | Native gas | USDC |
 | Chain ID (hex, for wallet registration) | `0x4cef52` |
-| RPC | `https://rpc.testnet.arc.network` |
-| Documented fallback RPC | `https://rpc.quicknode.testnet.arc.network` |
-| WebSocket | `wss://rpc.testnet.arc.network` |
+| Application read RPC | `https://rpc.testnet.arc.io` |
+| Application read fallback | `https://rpc.drpc.testnet.arc.io` |
+| Wallet registration RPC (EIP-3085) | `https://rpc.testnet.arc.network` |
+| WebSocket | `wss://rpc.testnet.arc.io` |
 | Explorer | `https://testnet.arcscan.app` |
 | Faucet | `https://faucet.circle.com/` |
 | Finality handling | 1 confirmed block |
@@ -201,13 +202,17 @@ cp .env.example .env.local
 
 Only public browser configuration may use a `VITE_*` variable. Never place private keys or privileged Circle credentials in a Vite environment variable.
 
-**On the RPC host.** These are the canonical endpoints from the official chain definition. Earlier
-releases overrode them with `rpc.testnet.arc.io` and `rpc.drpc.testnet.arc.io`; both still answer,
-and both still return chain `0x4cef52`, so neither was broken. They were replaced because the RPC
-is no longer only an application transport — it is what a wallet stores when MemeVerse asks it to
-add Arc through EIP-3085, and what a wallet stores should be the official endpoint. All four hosts
-remain in the Content Security Policy, because `VITE_ARC_RPC_URL` is still overridable and an
-allowlist entry permits a request rather than choosing one.
+**Two RPC roles, deliberately separate.** The *application read transport* serves every browser
+read — Markets, balances, quotes, allowances. The *wallet registration endpoint* is a single URL
+handed to a wallet through EIP-3085 and thereafter used by the wallet, not by this page. They are
+not required to be the same host, and conflating them caused a production rollback: a release
+pointed both at the canonical `.arc.network` pair, and while every sequential health check passed,
+`rpc.quicknode.testnet.arc.network` answered 90 of 95 *concurrent* calls with HTTP 429 — so viem's
+fallback had nowhere to spill and the Markets page failed with `ARC RPC READ FAILED`. The read
+transport is therefore the pair that survives that burst, and the wallet keeps the canonical
+endpoint. Before changing a read endpoint, run `npm run rpc:burst:check`, which fires a
+Markets-page-sized burst at both and fails below a 95% success ratio. It is deliberately not part
+of `npm test`: CI must not hammer public Arc infrastructure.
 
 **On `nativeCurrency.decimals`.** The Arc chain definition declares the native gas currency as
 USDC with **18** decimals, and that is what the EIP-3085 registration sends — EIP-3085 describes

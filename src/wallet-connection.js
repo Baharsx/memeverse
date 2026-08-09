@@ -14,7 +14,7 @@
  * touch. Every identifier below is prefixed `reown` so the two can never be misread for each
  * other.
  */
-import { ARC_FALLBACK_RPC_URL, ARC_RPC_URL, arc } from './arc.js';
+import { ARC_READ_FALLBACK_RPC_URL, ARC_READ_RPC_URL, arc } from './arc.js';
 
 // `import.meta.env` only exists under Vite, exactly as in src/arc.js. Defaulting it keeps this
 // module importable from plain Node so the configuration can be unit tested.
@@ -44,8 +44,8 @@ export const reownArcNetwork = arc;
 export const reownArcCaipNetworkId = `eip155:${ARC_TESTNET_CHAIN_ID}`;
 export const reownCustomRpcUrls = Object.freeze({
   [reownArcCaipNetworkId]: Object.freeze([
-    Object.freeze({ url: ARC_RPC_URL }),
-    Object.freeze({ url: ARC_FALLBACK_RPC_URL }),
+    Object.freeze({ url: ARC_READ_RPC_URL }),
+    Object.freeze({ url: ARC_READ_FALLBACK_RPC_URL }),
   ]),
 });
 

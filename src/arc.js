@@ -5,23 +5,42 @@ import { arcTestnet as viemArcTestnet } from 'viem/chains';
 const viteEnv = import.meta.env ?? {};
 
 /**
- * The canonical Arc Testnet endpoints, as published in the official chain definition that ships
- * with viem (`viem/chains` → `arcTestnet`) and used by the wider wallet ecosystem.
+ * Arc Testnet is reached through two different sets of endpoints, for two unrelated reasons.
+ * Conflating them is what broke the Markets page in production, so they are named apart here and
+ * a test keeps them apart.
  *
- * These replace the `rpc.testnet.arc.io` / `rpc.drpc.testnet.arc.io` pair this file used to
- * override them with. Both of those still answer, and both still return chain `0x4cef52`, so
- * neither was broken — but neither appears in the canonical chain definition either, and this
- * value is no longer only an application transport: it is now the RPC URL a wallet is asked to
- * register for Arc through EIP-3085, and what a wallet stores should be the official endpoint.
+ * 1. THE APPLICATION READ TRANSPORT — every browser read: the Markets list, balances, quotes,
+ *    allowances, receipts. One Markets page load fans out to roughly ninety concurrent calls, so
+ *    what matters for these hosts is behaviour under *concurrency*, not whether a single
+ *    `eth_chainId` succeeds.
  *
- * Both hosts below were verified to answer `eth_chainId` with `0x4cef52`, to answer
- * `eth_blockNumber`, and to send `Access-Control-Allow-Origin: https://memeverse.biz`, so the
- * browser can read through them exactly as before.
+ * 2. THE WALLET REGISTRATION ENDPOINT — a single URL, handed to a wallet through EIP-3085 when it
+ *    is asked to add Arc, and thereafter used by the wallet, not by this page. What matters for it
+ *    is that it is the canonical published endpoint.
+ *
+ * A previous release pointed both at the canonical `.arc.network` pair. Measured against a burst
+ * matching one Markets page load: `rpc.quicknode.testnet.arc.network` answered 90 of 95 calls with
+ * HTTP 429, and `rpc.testnet.arc.network` throttled under sustained browser load — so the fallback
+ * had nowhere to spill and the Markets page died with ARC RPC READ FAILED. The same burst against
+ * `rpc.testnet.arc.io` and `rpc.drpc.testnet.arc.io` returned 95/95. Those two therefore remain the
+ * read transport; `npm run rpc:burst:check` is the check that would have caught it.
  */
-export const ARC_RPC_URL =
-  viteEnv.VITE_ARC_RPC_URL?.trim() || 'https://rpc.testnet.arc.network';
-export const ARC_FALLBACK_RPC_URL =
-  viteEnv.VITE_ARC_FALLBACK_RPC_URL?.trim() || 'https://rpc.quicknode.testnet.arc.network';
+export const ARC_READ_RPC_URL =
+  viteEnv.VITE_ARC_RPC_URL?.trim() || 'https://rpc.testnet.arc.io';
+export const ARC_READ_FALLBACK_RPC_URL =
+  viteEnv.VITE_ARC_FALLBACK_RPC_URL?.trim() || 'https://rpc.drpc.testnet.arc.io';
+
+/**
+ * The one endpoint a wallet is asked to store for Arc. Canonical, from the published chain
+ * definition, and deliberately NOT the application's read transport: a wallet keeps this for its
+ * own use, so it should be the official host rather than whichever endpoint this page happens to
+ * read through. Nothing in the browser fetches it.
+ *
+ * One URL, not a list. EIP-3085 accepts several, but the second canonical host rate-limits hard
+ * enough that offering it would only give a wallet a way to fail.
+ */
+export const ARC_WALLET_RPC_URL =
+  viteEnv.VITE_ARC_WALLET_RPC_URL?.trim() || 'https://rpc.testnet.arc.network';
 
 /**
  * 5042002 as EIP-155 hex. Stated once, proven by test against the decimal id, because a wallet
@@ -31,16 +50,21 @@ export const ARC_FALLBACK_RPC_URL =
 export const ARC_CHAIN_ID = viemArcTestnet.id;
 export const ARC_CHAIN_ID_HEX = '0x4cef52';
 
+/**
+ * The chain as MemeVerse READS it. `rpcUrls` here is the application transport and nothing else —
+ * the wallet-registration payload is built from `ARC_WALLET_RPC_URL` and never from this object,
+ * which is the coupling that caused the rollback.
+ */
 export const arc = {
   ...viemArcTestnet,
   rpcUrls: {
     default: {
-      http: [ARC_RPC_URL, ARC_FALLBACK_RPC_URL],
-      webSocket: ['wss://rpc.testnet.arc.network'],
+      http: [ARC_READ_RPC_URL, ARC_READ_FALLBACK_RPC_URL],
+      webSocket: ['wss://rpc.testnet.arc.io'],
     },
     public: {
-      http: [ARC_FALLBACK_RPC_URL],
-      webSocket: ['wss://rpc.quicknode.testnet.arc.network'],
+      http: [ARC_READ_FALLBACK_RPC_URL],
+      webSocket: ['wss://rpc.drpc.testnet.arc.io'],
     },
   },
   blockExplorers: {

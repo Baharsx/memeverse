@@ -22,6 +22,7 @@
     "agent:e2e:testnet": "node scripts/agent-autonomous-e2e-testnet.js",
     "app-kit:verify": "node scripts/verify-app-kit-runtime.js",
     "demo:preflight": "node scripts/demo-preflight.js",
+    "rpc:burst:check": "node scripts/rpc-burst-check.js",
     "circle:approve:settlement": "node scripts/circle-approve-settlement.js",
     "dev": "concurrently -k -n api,web -c magenta,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "node --watch server/index.js",

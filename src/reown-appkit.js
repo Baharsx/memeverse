@@ -20,7 +20,7 @@ import { createConfig, http } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { createAppKit } from '@reown/appkit/react';
-import { ARC_FALLBACK_RPC_URL, ARC_RPC_URL, arc } from './arc.js';
+import { ARC_READ_FALLBACK_RPC_URL, ARC_READ_RPC_URL, arc } from './arc.js';
 import {
   reownAppKitConfigured,
   reownAppKitFeatures,
@@ -36,7 +36,7 @@ import {
  * behind it. Arc Testnet is not one of the chains Reown's Blockchain API serves, so the adapter
  * passes this through untouched rather than substituting an RPC of its own.
  */
-const arcTransports = { [arc.id]: fallback([http(ARC_RPC_URL), http(ARC_FALLBACK_RPC_URL)]) };
+const arcTransports = { [arc.id]: fallback([http(ARC_READ_RPC_URL), http(ARC_READ_FALLBACK_RPC_URL)]) };
 
 /**
  * Built only when a Reown project id is configured. Without one there is no relay to pair over,
