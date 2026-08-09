@@ -29,6 +29,7 @@ import {
   reownArcNetwork,
   reownCustomRpcUrls,
   reownProjectId,
+  reownSessionNetworks,
 } from './wallet-connection.js';
 
 /**
@@ -46,7 +47,7 @@ const arcTransports = { [arc.id]: fallback([http(ARC_READ_RPC_URL), http(ARC_REA
  */
 export const wagmiAdapter = reownAppKitConfigured
   ? new WagmiAdapter({
-    networks: [reownArcNetwork],
+    networks: reownSessionNetworks,
     projectId: reownProjectId,
     customRpcUrls: reownCustomRpcUrls,
     transports: arcTransports,
@@ -56,7 +57,7 @@ export const wagmiAdapter = reownAppKitConfigured
 export const reownAppKit = wagmiAdapter
   ? createAppKit({
     adapters: [wagmiAdapter],
-    networks: [reownArcNetwork],
+    networks: reownSessionNetworks,
     defaultNetwork: reownArcNetwork,
     projectId: reownProjectId,
     metadata: reownAppKitMetadata,
@@ -69,6 +70,9 @@ export const reownAppKit = wagmiAdapter
     enableWalletConnect: true,
     enableInjected: true,
     enableEIP6963: true,
+    // AppKit owns connection and account discovery; MemeVerse owns Arc add/switch/reauthorisation.
+    // This supported option removes the Account modal's competing network selector.
+    enableNetworkSwitch: false,
     /**
      * Coinbase Wallet stays enabled, and reaches MemeVerse two ways: as an EIP-6963 browser
      * extension, and from the WalletConnect catalogue on mobile.

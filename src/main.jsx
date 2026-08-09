@@ -16,7 +16,12 @@ import {
   arcLinks,
 } from './arc';
 import { openWalletModal, wagmiConfig, walletModalAvailable } from './reown-appkit.js';
-import { ARC_MANUAL_NETWORK, ARC_SWITCH_STATUS } from './arc-network-onboarding.js';
+import {
+  ARC_MANUAL_NETWORK,
+  ARC_NETWORK_ACTION,
+  ARC_SWITCH_STATUS,
+  arcNetworkAction,
+} from './arc-network-onboarding.js';
 import { useArcNetwork, useArcNetworkSwitch } from './use-arc-network.js';
 import {
   RESTRICTED_BROWSER_HINT,
@@ -260,16 +265,30 @@ function Wallet() {
  * visitor needs if their wallet refuses custom networks altogether.
  */
 function NetworkStatus() {
-  const { isConnected, onArc } = useArcNetwork();
+  const { chainId, isConnected, onArc, sessionAuthorized } = useArcNetwork();
   const arcSwitch = useArcNetworkSwitch();
   const { disconnectAsync } = useDisconnect();
   const [showManual, setShowManual] = useState(false);
-  const needsReconnect = arcSwitch.status === ARC_SWITCH_STATUS.SESSION_REAUTH_REQUIRED;
+  const modal = useWalletModal();
+  const connectInjected = useInjectedFallback();
+  const action = arcNetworkAction({
+    isConnected,
+    chainId,
+    sessionAuthorized,
+    switchStatus: arcSwitch.status,
+  });
+  const actionLabel = {
+    [ARC_NETWORK_ACTION.CONNECT]: 'CONNECT WALLET',
+    [ARC_NETWORK_ACTION.ADD]: 'ADD ARC TESTNET',
+    [ARC_NETWORK_ACTION.SWITCH]: 'SWITCH TO ARC',
+    [ARC_NETWORK_ACTION.RECONNECT]: 'RECONNECT WALLET',
+  }[action] ?? null;
 
   async function requestArc() {
-    const ok = await arcSwitch.switchToArc();
+    setShowManual(false);
+    const result = await arcSwitch.switchToArc();
     // A reconnect is a normal next step, not a dead end, so the manual settings stay hidden for it.
-    if (!ok && arcSwitch.status !== ARC_SWITCH_STATUS.SESSION_REAUTH_REQUIRED) setShowManual(true);
+    if (!result.ok && result.status !== ARC_SWITCH_STATUS.SESSION_REAUTH_REQUIRED) setShowManual(true);
   }
 
   /*
@@ -285,35 +304,52 @@ function NetworkStatus() {
     }
   }
 
+  function connectWallet() {
+    if (!modal.open('Connect')) connectInjected.connect();
+  }
+
+  function runAction() {
+    if (action === ARC_NETWORK_ACTION.CONNECT) return connectWallet();
+    if (action === ARC_NETWORK_ACTION.RECONNECT) return reconnectForArc();
+    if (action === ARC_NETWORK_ACTION.ADD || action === ARC_NETWORK_ACTION.SWITCH) return requestArc();
+    return undefined;
+  }
+
   return (
     <div className="network-switch" role="group" aria-label="Arc Testnet connection status">
-      <button
-        type="button"
-        className={onArc ? 'active' : ''}
-        disabled={!isConnected || arcSwitch.isPending}
-        onClick={requestArc}
-        title={isConnected ? 'Switch to Arc Testnet' : 'Connect a wallet first'}
-      >
-        <i />BUILT ON ARC
-        <sup>{arcSwitch.isPending ? 'WAIT' : onArc ? 'ON' : 'READY'}</sup>
-      </button>
+      <span className={onArc ? 'network-brand active' : 'network-brand'}>
+        <i />BUILT ON ARC<sup>{onArc ? 'ON' : 'TESTNET'}</sup>
+      </span>
+      {actionLabel ? (
+        <button
+          type="button"
+          className="network-action"
+          disabled={arcSwitch.isPending || connectInjected.isPending}
+          onClick={runAction}
+        >
+          {arcSwitch.isPending ? 'SETTING UP ARC…' : actionLabel}
+        </button>
+      ) : null}
       {!onArc && arcSwitch.failed && arcSwitch.message
         ? (
-          <span className="network-error" role="alert">
-            {arcSwitch.message}
-            {needsReconnect ? (
-              <button type="button" className="network-reconnect" onClick={reconnectForArc}>
-                RECONNECT WALLET →
+          <div className="network-error">
+            <span role="alert">{arcSwitch.message}</span>
+            {action !== ARC_NETWORK_ACTION.RECONNECT ? (
+              <button type="button" className="network-manual" onClick={() => setShowManual((shown) => !shown)}>
+                ADD ARC MANUALLY
               </button>
             ) : null}
             {showManual ? (
-              <em>
-                ADD MANUALLY // {ARC_MANUAL_NETWORK.chainName} // CHAIN {ARC_MANUAL_NETWORK.chainIdDecimal}
-                {' '}({ARC_MANUAL_NETWORK.chainIdHex}) // RPC {ARC_MANUAL_NETWORK.rpcUrl}
-                {' '}// {ARC_MANUAL_NETWORK.currencySymbol}
-              </em>
+              <dl className="network-manual-settings" aria-label="Arc Testnet manual network settings">
+                <div><dt>NETWORK</dt><dd>{ARC_MANUAL_NETWORK.chainName}</dd></div>
+                <div><dt>CHAIN ID</dt><dd>{ARC_MANUAL_NETWORK.chainIdDecimal}</dd></div>
+                <div><dt>HEX</dt><dd>{ARC_MANUAL_NETWORK.chainIdHex}</dd></div>
+                <div><dt>RPC</dt><dd>{ARC_MANUAL_NETWORK.rpcUrl}</dd></div>
+                <div><dt>CURRENCY</dt><dd>{ARC_MANUAL_NETWORK.currencySymbol}</dd></div>
+                <div><dt>EXPLORER</dt><dd>{ARC_MANUAL_NETWORK.explorer}</dd></div>
+              </dl>
             ) : null}
-          </span>
+          </div>
         )
         : null}
     </div>

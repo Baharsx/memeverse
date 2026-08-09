@@ -14,6 +14,7 @@
  * touch. Every identifier below is prefixed `reown` so the two can never be misread for each
  * other.
  */
+import { mainnet } from 'viem/chains';
 import { ARC_READ_FALLBACK_RPC_URL, ARC_READ_RPC_URL, arc } from './arc.js';
 
 // `import.meta.env` only exists under Vite, exactly as in src/arc.js. Defaulting it keeps this
@@ -34,6 +35,22 @@ export const ARC_TESTNET_CHAIN_ID = 5042002;
  * `arc` object keeps one source of truth for the RPC URLs, the explorer, and the currency.
  */
 export const reownArcNetwork = arc;
+
+/**
+ * Networks the installed Reown/Wagmi adapter must be able to represent while establishing a
+ * WalletConnect session.
+ *
+ * MemeVerse is still an Arc-only product. Ethereum is present solely because a real mobile wallet
+ * that does not know Arc yet commonly returns an otherwise-valid session on `eip155:1`. AppKit
+ * 1.8.23 then asks Wagmi to synchronise that returned chain before MemeVerse can run its own Arc
+ * onboarding flow. If chain 1 is absent, Reown's WalletConnectConnector throws
+ * `ChainNotConfiguredError` before any request reaches the wallet.
+ *
+ * AppKit's network switcher is disabled, Arc remains the default, and every MemeVerse write stays
+ * gated by `useArcNetwork().onArc`, so this auxiliary entry cannot expose or enable product writes
+ * on Ethereum.
+ */
+export const reownSessionNetworks = Object.freeze([reownArcNetwork, mainnet]);
 
 /**
  * Reown resolves its own RPC for the networks its Blockchain API supports. Arc Testnet is not one

@@ -633,3 +633,39 @@ input[type="file"]:focus-visible{outline:2px solid var(--acid);outline-offset:2p
   font:700 9px var(--mono);letter-spacing:.08em;cursor:pointer;
 }
 .network-reconnect:hover{background:var(--acid);color:var(--bg)}
+
+/* Arc onboarding is an explicit product action. The BUILT ON ARC mark is status only; AppKit's
+   own network selector is disabled, so these controls are the one visible owner of add/switch. */
+.network-bar{height:auto;min-height:42px}
+.network-switch{height:auto;min-height:42px;align-items:stretch;flex-wrap:wrap}
+.network-brand{
+  display:flex;align-items:center;min-width:132px;padding:0 12px;
+  border-left:1px solid var(--line);color:var(--mute);font:10px var(--mono);white-space:nowrap;
+}
+.network-brand.active{background:var(--acid);color:var(--bg)}
+.network-brand sup{margin-left:6px;font-size:7px}
+.network-switch .network-action{min-width:154px;min-height:44px;padding:0 14px;color:var(--acid);font-weight:700}
+.network-switch .network-action:hover{background:var(--acid);color:var(--bg)}
+.network-error{flex:1 0 100%;border-top:1px solid var(--line)}
+.network-error>span{display:block}
+.network-switch .network-manual{
+  display:inline-block;min-width:0;min-height:44px;margin-top:7px;padding:8px 12px;
+  border:1px solid var(--acid);color:var(--acid);font:700 9px var(--mono);letter-spacing:.06em;
+}
+.network-switch .network-manual:hover{background:var(--acid);color:var(--bg)}
+.network-manual-settings{display:grid;gap:0;margin:8px 0 0;border:1px solid var(--line);color:var(--ink)}
+.network-manual-settings>div{display:grid;grid-template-columns:76px minmax(0,1fr)}
+.network-manual-settings dt,.network-manual-settings dd{
+  float:none;margin:0;padding:7px;border-bottom:1px solid var(--line);font:8px/1.5 var(--mono);
+}
+.network-manual-settings dt{color:var(--mute)}
+.network-manual-settings dd{text-align:left;overflow-wrap:anywhere}
+.network-manual-settings>div:last-child dt,.network-manual-settings>div:last-child dd{border-bottom:0}
+@media(max-width:800px){.network-brand{display:none}.network-switch .network-action{min-width:142px}}
+@media(max-width:500px){
+  .network-bar{grid-template-columns:minmax(0,1fr);padding:0}
+  .network-bar>span:first-child{display:none}
+  .network-center,.network-switch{width:100%}
+  .network-switch .network-action{width:100%;min-height:48px;border-left:0;border-right:0}
+  .network-error{padding:8px 12px 12px}
+}

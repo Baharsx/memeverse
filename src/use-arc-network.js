@@ -48,35 +48,52 @@ export function useArcNetwork() {
 /**
  * Whether the live WalletConnect session authorises Arc.
  *
- * Resolved from the connector rather than assumed, and re-resolved whenever the connection or the
- * chain changes. It starts as `true` for the case that dominates — an injected wallet, which has
- * no session — and is corrected to `false` only once a WalletConnect session is found to be
- * missing Arc, so a desktop extension never flickers into a disabled state on mount.
+ * Resolved from the connector rather than assumed, re-resolved whenever the connection/chain
+ * changes, and refreshed on WalletConnect `session_update`. Injected wallets have no namespace
+ * gate and are authorised by definition; WalletConnect fails closed until the current live session
+ * proves it carries Arc, so there is no render where an unauthorised session briefly enables a
+ * write.
  */
 function useArcSessionAuthorization(connector, chainId) {
-  const [authorized, setAuthorized] = useState(true);
+  const connectorKey = connector?.uid ?? connector?.id ?? null;
+  const walletConnect = connector?.id === 'walletConnect' || connector?.type === 'walletConnect';
+  const [snapshot, setSnapshot] = useState({ connectorKey: null, authorized: false });
 
   useEffect(() => {
     let cancelled = false;
-    if (!connector) { setAuthorized(true); return undefined; }
+    let provider = null;
+    let refresh = null;
+    if (!connector || !walletConnect) return undefined;
+
     (async () => {
       try {
-        const provider = await connector.getProvider();
-        const chains = provider?.session?.namespaces?.eip155?.chains;
-        if (cancelled) return;
-        if (!Array.isArray(chains)) { setAuthorized(true); return; }
-        setAuthorized(arcAuthorizedForSession(
-          chains.map((caip) => Number.parseInt(String(caip).split(':')[1], 10)),
-        ));
+        provider = await connector.getProvider();
+        refresh = () => {
+          if (cancelled) return;
+          const chains = sessionChainIdsOf(provider);
+          setSnapshot({
+            connectorKey,
+            // A WalletConnect connector without a readable session is not evidence that an Arc
+            // request is authorised. Fail closed until the session proves that it carries Arc.
+            authorized: chains.length > 0 && arcAuthorizedForSession(chains),
+          });
+        };
+        refresh();
+        provider?.on?.('session_update', refresh);
       } catch {
-        // A provider that cannot be read is not evidence of anything; leave the guard as it was
-        // rather than disabling a working wallet on a transient failure.
+        if (!cancelled) setSnapshot({ connectorKey, authorized: false });
       }
     })();
-    return () => { cancelled = true; };
-  }, [connector, chainId]);
+    return () => {
+      cancelled = true;
+      if (provider && refresh) provider.removeListener?.('session_update', refresh);
+    };
+  }, [connector, connectorKey, chainId, walletConnect]);
 
-  return authorized;
+  // Injected/EIP-6963 wallets have no WalletConnect namespace gate. A WalletConnect session starts
+  // disabled and becomes authorised only after the current connector's live session proves Arc.
+  if (!walletConnect) return true;
+  return snapshot.connectorKey === connectorKey && snapshot.authorized;
 }
 
 /**
@@ -137,14 +154,16 @@ export function useArcNetworkSwitch() {
         message: result.message,
         diagnostic: result.diagnostic,
       });
-      return result.ok;
+      return result;
     } catch (error) {
-      setState({
+      const result = {
+        ok: false,
         status: ARC_SWITCH_STATUS.SWITCH_UNSUPPORTED,
         message: 'WALLET DOES NOT SUPPORT ARC NETWORK SWITCHING',
         diagnostic: { shortMessage: (error?.shortMessage ?? error?.message ?? 'unknown').slice(0, 160) },
-      });
-      return false;
+      };
+      setState(result);
+      return result;
     }
   }, [config, connector]);
 

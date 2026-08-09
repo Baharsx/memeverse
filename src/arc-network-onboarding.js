@@ -150,6 +150,31 @@ export const ARC_SWITCH_MESSAGES = Object.freeze({
   [ARC_SWITCH_STATUS.STILL_WRONG_NETWORK]: 'WALLET DID NOT SWITCH TO ARC',
 });
 
+export const ARC_NETWORK_ACTION = Object.freeze({
+  CONNECT: 'CONNECT_WALLET',
+  ADD: 'ADD_ARC_TESTNET',
+  SWITCH: 'SWITCH_TO_ARC',
+  RECONNECT: 'RECONNECT_WALLET',
+  READY: 'ON_ARC',
+});
+
+/** The single explicit action MemeVerse presents for the current wallet/session state. */
+export function arcNetworkAction({
+  isConnected = false,
+  chainId = null,
+  sessionAuthorized = true,
+  switchStatus = 'idle',
+} = {}) {
+  if (!isConnected) return ARC_NETWORK_ACTION.CONNECT;
+  if (switchStatus === ARC_SWITCH_STATUS.SESSION_REAUTH_REQUIRED ||
+      (chainId === ARC_CHAIN_ID && !sessionAuthorized)) {
+    return ARC_NETWORK_ACTION.RECONNECT;
+  }
+  if (chainId === ARC_CHAIN_ID && sessionAuthorized) return ARC_NETWORK_ACTION.READY;
+  if (!sessionAuthorized) return ARC_NETWORK_ACTION.ADD;
+  return ARC_NETWORK_ACTION.SWITCH;
+}
+
 /**
  * The chain a request should be addressed to.
  *

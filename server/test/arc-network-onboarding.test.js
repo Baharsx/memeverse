@@ -11,6 +11,7 @@ import {
 import {
   ARC_CHAIN_ID,
   ARC_MANUAL_NETWORK,
+  ARC_NETWORK_ACTION,
   ARC_SWITCH_STATUS,
   arcAddEthereumChainParams,
   authorizedRequestChain,
@@ -19,6 +20,7 @@ import {
   isUserRejectedError,
   normalizeProviderError,
   arcAuthorizedForSession,
+  arcNetworkAction,
 } from '../../src/arc-network-onboarding.js';
 import { createWalletConnectSession } from './helpers/walletconnect.js';
 
@@ -57,6 +59,24 @@ function mockProvider({ chainId = 1, sessionChains = null, onRequest = () => {} 
     },
   };
 }
+
+test('the visible Arc CTA follows connection, chain, and session authorisation', () => {
+  assert.equal(arcNetworkAction({}), ARC_NETWORK_ACTION.CONNECT);
+  assert.equal(arcNetworkAction({ isConnected: true, chainId: 1, sessionAuthorized: false }), ARC_NETWORK_ACTION.ADD);
+  assert.equal(arcNetworkAction({ isConnected: true, chainId: 1, sessionAuthorized: true }), ARC_NETWORK_ACTION.SWITCH);
+  assert.equal(arcNetworkAction({ isConnected: true, chainId: ARC_CHAIN_ID, sessionAuthorized: false }), ARC_NETWORK_ACTION.RECONNECT);
+  assert.equal(arcNetworkAction({
+    isConnected: true,
+    chainId: ARC_CHAIN_ID,
+    sessionAuthorized: true,
+  }), ARC_NETWORK_ACTION.READY);
+  assert.equal(arcNetworkAction({
+    isConnected: true,
+    chainId: 1,
+    sessionAuthorized: false,
+    switchStatus: ARC_SWITCH_STATUS.SESSION_REAUTH_REQUIRED,
+  }), ARC_NETWORK_ACTION.RECONNECT);
+});
 
 const run = (provider, sessionChainIds = []) => ensureArcNetwork({
   connectorId: sessionChainIds.length ? 'walletConnect' : 'injected',

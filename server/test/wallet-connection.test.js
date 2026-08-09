@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { createConfig, http } from '@wagmi/core';
 import { arcTestnet as reownPublishedArcTestnet } from '@reown/appkit/networks';
-import { arcTestnet as viemArcTestnet } from 'viem/chains';
+import { ChainController } from '@reown/appkit-controllers';
+import { arcTestnet as viemArcTestnet, mainnet } from 'viem/chains';
+import { walletConnect as installedWalletConnectConnector } from '../../node_modules/@reown/appkit-adapter-wagmi/dist/esm/src/connectors/WalletConnectConnector.js';
 import { ARC_READ_FALLBACK_RPC_URL, ARC_READ_RPC_URL, arc } from '../../src/arc.js';
 import {
   ARC_TESTNET_CHAIN_ID,
@@ -17,6 +20,7 @@ import {
   reownArcNetwork,
   reownCustomRpcUrls,
   reownProjectId,
+  reownSessionNetworks,
   shortWalletAddress,
   walletButtonLabel,
 } from '../../src/wallet-connection.js';
@@ -53,6 +57,84 @@ test('the wallet layer reuses the existing Arc definition rather than a second c
   assert.equal(reownArcNetwork, arc, 'the Reown network must be the project Arc object itself');
   assert.equal(reownArcNetwork.nativeCurrency.symbol, 'USDC');
   assert.equal(reownArcNetwork.blockExplorers.default.url, 'https://testnet.arcscan.app');
+});
+
+test('Ethereum is represented only to preserve an off-Arc WalletConnect session', async () => {
+  assert.deepEqual(reownSessionNetworks.map((network) => network.id), [5042002, 1]);
+  assert.equal(reownSessionNetworks[0], arc, 'Arc remains the default and first product network');
+
+  const source = await readFile(new URL('../../src/reown-appkit.js', import.meta.url), 'utf8');
+  assert.equal((source.match(/networks:\s*reownSessionNetworks/g) ?? []).length, 2,
+    'the adapter and AppKit controller must agree that an existing chain-1 session is representable');
+  assert.match(source, /defaultNetwork:\s*reownArcNetwork/);
+  assert.match(source, /enableNetworkSwitch:\s*false/,
+    'AppKit must not expose the auxiliary chain as a product network selector');
+});
+
+test('the installed adapter reproduces the iPhone error before provider.request', async () => {
+  const caip = (network) => ({
+    ...network,
+    chainNamespace: 'eip155',
+    caipNetworkId: `eip155:${network.id}`,
+    rpcUrls: { ...network.rpcUrls, chainDefault: network.rpcUrls.default },
+  });
+  const clients = { connectionControllerClient: {} };
+  const providerCalls = [];
+  const provider = {
+    events: { setMaxListeners() {} },
+    on() {},
+    removeListener() {},
+    async request(args) { providerCalls.push(args); return null; },
+  };
+
+  // This is the exact old shape: AppKit and Wagmi know only Arc, while the accepted WC session
+  // returns Ethereum chain 1. Invoke the connector installed in node_modules, not a local copy.
+  ChainController.initialize([], [caip(arc)], clients);
+  const oldConfig = createConfig({
+    chains: [arc],
+    connectors: [installedWalletConnectConnector({ universalProvider: provider })],
+    transports: { [arc.id]: http() },
+  });
+  await assert.rejects(
+    () => oldConfig.connectors[0].switchChain({ chainId: 1 }),
+    (error) => {
+      assert.equal(error.name, 'SwitchChainError');
+      assert.match(error.message, /An error occurred when attempting to switch chain/);
+      assert.match(error.message, /Chain not configured/);
+      return true;
+    },
+  );
+  assert.equal(providerCalls.length, 0, 'the old exception happens before the wallet is contacted');
+
+  // With the auxiliary session-continuity entry, the same installed connector reaches the current
+  // WalletConnect provider. MemeVerse writes remain Arc-gated elsewhere; this only removes the
+  // pre-provider configuration throw.
+  ChainController.initialize([], [caip(arc), caip(mainnet)], clients);
+  const fixedConfig = createConfig({
+    chains: [arc, mainnet],
+    connectors: [installedWalletConnectConnector({ universalProvider: provider })],
+    transports: { [arc.id]: http(), [mainnet.id]: http() },
+  });
+  await fixedConfig.connectors[0].switchChain({ chainId: 1 });
+  assert.equal(providerCalls[0]?.method, 'wallet_switchEthereumChain');
+  assert.equal(providerCalls[0]?.params?.[0]?.chainId, '0x1');
+});
+
+test('the installed AppKit call graph is the source of the raw chain-not-configured toast', async () => {
+  const adapter = await readFile(new URL(
+    '../../node_modules/@reown/appkit-adapter-wagmi/dist/esm/src/client.js', import.meta.url,
+  ), 'utf8');
+  const connector = await readFile(new URL(
+    '../../node_modules/@reown/appkit-adapter-wagmi/dist/esm/src/connectors/WalletConnectConnector.js', import.meta.url,
+  ), 'utf8');
+  const view = await readFile(new URL(
+    '../../node_modules/@reown/appkit-scaffold-ui/dist/esm/src/views/w3m-connecting-wc-view/index.js', import.meta.url,
+  ), 'utf8');
+
+  assert.match(adapter, /if \(res\.chainId !== Number\(chainId\)\)[\s\S]*switchChain\(this\.wagmiConfig, \{ chainId: res\.chainId \}\)/);
+  assert.match(connector, /if \(!chainToSwitch\)[\s\S]*new SwitchChainError\(new ChainNotConfiguredError\(\)\)/);
+  assert.match(view, /SnackController\.showError\(error\.message/,
+    'the connection view exposes the package error verbatim in the failing path');
 });
 
 test('AppKit is told to use MemeVerse Arc endpoints, not an unrelated RPC', () => {

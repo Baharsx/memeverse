@@ -260,6 +260,16 @@ remote features: when the project configuration is fetched successfully, the das
 override whatever `features` the code passes, and AppKit logs a warning saying so. The code sets
 them to `false` as the intended configuration and as the fallback when that fetch fails.
 
+### Arc-only product, WalletConnect session continuity
+
+MemeVerse exposes and writes to Arc Testnet only. The AppKit/Wagmi configuration also represents
+Ethereum chain `1` internally because a mobile wallet that has not learned Arc commonly establishes
+its first WalletConnect session there. AppKit 1.8.23 synchronises the chain returned by that session;
+without the auxiliary entry its connector throws `ChainNotConfiguredError` before a provider
+request reaches the wallet. Ethereum is not a product network: AppKit's network selector is disabled,
+Arc is the default, MemeVerse alone owns add/switch/reconnect, and all signing and contract controls
+remain disabled unless the actual chain and the WalletConnect session both authorize Arc `5042002`.
+
 ### What is deliberately not enabled
 
 Coinbase Wallet connects as a browser extension over EIP-6963 and from the WalletConnect
