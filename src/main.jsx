@@ -269,8 +269,6 @@ function NetworkStatus() {
   const arcSwitch = useArcNetworkSwitch();
   const { disconnectAsync } = useDisconnect();
   const [showManual, setShowManual] = useState(false);
-  const modal = useWalletModal();
-  const connectInjected = useInjectedFallback();
   const action = arcNetworkAction({
     isConnected,
     chainId,
@@ -278,7 +276,6 @@ function NetworkStatus() {
     switchStatus: arcSwitch.status,
   });
   const actionLabel = {
-    [ARC_NETWORK_ACTION.CONNECT]: 'CONNECT WALLET',
     [ARC_NETWORK_ACTION.ADD]: 'ADD ARC TESTNET',
     [ARC_NETWORK_ACTION.SWITCH]: 'SWITCH TO ARC',
     [ARC_NETWORK_ACTION.RECONNECT]: 'RECONNECT WALLET',
@@ -304,12 +301,7 @@ function NetworkStatus() {
     }
   }
 
-  function connectWallet() {
-    if (!modal.open('Connect')) connectInjected.connect();
-  }
-
   function runAction() {
-    if (action === ARC_NETWORK_ACTION.CONNECT) return connectWallet();
     if (action === ARC_NETWORK_ACTION.RECONNECT) return reconnectForArc();
     if (action === ARC_NETWORK_ACTION.ADD || action === ARC_NETWORK_ACTION.SWITCH) return requestArc();
     return undefined;
@@ -324,7 +316,7 @@ function NetworkStatus() {
         <button
           type="button"
           className="network-action"
-          disabled={arcSwitch.isPending || connectInjected.isPending}
+          disabled={arcSwitch.isPending}
           onClick={runAction}
         >
           {arcSwitch.isPending ? 'SETTING UP ARC…' : actionLabel}

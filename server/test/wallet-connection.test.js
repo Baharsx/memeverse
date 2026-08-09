@@ -260,6 +260,20 @@ test('the header button opens the modal and never disconnects on a tap', async (
   assert.equal(/'WALLET UNAVAILABLE|>WALLET UNAVAILABLE/.test(main), false);
 });
 
+test('a disconnected page exposes only the header wallet connection action', async () => {
+  const main = await readFile(new URL('../../src/main.jsx', import.meta.url), 'utf8');
+  const wallet = main.slice(main.indexOf('function Wallet()'), main.indexOf('function NetworkStatus()'));
+  const networkStatus = main.slice(main.indexOf('function NetworkStatus()'), main.indexOf('function BackendStatus()'));
+
+  assert.match(wallet, /modal\.open\('Connect'\)/, 'the header remains the wallet connection entry point');
+  assert.equal(networkStatus.includes('[ARC_NETWORK_ACTION.CONNECT]'), false,
+    'the passive network status must not render a second disconnected action');
+  assert.equal(networkStatus.includes("'CONNECT WALLET'"), false);
+  assert.match(networkStatus, /\[ARC_NETWORK_ACTION\.ADD\]: 'ADD ARC TESTNET'/);
+  assert.match(networkStatus, /\[ARC_NETWORK_ACTION\.SWITCH\]: 'SWITCH TO ARC'/);
+  assert.match(networkStatus, /\[ARC_NETWORK_ACTION\.RECONNECT\]: 'RECONNECT WALLET'/);
+});
+
 test('the modal is always opened in the EVM namespace on the requested view', async () => {
   const source = await readFile(new URL('../../src/reown-appkit.js', import.meta.url), 'utf8');
   assert.match(source, /open\(\{ view, namespace: 'eip155' \}\)/);
