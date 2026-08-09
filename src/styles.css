@@ -534,3 +534,8 @@ input[type="file"]:focus-visible{outline:2px solid var(--acid);outline-offset:2p
 .marketplace-mode{display:block;font:9px var(--mono);letter-spacing:.09em;color:var(--mute);
   padding-bottom:2px;border-bottom:1px solid var(--line);margin-bottom:2px}
 .marketplace-mode.buy{color:var(--acid)}
+
+/* The launch-page artwork outcome, reported beside the launch receipt rather than inside it: a
+   market stays launched whether or not its artwork attached. */
+.attach-image.ok{border-color:var(--acid)}
+.attach-image.ok b{color:var(--acid)}

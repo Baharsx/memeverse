@@ -95,6 +95,7 @@ import {
 } from './media-views.jsx';
 import { getMarketImages } from './api';
 import { MEDIA_ACTIONS } from './media-authorization';
+import { canRetryLaunchArtwork, launchArtworkStage } from './media-upload';
 import { BrowserRouter, NavLink, Route, Routes } from './router.jsx';
 import './styles.css';
 
@@ -509,8 +510,65 @@ function Launch() {
     action: MEDIA_ACTIONS.MARKET_AVATAR,
     market: result?.market,
     selection: image.selection,
-    onUploaded: () => queryClient.invalidateQueries({ queryKey: ['market-images'] }),
+    onUploaded: () => {
+      // The new market's artwork, and the market list it will appear in.
+      queryClient.invalidateQueries({ queryKey: ['market-images'] });
+      queryClient.invalidateQueries({ queryKey: ['onchain-markets'] });
+    },
   });
+
+  const walletIsCreator = Boolean(address && result?.creator
+    && address.toLowerCase() === result.creator.toLowerCase());
+
+  /*
+    Attach the chosen artwork automatically, once, as soon as the market it belongs to exists.
+
+    The creator picked the file before launching, so asking them to pick it again afterwards was
+    busywork. What makes this safe to automate is that nothing about the security model moves: the
+    market address comes from the confirmed `MarketCreated` event rather than from guessing or
+    polling, and the wallet still signs a real authorization bound to that exact address, these
+    exact bytes, and a short expiry. The only thing removed is the click.
+
+    Idempotency is the whole difficulty here. `attach.start` is a new function on every render (it
+    closes over the upload state and an inline `onUploaded`), so an effect that depended on it
+    would re-run constantly and could open a second wallet prompt. Instead the effect depends only
+    on values, calls the latest `start` through a ref, and records the market+hash pair it has
+    already fired for — which also makes it inert under StrictMode's double-invoked effects, a
+    re-render, a query refetch, or a market-list refresh.
+  */
+  const startAttachRef = useRef(attach.start);
+  useEffect(() => { startAttachRef.current = attach.start; });
+
+  const autoAttachKey = result?.market && image.selection?.contentHash
+    ? `${result.market}|${image.selection.contentHash}`
+    : null;
+  const autoAttachedRef = useRef(null);
+
+  useEffect(() => {
+    if (!autoAttachKey) return;
+    // Already fired for this exact market and these exact bytes.
+    if (autoAttachedRef.current === autoAttachKey) return;
+    // Never prompt a wallet that the market does not name as its creator: the signature could not
+    // authorize anything, and signing under the wrong account is precisely what must not happen
+    // silently. The retry control covers reconnecting the right one.
+    if (!walletIsCreator) return;
+    autoAttachedRef.current = autoAttachKey;
+    startAttachRef.current?.();
+  }, [autoAttachKey, walletIsCreator]);
+
+  const artworkStage = launchArtworkStage({
+    hasSelection: Boolean(image.selection),
+    launched: Boolean(result?.market),
+    walletMatchesCreator: walletIsCreator,
+    status: attach.state.status,
+  });
+
+  /** Retry reuses the selection already in memory — never a second file pick, never a second launch. */
+  function retryArtwork() {
+    if (!autoAttachKey || !walletIsCreator) return;
+    autoAttachedRef.current = autoAttachKey;
+    startAttachRef.current?.();
+  }
   const factory = useQuery({
     queryKey: ['market-factory-config'],
     queryFn: loadFactoryConfig,
@@ -656,35 +714,47 @@ function Launch() {
           <TransactionStatus state={action.state} />
           {result ? <div className="receipt onchain-receipt" role="status"><b>MARKET CONFIRMED ON ARC</b><span>MARKET + TOKEN // {result.market}</span><span>CREATOR // {result.creator}</span><ExternalLink href={`${arcLinks.explorer}/tx/${result.hash}`}>VIEW TRANSACTION ON ARCSCAN ↗</ExternalLink><ExternalLink href={`${arcLinks.explorer}/address/${result.market}`}>VIEW MARKET CONTRACT ↗</ExternalLink></div> : null}
           {/*
-            A separate, explicitly optional step that begins only after the market is confirmed.
-            Whatever happens here — declined signature, failed upload, closed tab — the market
-            above is already live on Arc and stays that way. Nothing in this block can turn a
-            confirmed launch into a failure.
+            The artwork outcome, reported separately from the launch above it.
+
+            The market is already live on Arc by the time anything here renders, and nothing in
+            this block can change that — a declined signature, a failed upload, or a closed tab
+            leaves a launched market with no artwork, which is a complete and valid result.
           */}
-          {result && image.selection ? (
-            <div className="attach-image" role="region" aria-label="Attach market image">
-              <b>ATTACH MARKET IMAGE</b>
+          {artworkStage !== 'NONE' ? (
+            <div
+              className={`attach-image ${artworkStage === 'ATTACHED' ? 'ok' : ''}`}
+              role="status"
+              aria-live="polite"
+              aria-label="Market artwork"
+            >
+              <b>
+                {artworkStage === 'ATTACHED' ? 'MARKET LAUNCHED // ARTWORK ATTACHED'
+                  : artworkStage === 'FAILED' ? 'MARKET LAUNCHED // ARTWORK NOT ATTACHED'
+                    : artworkStage === 'WRONG_WALLET' ? 'MARKET LAUNCHED // ARTWORK PENDING'
+                      : artworkStage === 'UPLOADING' ? 'UPLOADING ARTWORK…'
+                        : artworkStage === 'SIGNING' ? 'CHECK YOUR WALLET — ATTACH ARTWORK'
+                          : 'ATTACHING ARTWORK…'}
+              </b>
               <span>
-                Your market is live. Attaching its image is a free wallet signature — no gas, no
-                transaction, and it moves no funds.
+                {artworkStage === 'ATTACHED'
+                  ? 'Your image is attached to the new market and will appear wherever it is shown.'
+                  : artworkStage === 'FAILED'
+                    // The headline above already states the market launched, and some error
+                    // messages say so themselves, so this must not repeat it a third time.
+                    ? `${attach.state.error ?? 'The image could not be attached.'} Retry below, or set the image any time from Markets.`
+                    : artworkStage === 'WRONG_WALLET'
+                      ? `Connected wallet is not this market’s creator. Reconnect ${shortAddress(result.creator)} to attach the selected image.`
+                      : 'Attaching the image you selected is a free wallet signature — no gas, no transaction, and it moves no funds.'}
               </span>
-              {address && result.creator && address.toLowerCase() !== result.creator.toLowerCase()
-                ? (
-                  <small className="tx-error" role="alert">
-                    Connected wallet is not this market’s creator. Reconnect {shortAddress(result.creator)} to attach the image.
-                  </small>
-                )
-                : null}
-              <AttachImageButton
-                state={attach.state}
-                onStart={attach.start}
-                disabled={!onArc || !address
-                  || address.toLowerCase() !== result.creator?.toLowerCase()}
-              >
-                SIGN + ATTACH SELECTED IMAGE →
-              </AttachImageButton>
-              {attach.state.status === 'FAILED' ? (
-                <small>The market itself is unaffected — you can set its image any time from Markets.</small>
+              {canRetryLaunchArtwork(artworkStage) ? (
+                <button
+                  type="button"
+                  className="btn secondary full"
+                  disabled={!onArc || !walletIsCreator}
+                  onClick={retryArtwork}
+                >
+                  RETRY ARTWORK →
+                </button>
               ) : null}
             </div>
           ) : null}

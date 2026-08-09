@@ -188,9 +188,20 @@ export function useMediaUpload({ action, market, selection, onUploaded }) {
     }
   }, [key]);
 
+  /*
+    A live selection is always at least READY — including straight after an invalidation.
+
+    This depends on `key` as well as `selection` for a reason that is easy to miss. The market
+    address arrives *after* the file on the Launch page, so the key changes while the very same
+    selection object stays put. The effect above then resets the machine to IDLE and, keyed on
+    `selection` alone, this one would not re-run — leaving a file that is ready to upload parked in
+    a state the reducer refuses to start from, so `SIGN` was silently dropped and the surface never
+    reported the attach that was in fact happening. Re-validating whenever the authorization key
+    changes keeps "there is a usable selection" and "the machine can start" from drifting apart.
+  */
   useEffect(() => {
     if (selection) dispatch({ type: 'VALIDATED' });
-  }, [selection]);
+  }, [selection, key]);
 
   const start = useCallback(async () => {
     if (inFlightRef.current || !selection || !market) return;

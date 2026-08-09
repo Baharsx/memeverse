@@ -238,6 +238,22 @@ test('the launch surface keeps the image out of the Arc transaction', async () =
     'no media value may enter the launch call',
   );
 
-  // The attach step exists and is gated on a confirmed result.
-  assert.ok(source.includes('result && image.selection'), 'attach must require a confirmed market');
+  /*
+    The attach step still requires a confirmed market before it can do anything.
+
+    It used to be a manual button rendered on `result && image.selection`; it is now started
+    automatically, so the same guarantee lives in the auto-attach key and the stage helper. Both
+    are null/NONE until the launch event has produced a market address, which is what keeps the
+    image out of the transaction and out of any pre-launch upload.
+  */
+  assert.ok(
+    source.includes("const autoAttachKey = result?.market && image.selection?.contentHash"),
+    'the attach key requires a confirmed market address and a selected file',
+  );
+  assert.ok(
+    source.includes('launched: Boolean(result?.market)'),
+    'the artwork surface is gated on the confirmed market',
+  );
+  // Nothing may be uploaded before the market exists.
+  assert.ok(source.includes('if (!autoAttachKey) return;'), 'no market means no attach');
 });

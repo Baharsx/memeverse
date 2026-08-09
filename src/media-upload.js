@@ -94,6 +94,53 @@ export function mediaAuthorizationKey({ market, contentHash, wallet } = {}) {
   ].join('|');
 }
 
+/**
+ * What the Launch page should say about artwork once a market exists.
+ *
+ * A launch and an artwork attachment are two independent outcomes, and this function exists so
+ * that fact is expressed in one place rather than re-derived by whichever piece of JSX happens to
+ * be rendering. Nothing it returns can turn a confirmed launch into a failure: the worst stage is
+ * `FAILED`, which the caller renders beside — never instead of — the launch receipt.
+ */
+export const LAUNCH_ARTWORK_STAGES = Object.freeze({
+  NONE: 'NONE',
+  WAITING: 'WAITING',
+  SIGNING: 'SIGNING',
+  UPLOADING: 'UPLOADING',
+  ATTACHED: 'ATTACHED',
+  FAILED: 'FAILED',
+  WRONG_WALLET: 'WRONG_WALLET',
+});
+
+export function launchArtworkStage({
+  hasSelection = false,
+  launched = false,
+  walletMatchesCreator = true,
+  status = 'IDLE',
+} = {}) {
+  // No image chosen, or nothing launched yet: the artwork surface does not exist at all, and a
+  // launch without artwork must look exactly as it always has.
+  if (!hasSelection || !launched) return LAUNCH_ARTWORK_STAGES.NONE;
+
+  switch (status) {
+    case 'AWAITING_SIGNATURE': return LAUNCH_ARTWORK_STAGES.SIGNING;
+    case 'UPLOADING': return LAUNCH_ARTWORK_STAGES.UPLOADING;
+    case 'UPLOADED': return LAUNCH_ARTWORK_STAGES.ATTACHED;
+    case 'FAILED': return LAUNCH_ARTWORK_STAGES.FAILED;
+    default:
+      // Not yet started. A wallet that is not the market's creator cannot sign a valid
+      // authorization, so say that instead of appearing to hang.
+      return walletMatchesCreator
+        ? LAUNCH_ARTWORK_STAGES.WAITING
+        : LAUNCH_ARTWORK_STAGES.WRONG_WALLET;
+  }
+}
+
+/** Whether the creator should be offered a retry, which reuses the already-selected file. */
+export function canRetryLaunchArtwork(stage) {
+  return stage === LAUNCH_ARTWORK_STAGES.FAILED || stage === LAUNCH_ARTWORK_STAGES.WRONG_WALLET;
+}
+
 export const ACCEPTED_IMAGE_EXTENSIONS = Object.freeze(['.png', '.jpg', '.jpeg', '.webp']);
 
 /** The `accept` attribute for a file input, derived from the same allowlist the server enforces. */
