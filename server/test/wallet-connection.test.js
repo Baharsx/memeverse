@@ -166,7 +166,12 @@ test('the header button opens the modal and never disconnects on a tap', async (
   assert.match(wallet, /modal\.open\('Connect'\)/, 'a disconnected tap opens the Connect view');
   // The old behaviour: one stray tap on a phone ended the session with no confirmation.
   assert.equal(wallet.includes('disconnect('), false, 'the header button must not disconnect');
-  assert.equal(main.includes('useDisconnect'), false, 'disconnect belongs to the Account view');
+  // `useDisconnect` does appear in main.jsx, but only in NetworkStatus, where a deliberate
+  // reconnect re-establishes a WalletConnect session that includes Arc. The header wallet button
+  // must never reach it.
+  const networkStatus = main.slice(main.indexOf('function NetworkStatus()'), main.indexOf('function BackendStatus()'));
+  assert.match(networkStatus, /useDisconnect\(\)/);
+  assert.equal(/useDisconnect\(\)/.test(wallet), false, 'disconnect belongs to the Account view');
   // The rendered string, matched as a string literal so the comment explaining the old bug does
   // not count as the bug.
   assert.equal(/'WALLET UNAVAILABLE|>WALLET UNAVAILABLE/.test(main), false);

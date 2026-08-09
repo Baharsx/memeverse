@@ -12,7 +12,9 @@ import {
   isUnknownChainError,
   isUserRejectedError,
   normalizeProviderError,
+  arcAuthorizedForSession,
 } from '../../src/arc-network-onboarding.js';
+import { createWalletConnectSession } from './helpers/walletconnect.js';
 
 /**
  * Arc network onboarding.
@@ -58,6 +60,23 @@ const run = (provider, sessionChainIds = []) => ensureArcNetwork({
 });
 
 const withCode = (code, message = 'failed') => Object.assign(new Error(message), { code });
+
+/** Runs the production onboarding path against the faithful WalletConnect session mock. */
+const runWalletConnect = (wc) => ensureArcNetwork({
+  connectorId: 'walletConnect',
+  sessionChainIds: wc.approvedChainIds(),
+  request: (args, chain) => wc.provider.request(args, chain),
+  readChainId: async () => Number.parseInt(await wc.provider.request({ method: 'eth_chainId' }), 16),
+  readSessionChainIds: async () => wc.approvedChainIds(),
+});
+
+/** A representative MemeVerse wallet call, addressed to Arc. */
+const arcRequest = (wc, method) => wc.provider.request({
+  method,
+  params: method === 'eth_sendTransaction'
+    ? [{ from: '0x1111111111111111111111111111111111111111', to: '0x2222222222222222222222222222222222222222', data: '0x', value: '0x0' }]
+    : ['0x68656c6c6f', '0x1111111111111111111111111111111111111111'],
+}, `eip155:${ARC_CHAIN_ID}`);
 
 /* ── H. The chain id itself ─────────────────────────────────────────────────── */
 
@@ -174,60 +193,38 @@ test('A: a wallet that knows Arc switches, and the switch is confirmed by a re-r
   assert.deepEqual(first.params, [{ chainId: '0x4cef52' }]);
 });
 
-/* ── B. Arc unknown → add → switch → verify ─────────────────────────────────── */
+/* ── B/C/F. WalletConnect: unknown Arc, added, and the session question ─────── */
 
-test('B: an unknown chain is added with the exact canonical params, then switched and verified', async () => {
-  let added = false;
-  const provider = mockProvider({
-    chainId: 1,
-    sessionChains: [1],
-    onRequest: (args, _chain, ctl) => {
-      if (args.method === 'wallet_switchEthereumChain') {
-        if (!added) return withCode(4902, 'Unrecognized chain ID');
-        ctl.setChainId(5042002);
-        return null;
-      }
-      if (args.method === 'wallet_addEthereumChain') { added = true; return null; }
-      return null;
-    },
-  });
-  const result = await run(provider, [1]);
+test('B: an unknown chain is added with the exact canonical params, on an authorised chain', async () => {
+  const wc = createWalletConnectSession({ approvedChains: [1], emitsSessionUpdate: true });
+  const result = await runWalletConnect(wc);
   assert.equal(result.ok, true);
   assert.equal(result.status, ARC_SWITCH_STATUS.ON_ARC);
 
-  const add = provider.calls.find((c) => c.method === 'wallet_addEthereumChain');
-  assert.ok(add, 'the wallet must be asked to add Arc');
+  const add = wc.walletRequests.find((c) => c.method === 'wallet_addEthereumChain');
+  assert.ok(add, 'the wallet must actually receive the add request');
   assert.deepEqual(add.params, [arcAddEthereumChainParams()]);
-  assert.deepEqual(add.params[0].rpcUrls, ['https://rpc.testnet.arc.network', 'https://rpc.quicknode.testnet.arc.network']);
-  // The defect in one assertion: this request has to go out on a chain the session authorises,
-  // or WalletConnect drops it and the wallet never shows a prompt at all.
-  assert.equal(add.chain, 'eip155:1');
+  assert.deepEqual(add.params[0].rpcUrls,
+    ['https://rpc.testnet.arc.network', 'https://rpc.quicknode.testnet.arc.network']);
+  // The defect in one assertion: addressed to a chain the session authorises, or sign-client
+  // rejects it locally and the wallet never shows a prompt at all.
+  assert.equal(add.chainId, 'eip155:1');
 });
 
-/* ── C. MetaMask Mobile's nested 4902 ───────────────────────────────────────── */
-
 test('C: MetaMask Mobile nesting 4902 under data.originalError still triggers the add', async () => {
-  let added = false;
-  const provider = mockProvider({
-    chainId: 1,
-    sessionChains: [1],
-    onRequest: (args, _chain, ctl) => {
-      if (args.method === 'wallet_switchEthereumChain') {
-        if (!added) {
-          return Object.assign(new Error('Internal JSON-RPC error.'), {
-            code: -32603, data: { originalError: { code: 4902, message: 'Unrecognized chain ID' } },
-          });
-        }
-        ctl.setChainId(5042002);
-        return null;
-      }
-      if (args.method === 'wallet_addEthereumChain') { added = true; return null; }
-      return null;
-    },
-  });
-  const result = await run(provider, [1]);
+  // The helper's wallet answers an unknown chain with exactly that nesting.
+  const wc = createWalletConnectSession({ approvedChains: [1], emitsSessionUpdate: true });
+  const result = await runWalletConnect(wc);
   assert.equal(result.ok, true, 'the nested code must not be mistaken for an unrelated failure');
-  assert.ok(provider.calls.some((c) => c.method === 'wallet_addEthereumChain'));
+  assert.ok(wc.walletRequests.some((c) => c.method === 'wallet_addEthereumChain'));
+});
+
+test('F: every WalletConnect request is addressed to a chain the session authorises', async () => {
+  const wc = createWalletConnectSession({ approvedChains: [1, 137], emitsSessionUpdate: true });
+  await runWalletConnect(wc);
+  for (const call of wc.walletRequests) {
+    assert.equal(call.chainId, 'eip155:1', `${call.method} must reach the wallet on an authorised chain`);
+  }
 });
 
 /* ── D. The add is rejected ─────────────────────────────────────────────────── */
@@ -305,33 +302,6 @@ test('E3: a wallet that refuses the switch but is already on Arc is reported as 
 
 /* ── F. WalletConnect specifics ─────────────────────────────────────────────── */
 
-test('F: a WalletConnect session that omits Arc goes straight to add, on an authorised chain', async () => {
-  let added = false;
-  const provider = mockProvider({
-    chainId: 1,
-    sessionChains: [1, 137],
-    onRequest: (args, _chain, ctl) => {
-      if (args.method === 'wallet_addEthereumChain') { added = true; return null; }
-      if (args.method === 'wallet_switchEthereumChain') {
-        if (!added) throw new Error('should not switch on an unauthorised chain first');
-        ctl.setChainId(5042002);
-        return null;
-      }
-      return null;
-    },
-  });
-  const result = await run(provider, [1, 137]);
-  assert.equal(result.ok, true);
-  // No wasted round trip on a request WalletConnect would have dropped.
-  assert.equal(provider.calls[0].method, 'wallet_addEthereumChain');
-  assert.equal(provider.calls[0].chain, 'eip155:1');
-  for (const call of provider.calls) {
-    if (call.method !== 'eth_chainId') {
-      assert.equal(call.chain, 'eip155:1', `${call.method} must be addressed to an authorised chain`);
-    }
-  }
-});
-
 /** Strips block and line comments so a rule about *code* is not satisfied or broken by prose. */
 function codeOnly(source) {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -391,8 +361,10 @@ test('G2: an injected wallet already on Arc switches with one call', async () =>
 test('J: every write path still gates on the wallet real chain', async () => {
   const main = await readFile(new URL('../../src/main.jsx', import.meta.url), 'utf8');
   const hook = await readFile(new URL('../../src/use-arc-network.js', import.meta.url), 'utf8');
-  assert.match(hook, /onArc: isConnected && chainId === arc\.id/);
-  assert.match(hook, /const \{ address, chainId, isConnected \} = useAccount\(\)/,
+  assert.match(hook, /const onChain = isConnected && chainId === arc\.id/);
+  assert.match(hook, /onArc: onChain && sessionAuthorized/,
+    'being on Arc is not enough: the session must be able to carry an Arc request');
+  assert.match(hook, /const \{ address, chainId, isConnected, connector \} = useAccount\(\)/,
     'the guard must read the connection chain, not the config default');
   // The four surfaces that can move money still read the same single answer.
   assert.equal((main.match(/useArcNetwork\(\)/g) ?? []).length >= 4, true);
@@ -408,4 +380,94 @@ test('J2: the control reports a failure instead of silently discarding it', asyn
   assert.match(status, /className="network-error"/);
   assert.equal(/switchChain\(\{ chainId: arc\.id \}\)/.test(status), false,
     'the fire-and-forget call is what left the user stuck');
+});
+
+/* ── Phase 3–6. The session, and whether it can actually transact on Arc ─────
+   Being on Arc is necessary and, over WalletConnect, not sufficient. sign-client validates every
+   request against the session before it reaches the relay, so a wallet can hold Arc, report Arc,
+   and still be unable to sign a single Arc transaction. These pin that distinction down. */
+
+test('K/L: a wallet that updates the session can then transact and sign on Arc', async () => {
+  const wc = createWalletConnectSession({ approvedChains: [1], emitsSessionUpdate: true });
+  assert.deepEqual(wc.sessionChains(), ['eip155:1'], 'INITIAL APPROVED CHAINS');
+
+  const result = await runWalletConnect(wc);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, ARC_SWITCH_STATUS.ON_ARC);
+  assert.deepEqual(wc.sessionChains(), ['eip155:1', 'eip155:5042002'], 'AFTER ARC ONBOARDING');
+
+  // K: a real transaction request, addressed to Arc, passes the permission layer.
+  const hash = await arcRequest(wc, 'eth_sendTransaction');
+  assert.match(String(hash), /^0x[0-9a-f]+$/i);
+  // L: and a signature.
+  for (const method of ['personal_sign', 'eth_signTypedData_v4']) {
+    const signature = await arcRequest(wc, method);
+    assert.match(String(signature), /^0x[0-9a-f]+$/i, `${method} must reach the wallet`);
+  }
+  const sawArc = wc.walletRequests.filter((c) => c.chainId === `eip155:${ARC_CHAIN_ID}`);
+  assert.ok(sawArc.length >= 3, 'the wallet received the Arc-addressed requests');
+});
+
+test('K/L: a wallet that does NOT update the session is not reported as ready', async () => {
+  // The common case, and the one the previous fix got wrong: the wallet adds Arc and switches to
+  // it, `eth_chainId` reports Arc — and every Arc request is still rejected locally by
+  // sign-client, because only the wallet can put a chain into a live session.
+  const wc = createWalletConnectSession({ approvedChains: [1], emitsSessionUpdate: false });
+  assert.deepEqual(wc.sessionChains(), ['eip155:1'], 'INITIAL APPROVED CHAINS');
+
+  const result = await runWalletConnect(wc);
+  assert.deepEqual(wc.sessionChains(), ['eip155:1'], 'AFTER ARC ONBOARDING: unchanged');
+  assert.equal(wc.walletHasArc(), true, 'the wallet did add Arc');
+  assert.equal(
+    Number.parseInt(await wc.provider.request({ method: 'eth_chainId' }), 16), ARC_CHAIN_ID,
+    'and the provider reports Arc — which is exactly why this cannot be the test',
+  );
+
+  assert.equal(result.ok, false, 'this session cannot sign on Arc, so it is not success');
+  assert.equal(result.status, ARC_SWITCH_STATUS.SESSION_REAUTH_REQUIRED);
+  assert.equal(result.message, 'RECONNECT WALLET TO FINISH ARC SETUP');
+
+  await assert.rejects(
+    () => arcRequest(wc, 'eth_sendTransaction'),
+    /Missing or invalid\. request\(\) chainId: eip155:5042002/,
+    'proof that reporting success here would have enabled a failing buy',
+  );
+  await assert.rejects(() => arcRequest(wc, 'personal_sign'), /Missing or invalid/);
+});
+
+test('a reconnect after the wallet has Arc yields a session that can transact', async () => {
+  // The supported remedy: not a hand-edited session, but a new one. By then the wallet knows Arc,
+  // so it approves the chain AppKit asks for.
+  const reconnected = createWalletConnectSession({ approvedChains: [1, ARC_CHAIN_ID], walletKnowsArc: true });
+  assert.ok(reconnected.sessionChains().includes(`eip155:${ARC_CHAIN_ID}`));
+
+  const result = await runWalletConnect(reconnected);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, ARC_SWITCH_STATUS.ON_ARC);
+  assert.match(String(await arcRequest(reconnected, 'eth_sendTransaction')), /^0x/);
+});
+
+test('session authorisation is required for WalletConnect and assumed for injected', () => {
+  assert.equal(arcAuthorizedForSession([]), true, 'an injected wallet has no session');
+  assert.equal(arcAuthorizedForSession([1]), false);
+  assert.equal(arcAuthorizedForSession([1, ARC_CHAIN_ID]), true);
+  assert.equal(arcAuthorizedForSession(null), true);
+});
+
+test('the write guard and the control both understand an unauthorised session', async () => {
+  const hook = await readFile(new URL('../../src/use-arc-network.js', import.meta.url), 'utf8');
+  // onArc gates writes, and it now requires the session too.
+  assert.match(hook, /onArc: onChain && sessionAuthorized/);
+  assert.match(hook, /readSessionChainIds: async \(\) => sessionChainIdsOf\(await active\.getProvider\(\)\)/);
+
+  const main = await readFile(new URL('../../src/main.jsx', import.meta.url), 'utf8');
+  const status = main.slice(main.indexOf('function NetworkStatus()'), main.indexOf('function BackendStatus()'));
+  assert.match(status, /ARC_SWITCH_STATUS\.SESSION_REAUTH_REQUIRED/);
+  assert.match(status, /RECONNECT WALLET/);
+  // The reconnect must go through the supported disconnect + AppKit connect flow.
+  assert.match(status, /await disconnectAsync\(\)/);
+  assert.match(status, /openWalletModal\('Connect'\)/);
+  // Never by editing a live session.
+  assert.equal(/session\.namespaces\s*=/.test(codeOnly(main)), false);
+  assert.equal(/namespaces\.eip155\.chains\.push/.test(codeOnly(main)), false);
 });

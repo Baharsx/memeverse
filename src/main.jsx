@@ -5,6 +5,7 @@ import {
   WagmiProvider,
   useAccount,
   useConnect,
+  useDisconnect,
   useSignMessage,
 } from 'wagmi';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
@@ -15,7 +16,7 @@ import {
   arcLinks,
 } from './arc';
 import { openWalletModal, wagmiConfig, walletModalAvailable } from './reown-appkit.js';
-import { ARC_MANUAL_NETWORK } from './arc-network-onboarding.js';
+import { ARC_MANUAL_NETWORK, ARC_SWITCH_STATUS } from './arc-network-onboarding.js';
 import { useArcNetwork, useArcNetworkSwitch } from './use-arc-network.js';
 import {
   RESTRICTED_BROWSER_HINT,
@@ -261,11 +262,27 @@ function Wallet() {
 function NetworkStatus() {
   const { isConnected, onArc } = useArcNetwork();
   const arcSwitch = useArcNetworkSwitch();
+  const { disconnectAsync } = useDisconnect();
   const [showManual, setShowManual] = useState(false);
+  const needsReconnect = arcSwitch.status === ARC_SWITCH_STATUS.SESSION_REAUTH_REQUIRED;
 
   async function requestArc() {
     const ok = await arcSwitch.switchToArc();
-    if (!ok) setShowManual(true);
+    // A reconnect is a normal next step, not a dead end, so the manual settings stay hidden for it.
+    if (!ok && arcSwitch.status !== ARC_SWITCH_STATUS.SESSION_REAUTH_REQUIRED) setShowManual(true);
+  }
+
+  /*
+    The wallet now has Arc but this session does not, and only the wallet can add a chain to a
+    live session. A fresh session is the supported way through: AppKit asks for Arc again on
+    connect, and this time the wallet recognises it. Nothing about the session is hand-edited.
+  */
+  async function reconnectForArc() {
+    try {
+      await disconnectAsync();
+    } finally {
+      openWalletModal('Connect');
+    }
   }
 
   return (
@@ -284,6 +301,11 @@ function NetworkStatus() {
         ? (
           <span className="network-error" role="alert">
             {arcSwitch.message}
+            {needsReconnect ? (
+              <button type="button" className="network-reconnect" onClick={reconnectForArc}>
+                RECONNECT WALLET →
+              </button>
+            ) : null}
             {showManual ? (
               <em>
                 ADD MANUALLY // {ARC_MANUAL_NETWORK.chainName} // CHAIN {ARC_MANUAL_NETWORK.chainIdDecimal}

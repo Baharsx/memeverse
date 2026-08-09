@@ -129,6 +129,7 @@ export function normalizeProviderError(error, { connectorId = null, method = nul
 
 export const ARC_SWITCH_STATUS = Object.freeze({
   ON_ARC: 'ON_ARC',
+  SESSION_REAUTH_REQUIRED: 'SESSION_REAUTH_REQUIRED',
   REJECTED: 'REJECTED',
   ADD_FAILED: 'ADD_FAILED',
   SWITCH_UNSUPPORTED: 'SWITCH_UNSUPPORTED',
@@ -136,6 +137,7 @@ export const ARC_SWITCH_STATUS = Object.freeze({
 });
 
 export const ARC_SWITCH_MESSAGES = Object.freeze({
+  [ARC_SWITCH_STATUS.SESSION_REAUTH_REQUIRED]: 'RECONNECT WALLET TO FINISH ARC SETUP',
   [ARC_SWITCH_STATUS.REJECTED]: 'ARC NETWORK SWITCH REJECTED',
   [ARC_SWITCH_STATUS.ADD_FAILED]: 'ARC NETWORK COULD NOT BE ADDED',
   [ARC_SWITCH_STATUS.SWITCH_UNSUPPORTED]: 'WALLET DOES NOT SUPPORT ARC NETWORK SWITCHING',
@@ -157,6 +159,23 @@ export function authorizedRequestChain({ sessionChainIds = [], preferred = ARC_C
 }
 
 /**
+ * Whether this session may carry an Arc request at all.
+ *
+ * `@walletconnect/sign-client` validates every request against the session before it reaches the
+ * relay: `isValidNamespacesChainId(namespaces, chainId)` must hold, or the call is rejected
+ * locally with `Missing or invalid. request() chainId: eip155:5042002`. So a wallet can have Arc
+ * configured, and the provider can report Arc from `eth_chainId`, and every transaction will
+ * still fail — because the *session* never gained the chain.
+ *
+ * An empty list means there is no WalletConnect session (an injected wallet), where the question
+ * does not arise and the answer is yes.
+ */
+export function arcAuthorizedForSession(sessionChainIds) {
+  if (!Array.isArray(sessionChainIds) || sessionChainIds.length === 0) return true;
+  return sessionChainIds.includes(ARC_CHAIN_ID);
+}
+
+/**
  * Drive a wallet onto Arc, and prove it got there.
  *
  * @param {object} options
@@ -166,6 +185,9 @@ export function authorizedRequestChain({ sessionChainIds = [], preferred = ARC_C
  * @param {() => Promise<number|null>} options.readChainId Reads the wallet's real chain id.
  * @param {number[]} [options.sessionChainIds] Chains the WalletConnect session authorises; empty
  *   for an injected wallet.
+ * @param {() => Promise<number[]>} [options.readSessionChainIds] Re-reads those chains after the
+ *   wallet has been dealt with. A wallet that adds Arc may or may not update the session, and only
+ *   the wallet can — so this is read rather than assumed.
  * @param {string|null} [options.connectorId] For diagnostics only.
  * @returns {Promise<{ok: boolean, status: string, message: string|null, diagnostic: object|null, calls: object[]}>}
  */
@@ -173,6 +195,7 @@ export async function ensureArcNetwork({
   request,
   readChainId,
   sessionChainIds = [],
+  readSessionChainIds = null,
   connectorId = null,
 }) {
   const calls = [];
@@ -187,6 +210,29 @@ export async function ensureArcNetwork({
     // while the wallet stays exactly where it was — neither is inferred, both are read.
     const actual = await readChainId().catch(() => null);
     if (actual === ARC_CHAIN_ID) {
+      /*
+        Being on Arc is necessary and, over WalletConnect, not sufficient. `eth_chainId` is
+        answered by the provider from its own default chain — it never reaches the wallet — and
+        that default is set optimistically the moment a switch resolves. Meanwhile sign-client
+        rejects every request whose chain is absent from the session. So a wallet can be on Arc,
+        report Arc, and still be unable to sign anything on Arc.
+
+        Only the wallet can add a chain to a live session, so the session is re-read here. If Arc
+        did not arrive, this is reported as needing a reconnect rather than as success: a new
+        session asks for Arc again, and this time the wallet has it.
+      */
+      const authorized = readSessionChainIds
+        ? arcAuthorizedForSession(await readSessionChainIds().catch(() => sessionChainIds))
+        : arcAuthorizedForSession(sessionChainIds);
+      if (!authorized) {
+        return {
+          ok: false,
+          status: ARC_SWITCH_STATUS.SESSION_REAUTH_REQUIRED,
+          message: ARC_SWITCH_MESSAGES[ARC_SWITCH_STATUS.SESSION_REAUTH_REQUIRED],
+          diagnostic: null,
+          calls,
+        };
+      }
       return { ok: true, status: ARC_SWITCH_STATUS.ON_ARC, message: null, diagnostic: null, calls };
     }
     return {

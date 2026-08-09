@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAccount, useConfig } from 'wagmi';
 import { getAccount } from 'wagmi/actions';
 import { arc } from './arc.js';
 import {
   ARC_CHAIN_ID,
   ARC_SWITCH_STATUS,
+  arcAuthorizedForSession,
   ensureArcNetwork,
 } from './arc-network-onboarding.js';
 
@@ -22,14 +23,60 @@ import {
  * answer, and so a transaction can never be offered against an unintended network.
  */
 export function useArcNetwork() {
-  const { address, chainId, isConnected } = useAccount();
+  const { address, chainId, isConnected, connector } = useAccount();
+  const sessionAuthorized = useArcSessionAuthorization(connector, chainId);
+  /*
+    Being on Arc is not the same as being able to transact on Arc. Over WalletConnect,
+    sign-client refuses any request whose chain is missing from the session, and the chain the
+    provider reports is its own optimistic default rather than anything the wallet said. So the
+    guard that enables signing requires both: the wallet is on Arc, and this session may carry an
+    Arc request. An injected wallet has no session and is authorised by definition.
+  */
+  const onChain = isConnected && chainId === arc.id;
   return {
     address,
     isConnected,
     chainId: chainId ?? null,
-    onArc: isConnected && chainId === arc.id,
-    wrongNetwork: isConnected && chainId !== arc.id,
+    sessionAuthorized,
+    onArc: onChain && sessionAuthorized,
+    // Still "on the wrong network" from the visitor's point of view: the remedy is the same
+    // control, and it now knows to ask for a reconnect rather than another switch.
+    wrongNetwork: isConnected && !(onChain && sessionAuthorized),
   };
+}
+
+/**
+ * Whether the live WalletConnect session authorises Arc.
+ *
+ * Resolved from the connector rather than assumed, and re-resolved whenever the connection or the
+ * chain changes. It starts as `true` for the case that dominates — an injected wallet, which has
+ * no session — and is corrected to `false` only once a WalletConnect session is found to be
+ * missing Arc, so a desktop extension never flickers into a disabled state on mount.
+ */
+function useArcSessionAuthorization(connector, chainId) {
+  const [authorized, setAuthorized] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!connector) { setAuthorized(true); return undefined; }
+    (async () => {
+      try {
+        const provider = await connector.getProvider();
+        const chains = provider?.session?.namespaces?.eip155?.chains;
+        if (cancelled) return;
+        if (!Array.isArray(chains)) { setAuthorized(true); return; }
+        setAuthorized(arcAuthorizedForSession(
+          chains.map((caip) => Number.parseInt(String(caip).split(':')[1], 10)),
+        ));
+      } catch {
+        // A provider that cannot be read is not evidence of anything; leave the guard as it was
+        // rather than disabling a working wallet on a transient failure.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [connector, chainId]);
+
+  return authorized;
 }
 
 /**
@@ -72,6 +119,7 @@ export function useArcNetworkSwitch() {
         connectorId: active.id,
         sessionChainIds: sessionChainIdsOf(provider),
         request: (args, chain) => (chain ? provider.request(args, chain) : provider.request(args)),
+        readSessionChainIds: async () => sessionChainIdsOf(await active.getProvider()),
         readChainId: async () => {
           const hex = await provider.request({ method: 'eth_chainId' });
           const parsed = Number.parseInt(String(hex), 16);
@@ -102,6 +150,7 @@ export function useArcNetworkSwitch() {
 
   return {
     switchToArc,
+    status: state.status,
     isPending: state.status === 'pending',
     failed: !['idle', 'pending', ARC_SWITCH_STATUS.ON_ARC].includes(state.status),
     message: state.message,
