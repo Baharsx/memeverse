@@ -58,9 +58,11 @@ test('the wallet layer reuses the existing Arc definition rather than a second c
 test('AppKit is told to use MemeVerse Arc endpoints, not an unrelated RPC', () => {
   const urls = reownCustomRpcUrls[reownArcCaipNetworkId].map((entry) => entry.url);
   assert.deepEqual(urls, [ARC_RPC_URL, ARC_FALLBACK_RPC_URL]);
-  // Reown's Blockchain API does not serve Arc, so nothing of theirs may appear here.
+  // Reown's Blockchain API does not serve Arc, so nothing of theirs may appear here. The hosts
+  // are the canonical `.arc.network` endpoints: these are no longer only a read transport, they
+  // are what a wallet is asked to register for Arc through EIP-3085.
   for (const url of urls) {
-    assert.ok(url.includes('arc.io'), `${url} must be an Arc endpoint`);
+    assert.ok(url.endsWith('.arc.network'), `${url} must be a canonical Arc endpoint`);
     assert.equal(url.includes('walletconnect'), false);
   }
 });
@@ -259,7 +261,7 @@ test('the policy permits the relay a mobile wallet pairs over', async () => {
   const connect = contentSecurityPolicyDirectives()['connect-src'];
   assert.ok(connect.includes('wss://relay.walletconnect.org'), 'no relay means no mobile wallet');
   assert.ok(connect.includes('https://api.web3modal.org'), 'no catalogue means an empty modal');
-  // The Arc endpoints the application actually transacts against are untouched.
-  assert.ok(connect.includes('https://rpc.testnet.arc.io'));
-  assert.ok(connect.includes('https://rpc.drpc.testnet.arc.io'));
+  // The Arc endpoints the application transacts against, canonical ones first.
+  assert.ok(connect.includes('https://rpc.testnet.arc.network'));
+  assert.ok(connect.includes('https://rpc.quicknode.testnet.arc.network'));
 });

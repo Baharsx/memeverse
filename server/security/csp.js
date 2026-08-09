@@ -5,7 +5,14 @@
  * policy through a `<meta http-equiv>` tag. Development keeps Vite's own relaxed behaviour
  * because the dev server needs inline module preambles and an eval-based HMR client.
  */
+// The canonical Arc Testnet endpoints the browser reads and transacts through, first two, plus
+// the two this project used to override them with. The older pair stays allowed rather than
+// removed: `ARC_RPC_URL` and `ARC_FALLBACK_RPC_URL` are still environment-overridable, the server
+// default still names one of them, and every one of the four was verified to answer `eth_chainId`
+// with `0x4cef52`. An allowlist entry permits a request; it does not choose one.
 const ARC_RPC_ORIGINS = Object.freeze([
+  'https://rpc.testnet.arc.network',
+  'https://rpc.quicknode.testnet.arc.network',
   'https://rpc.testnet.arc.io',
   'https://rpc.drpc.testnet.arc.io',
 ]);

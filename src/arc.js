@@ -4,21 +4,43 @@ import { arcTestnet as viemArcTestnet } from 'viem/chains';
 // Node, so the Arc constants and the helpers built on them can be unit tested without a bundler.
 const viteEnv = import.meta.env ?? {};
 
+/**
+ * The canonical Arc Testnet endpoints, as published in the official chain definition that ships
+ * with viem (`viem/chains` → `arcTestnet`) and used by the wider wallet ecosystem.
+ *
+ * These replace the `rpc.testnet.arc.io` / `rpc.drpc.testnet.arc.io` pair this file used to
+ * override them with. Both of those still answer, and both still return chain `0x4cef52`, so
+ * neither was broken — but neither appears in the canonical chain definition either, and this
+ * value is no longer only an application transport: it is now the RPC URL a wallet is asked to
+ * register for Arc through EIP-3085, and what a wallet stores should be the official endpoint.
+ *
+ * Both hosts below were verified to answer `eth_chainId` with `0x4cef52`, to answer
+ * `eth_blockNumber`, and to send `Access-Control-Allow-Origin: https://memeverse.biz`, so the
+ * browser can read through them exactly as before.
+ */
 export const ARC_RPC_URL =
-  viteEnv.VITE_ARC_RPC_URL?.trim() || 'https://rpc.testnet.arc.io';
+  viteEnv.VITE_ARC_RPC_URL?.trim() || 'https://rpc.testnet.arc.network';
 export const ARC_FALLBACK_RPC_URL =
-  viteEnv.VITE_ARC_FALLBACK_RPC_URL?.trim() || 'https://rpc.drpc.testnet.arc.io';
+  viteEnv.VITE_ARC_FALLBACK_RPC_URL?.trim() || 'https://rpc.quicknode.testnet.arc.network';
+
+/**
+ * 5042002 as EIP-155 hex. Stated once, proven by test against the decimal id, because a wallet
+ * network registration is written in hex and one wrong nibble registers a different chain
+ * entirely — `0x4CF4B2`, which appears in some stale material, is 5043378, not Arc.
+ */
+export const ARC_CHAIN_ID = viemArcTestnet.id;
+export const ARC_CHAIN_ID_HEX = '0x4cef52';
 
 export const arc = {
   ...viemArcTestnet,
   rpcUrls: {
     default: {
-      http: [ARC_RPC_URL],
-      webSocket: ['wss://rpc.testnet.arc.io'],
+      http: [ARC_RPC_URL, ARC_FALLBACK_RPC_URL],
+      webSocket: ['wss://rpc.testnet.arc.network'],
     },
     public: {
       http: [ARC_FALLBACK_RPC_URL],
-      webSocket: ['wss://rpc.drpc.testnet.arc.io'],
+      webSocket: ['wss://rpc.quicknode.testnet.arc.network'],
     },
   },
   blockExplorers: {

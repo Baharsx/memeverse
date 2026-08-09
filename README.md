@@ -185,9 +185,10 @@ MemeVerse uses only parameters currently published in the official Arc documenta
 |---|---|
 | Chain ID | `5042002` |
 | Native gas | USDC |
-| RPC | `https://rpc.testnet.arc.io` |
-| Documented fallback RPC | `https://rpc.drpc.testnet.arc.io` |
-| WebSocket | `wss://rpc.testnet.arc.io` |
+| Chain ID (hex, for wallet registration) | `0x4cef52` |
+| RPC | `https://rpc.testnet.arc.network` |
+| Documented fallback RPC | `https://rpc.quicknode.testnet.arc.network` |
+| WebSocket | `wss://rpc.testnet.arc.network` |
 | Explorer | `https://testnet.arcscan.app` |
 | Faucet | `https://faucet.circle.com/` |
 | Finality handling | 1 confirmed block |
@@ -199,6 +200,21 @@ cp .env.example .env.local
 ```
 
 Only public browser configuration may use a `VITE_*` variable. Never place private keys or privileged Circle credentials in a Vite environment variable.
+
+**On the RPC host.** These are the canonical endpoints from the official chain definition. Earlier
+releases overrode them with `rpc.testnet.arc.io` and `rpc.drpc.testnet.arc.io`; both still answer,
+and both still return chain `0x4cef52`, so neither was broken. They were replaced because the RPC
+is no longer only an application transport — it is what a wallet stores when MemeVerse asks it to
+add Arc through EIP-3085, and what a wallet stores should be the official endpoint. All four hosts
+remain in the Content Security Policy, because `VITE_ARC_RPC_URL` is still overridable and an
+allowlist entry permits a request rather than choosing one.
+
+**On `nativeCurrency.decimals`.** The Arc chain definition declares the native gas currency as
+USDC with **18** decimals, and that is what the EIP-3085 registration sends — EIP-3085 describes
+the chain's native balance, and wallets reject a native currency declared with any other
+precision. This is not the ERC-20 USDC token, which is **6** decimals and is what every MemeVerse
+price, quote, approval, and settlement is denominated in. The two are different things that share
+a name; nothing about token maths changed.
 
 ## Wallet connection (Reown AppKit)
 

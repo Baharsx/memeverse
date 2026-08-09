@@ -6,7 +6,6 @@ import {
   useAccount,
   useConnect,
   useSignMessage,
-  useSwitchChain,
 } from 'wagmi';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import {
@@ -16,7 +15,8 @@ import {
   arcLinks,
 } from './arc';
 import { openWalletModal, wagmiConfig, walletModalAvailable } from './reown-appkit.js';
-import { useArcNetwork } from './use-arc-network.js';
+import { ARC_MANUAL_NETWORK } from './arc-network-onboarding.js';
+import { useArcNetwork, useArcNetworkSwitch } from './use-arc-network.js';
 import {
   RESTRICTED_BROWSER_HINT,
   isRestrictedEmbeddedBrowser,
@@ -249,22 +249,51 @@ function Wallet() {
   );
 }
 
+/**
+ * The switch-to-Arc control.
+ *
+ * It no longer fires `switchChain` and forgets it. A wallet that has never seen Arc has to be
+ * asked to add it, over a request WalletConnect will actually deliver, and the result has to be
+ * read back from the wallet rather than assumed — all of which lives in `useArcNetworkSwitch`.
+ * What is left here is the button, one line of plain error text, and the manual settings a
+ * visitor needs if their wallet refuses custom networks altogether.
+ */
 function NetworkStatus() {
   const { isConnected, onArc } = useArcNetwork();
-  const { switchChain, isPending } = useSwitchChain();
+  const arcSwitch = useArcNetworkSwitch();
+  const [showManual, setShowManual] = useState(false);
+
+  async function requestArc() {
+    const ok = await arcSwitch.switchToArc();
+    if (!ok) setShowManual(true);
+  }
 
   return (
     <div className="network-switch" role="group" aria-label="Arc Testnet connection status">
       <button
         type="button"
         className={onArc ? 'active' : ''}
-        disabled={!isConnected || isPending}
-        onClick={() => switchChain({ chainId: arc.id })}
+        disabled={!isConnected || arcSwitch.isPending}
+        onClick={requestArc}
         title={isConnected ? 'Switch to Arc Testnet' : 'Connect a wallet first'}
       >
         <i />BUILT ON ARC
-        <sup>{isPending ? 'WAIT' : onArc ? 'ON' : 'READY'}</sup>
+        <sup>{arcSwitch.isPending ? 'WAIT' : onArc ? 'ON' : 'READY'}</sup>
       </button>
+      {!onArc && arcSwitch.failed && arcSwitch.message
+        ? (
+          <span className="network-error" role="alert">
+            {arcSwitch.message}
+            {showManual ? (
+              <em>
+                ADD MANUALLY // {ARC_MANUAL_NETWORK.chainName} // CHAIN {ARC_MANUAL_NETWORK.chainIdDecimal}
+                {' '}({ARC_MANUAL_NETWORK.chainIdHex}) // RPC {ARC_MANUAL_NETWORK.rpcUrl}
+                {' '}// {ARC_MANUAL_NETWORK.currencySymbol}
+              </em>
+            ) : null}
+          </span>
+        )
+        : null}
     </div>
   );
 }

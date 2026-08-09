@@ -604,3 +604,24 @@ input[type="file"]:focus-visible{outline:2px solid var(--acid);outline-offset:2p
   .site-header .wallet{max-width:56%;padding:10px 12px;font-size:10px}
   .wallet-balance{display:none}
 }
+
+/* ── Switch-to-Arc failure ──────────────────────────────────────────────────
+   A failed network switch used to be silent: the click handler discarded the rejection, so the
+   wallet stayed on the wrong chain and the interface said nothing about why. This is that missing
+   line — one short sentence, and only once the automatic path has actually failed. Provider stack
+   traces stay in the console where they belong. */
+.network-error{
+  display:block;max-width:100%;min-width:0;
+  padding:6px 12px;font:9px/1.5 var(--mono);letter-spacing:.05em;
+  color:var(--down);overflow-wrap:anywhere;
+}
+.network-error em{
+  display:block;margin-top:4px;font-style:normal;color:var(--mute);
+}
+@media(max-width:800px){
+  /* The network bar is a fixed-height grid row; the error needs its own line rather than a
+     squeeze that would push the switch control off the side of the screen. */
+  .network-bar{height:auto}
+  .network-center{flex-wrap:wrap}
+  .network-error{padding:6px 0 8px}
+}
