@@ -201,10 +201,12 @@ test('both judge-facing surfaces filter through the one shared helper', async ()
   const marketsPage = source.slice(source.indexOf('function Markets()'));
   assert.ok(marketsPage.includes('publicMarkets(markets.data)'), 'the Markets page filters through the helper');
   // Selection, the rendered list, the empty state, and the artwork lookup all read the filtered
-  // set, so a hidden market can never be selected or quoted.
-  assert.ok(marketsPage.includes('visibleMarkets.find('), 'selection reads the filtered set');
-  assert.ok(marketsPage.includes('visibleMarkets.map('), 'the list renders the filtered set');
-  assert.ok(marketsPage.includes('!visibleMarkets.length'), 'the empty state reads the filtered set');
+  // factory set (then merged with imported onchain markets). A hidden factory market can never
+  // be selected or quoted unless a visitor explicitly pastes its address.
+  assert.ok(marketsPage.includes('visibleMarkets.map('), 'the factory set still feeds the board');
+  assert.ok(marketsPage.includes('boardMarkets.find('), 'selection reads the tradeable board');
+  assert.ok(marketsPage.includes('boardMarkets.map('), 'the board renders the tradeable set');
+  assert.ok(marketsPage.includes('!boardMarkets.length'), 'the empty state reads the tradeable set');
   assert.equal(
     /markets\.data\??\.(map|length|\[0\])/.test(marketsPage),
     false,

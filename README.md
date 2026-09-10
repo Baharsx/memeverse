@@ -93,6 +93,24 @@ npm audit
 
 None of those write to the chain.
 
+### Update production in one command
+
+On the live host (`unruly-fuel`), as root:
+
+```bash
+sudo bash /opt/memeverse/scripts/update-production.sh
+```
+
+That fetches `origin/main`, installs deps, rebuilds `/opt/memeverse/dist` with the production `VITE_*` values from `/etc/memeverse/memeverse.env`, and restarts `memeverse-api`. The worker is left running; pass `--restart-worker` only when the worker code itself changed.
+
+If the checkout is still on an older SHA that does not have the script yet:
+
+```bash
+sudo git -C /opt/memeverse fetch origin main
+sudo git -C /opt/memeverse checkout origin/main -- scripts/update-production.sh
+sudo bash /opt/memeverse/scripts/update-production.sh
+```
+
 ---
 
 **MemeVerse is an Arc Public Testnet product. It is not independently audited and is not mainnet

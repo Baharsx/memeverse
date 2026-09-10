@@ -71,6 +71,15 @@ import {
   marketSpotPerTokenLabel,
   publicMarkets,
 } from './market-display';
+import {
+  filterTradeableMarkets,
+  marketSoldPercent,
+  mergeTradeableMarkets,
+  parseMarketAddress,
+  persistImportedMarketAddress,
+  readImportedMarketAddresses,
+  sortTradeableMarkets,
+} from './imported-markets';
 // Read here only to state truthfully whether this build has the Stage 2 addresses configured.
 import { stage2Contracts } from './assets';
 import {
@@ -85,6 +94,7 @@ import {
   minimumAfterSlippage,
   parseUsdc,
   parseWholeTokens,
+  probeMemeMarket,
   quoteBuy,
   quoteSell,
   tokenSupplyValue,
@@ -549,8 +559,9 @@ function Home() {
             agent watches the real trading record and pays that creator without anyone approving it.
           </p>
           <div className="hero-actions">
-            <NavLink className="btn primary" to="/markets">EXPLORE LIVE ECONOMY →</NavLink>
-            <NavLink className="btn secondary" to="/agent">WATCH THE AGENT</NavLink>
+            <NavLink className="btn primary" to="/launch">LAUNCH A MEME →</NavLink>
+            <NavLink className="btn primary" to="/markets">TRADE ONCHAIN →</NavLink>
+            <NavLink className="btn secondary" to="/nft">OPEN MARKETPLACE</NavLink>
             <NavLink className="btn secondary" to="/safety">VERIFY ON ARC</NavLink>
           </div>
         </div>
@@ -1016,6 +1027,12 @@ function Markets() {
   const [side, setSide] = useState('BUY');
   const [buyAmount, setBuyAmount] = useState('0.01');
   const [sellAmount, setSellAmount] = useState('1');
+  const [boardQuery, setBoardQuery] = useState('');
+  const [boardSort, setBoardSort] = useState('newest');
+  const [onlyHeld, setOnlyHeld] = useState(false);
+  const [importValue, setImportValue] = useState('');
+  const [importState, setImportState] = useState({ status: 'IDLE', message: null });
+  const [importedAddresses, setImportedAddresses] = useState(() => readImportedMarketAddresses());
   const slippageBps = 100;
   const markets = useQuery({
     queryKey: ['onchain-markets', address ?? 'anonymous'],
@@ -1032,10 +1049,29 @@ function Markets() {
   /*
     What this page browses: every registered market except the project's own legacy test markets.
     The full factory result stays in `markets.data` and is untouched — this is the presentation
-    view of it, and it is the only thing rendered, selected, or quoted below.
+    view of it. Imported onchain markets are merged on afterwards and never rewrite the factory set.
   */
   const visibleMarkets = useMemo(() => publicMarkets(markets.data), [markets.data]);
-  const visibleAddresses = visibleMarkets.map((market) => market.address).join(',');
+  const importedMarkets = useQuery({
+    queryKey: ['imported-onchain-markets', importedAddresses.join(','), address ?? 'anonymous'],
+    queryFn: async () => {
+      const loaded = [];
+      for (const imported of importedAddresses) {
+        const probed = await probeMemeMarket(imported, address);
+        if (probed.ok) loaded.push(probed.market);
+      }
+      return loaded;
+    },
+    enabled: importedAddresses.length > 0,
+    retry: 1,
+    staleTime: 12_000,
+  });
+  const boardMarkets = useMemo(() => {
+    const merged = mergeTradeableMarkets(visibleMarkets, importedMarkets.data);
+    const filtered = filterTradeableMarkets(merged, { query: boardQuery, onlyHeld });
+    return sortTradeableMarkets(filtered, boardSort);
+  }, [visibleMarkets, importedMarkets.data, boardQuery, boardSort, onlyHeld]);
+  const visibleAddresses = boardMarkets.map((market) => market.address).join(',');
 
   /*
     Artwork for every listed market, in one request rather than one per row. Deliberately a
@@ -1044,14 +1080,14 @@ function Markets() {
   */
   const marketImages = useQuery({
     queryKey: ['market-images', visibleAddresses],
-    queryFn: () => getMarketImages(visibleMarkets.map((market) => market.address)),
-    enabled: visibleMarkets.length > 0,
+    queryFn: () => getMarketImages(boardMarkets.map((market) => market.address)),
+    enabled: boardMarkets.length > 0,
     staleTime: 30_000,
   });
   const imageFor = (market) => mediaContentUrl(marketImages.data?.[market?.address]?.url);
 
-  const selected = visibleMarkets.find((market) => market.address === selectedAddress)
-    ?? visibleMarkets[0]
+  const selected = boardMarkets.find((market) => market.address === selectedAddress)
+    ?? boardMarkets[0]
     ?? null;
   /*
     Keep the stored selection pointing at something this page can actually show. Selecting only
@@ -1061,9 +1097,9 @@ function Markets() {
     with one rule.
   */
   useEffect(() => {
-    if (!visibleMarkets.length) return;
-    const stillVisible = visibleMarkets.some((market) => market.address === selectedAddress);
-    if (!stillVisible) setSelectedAddress(visibleMarkets[0].address);
+    if (!boardMarkets.length) return;
+    const stillVisible = boardMarkets.some((market) => market.address === selectedAddress);
+    if (!stillVisible) setSelectedAddress(boardMarkets[0].address);
   }, [visibleAddresses, selectedAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   let buyUnits = 0n;
@@ -1096,10 +1132,44 @@ function Markets() {
   async function refreshMarketState() {
     await Promise.all([
       markets.refetch(),
+      importedMarkets.refetch(),
       usdcBalance.refetch(),
       queryClient.invalidateQueries({ queryKey: ['market-buy-quote'] }),
       queryClient.invalidateQueries({ queryKey: ['market-sell-quote'] }),
     ]);
+  }
+
+  async function importOnchainMarket(event) {
+    event.preventDefault();
+    const parsed = parseMarketAddress(importValue);
+    if (!parsed) {
+      setImportState({ status: 'ERROR', message: 'Paste a 20-byte Arc contract address.' });
+      return;
+    }
+    setImportState({ status: 'LOADING', message: 'Reading the contract on Arc…' });
+    try {
+      const probed = await probeMemeMarket(parsed, address);
+      if (!probed.ok) {
+        const copy = {
+          INVALID_ADDRESS: 'Paste a 20-byte Arc contract address.',
+          NOT_MEME_MARKET: 'That contract is not a MemeVerse USDC market. Buy and sell only work on MemeMarket contracts.',
+          NOT_USDC_MARKET: 'That market does not settle in Arc USDC, so it cannot be traded here.',
+        }[probed.code] ?? 'That contract could not be loaded as a tradable market.';
+        setImportState({ status: 'ERROR', message: copy });
+        return;
+      }
+      setImportedAddresses(persistImportedMarketAddress(probed.market.address));
+      setSelectedAddress(probed.market.address);
+      setImportValue('');
+      setImportState({
+        status: 'OK',
+        message: probed.market.origin === 'FACTORY'
+          ? `${probed.market.symbol} is already a live factory market.`
+          : `${probed.market.symbol} imported from Arc. You can buy and sell it against the USDC curve.`,
+      });
+    } catch (error) {
+      setImportState({ status: 'ERROR', message: error.shortMessage ?? error.message ?? 'Import failed.' });
+    }
   }
 
   async function approveUsdc() {
@@ -1148,24 +1218,106 @@ function Markets() {
   return (
     <section className="page markets-page">
       <Title n="02 TRADE" t="ONCHAIN USDC MARKETS" />
-      <p className="lede">Markets are read directly from the deployed MemeVerse factory. Quotes, reserves, positions, fees, and balances are live Arc Public Testnet state. Every buy and sell pays the creator and the treasury inside the same transaction.</p>
-      {markets.isError ? <p className="agent-error" role="alert">ARC RPC READ FAILED // {markets.error.shortMessage ?? 'Public RPC unavailable. Retry shortly.'}</p> : null}
-      {!markets.isPending && !visibleMarkets.length ? (
-        <div className="empty"><Mascot small /><span>ONCHAIN MARKETS: 0<br /><NavLink to="/launch">LAUNCH THE FIRST MARKET →</NavLink></span></div>
+      <p className="lede">
+        Trade any MemeVerse market that lives on Arc — launched here or pasted from a contract
+        address. Quotes, reserves, positions, and fees are live chain state. Every buy and sell
+        pays the creator and the treasury in the same transaction.
+      </p>
+      <form className="market-toolbar" onSubmit={importOnchainMarket}>
+        <label className="market-search">
+          SEARCH
+          <input
+            value={boardQuery}
+            onChange={(event) => setBoardQuery(event.target.value)}
+            placeholder="Name, ticker, or 0x address"
+            type="search"
+          />
+        </label>
+        <label>
+          SORT
+          <select value={boardSort} onChange={(event) => setBoardSort(event.target.value)}>
+            <option value="newest">Newest onchain</option>
+            <option value="reserve">Highest USDC reserve</option>
+            <option value="sold">Most sold</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          className={`btn ghost filter-held ${onlyHeld ? 'active' : ''}`}
+          aria-pressed={onlyHeld}
+          onClick={() => setOnlyHeld((current) => !current)}
+        >
+          {onlyHeld ? 'SHOWING YOUR BAGS' : 'YOUR POSITIONS'}
+        </button>
+        <label className="market-import">
+          IMPORT ANY ONCHAIN MARKET
+          <span>
+            <input
+              value={importValue}
+              onChange={(event) => setImportValue(event.target.value)}
+              placeholder="0x… market address on Arc"
+              spellCheck="false"
+            />
+            <button className="btn primary" disabled={importState.status === 'LOADING'}>
+              {importState.status === 'LOADING' ? 'READING ARC…' : 'TRADE IT →'}
+            </button>
+          </span>
+        </label>
+      </form>
+      {importState.message ? (
+        <p className={importState.status === 'ERROR' ? 'agent-error' : 'import-ok'} role="status">
+          {importState.message}
+        </p>
       ) : null}
-      {visibleMarkets.length ? (
-        <div className="market-layout">
-          <div className="market-list" role="group" aria-label="Onchain markets">
-            {visibleMarkets.map((market) => (
-              <button key={market.address} type="button" className={selected?.address === market.address ? 'active' : ''} onClick={() => setSelectedAddress(market.address)}>
+      {markets.isError ? <p className="agent-error" role="alert">ARC RPC READ FAILED // {markets.error.shortMessage ?? 'Public RPC unavailable. Retry shortly.'}</p> : null}
+      {!markets.isPending && !boardMarkets.length ? (
+        <div className="empty"><Mascot small /><span>NO MARKETS MATCH THIS VIEW<br /><NavLink to="/launch">LAUNCH A MARKET →</NavLink></span></div>
+      ) : null}
+      {boardMarkets.length ? (
+        <div className="market-board" role="list" aria-label="Onchain markets">
+          {boardMarkets.map((market) => {
+            const sold = marketSoldPercent(market);
+            const active = selected?.address === market.address;
+            return (
+              <article key={market.address} className={`market-card ${active ? 'active' : ''}`} role="listitem">
+                <button type="button" className="market-card-hit" onClick={() => setSelectedAddress(market.address)}>
+                  <div className="market-card-art">
+                    <MarketImage src={imageFor(market)} alt={`${market.symbol} artwork`} size="md" />
+                    <span className={`origin-chip ${market.origin === 'IMPORTED' ? 'imported' : ''}`}>
+                      {market.origin === 'IMPORTED' ? 'IMPORTED' : 'FACTORY'}
+                    </span>
+                  </div>
+                  <div className="market-card-body">
+                    <small>{market.symbol}</small>
+                    <strong>{market.name}</strong>
+                    <b>{marketSpotPerTokenLabel(market, formatUsdc)}</b>
+                    <span className="sold-meter" aria-hidden="true"><i style={{ width: `${sold}%` }} /></span>
+                    <em>{market.soldTokenCount.toLocaleString()} / {market.totalSupplyTokens.toLocaleString()} sold · {formatUsdc(market.reserveUsdc)} USDC reserve</em>
+                  </div>
+                </button>
+                <div className="market-card-actions">
+                  <button type="button" className="btn primary" onClick={() => { setSelectedAddress(market.address); setSide('BUY'); }}>BUY</button>
+                  <button type="button" className="btn" onClick={() => { setSelectedAddress(market.address); setSide('SELL'); }}>SELL</button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
+      {selected ? <div className="market-layout market-trade-dock">
+        <div className="market-list" role="group" aria-label="Selected market">
+          {visibleMarkets.map((market) => (
+            market.address === selected.address ? (
+              <button key={market.address} type="button" className="active" onClick={() => setSelectedAddress(market.address)}>
                 <MarketImage src={imageFor(market)} alt={`${market.symbol} artwork`} size="sm" />
                 <span className="market-list-facts">
                   <span>{market.symbol}</span><strong>{market.name}</strong><small>{marketSpotPerTokenLabel(market, formatUsdc)}</small><em>{market.soldTokenCount.toLocaleString()} / {market.totalSupplyTokens.toLocaleString()} SOLD</em>
                 </span>
               </button>
-            ))}
-          </div>
-          {selected ? <div className="market-terminal">
+            ) : null
+          ))}
+        </div>
+        <div className="market-terminal">
             <section className="market-proof">
               <div className="market-identity">
                 <MarketImage src={imageFor(selected)} alt={`${selected.symbol} artwork`} size="md" />
@@ -1228,9 +1380,8 @@ function Markets() {
                 onChanged={() => marketImages.refetch()}
               />
             </section>
-          </div> : null}
         </div>
-      ) : null}
+      </div> : null}
       {selected ? (
         <Suspense fallback={<LazySection />}>
           <CreatorEconomy market={selected} />

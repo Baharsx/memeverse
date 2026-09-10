@@ -2,11 +2,13 @@ import {
   createPublicClient,
   fallback,
   formatUnits,
+  getAddress,
   http,
   parseAbi,
   parseUnits,
 } from 'viem';
 import { ARC_READ_FALLBACK_RPC_URL, ARC_READ_RPC_URL, arc, arcContracts } from './arc.js';
+import { parseMarketAddress } from './imported-markets.js';
 
 export const USDC_DECIMALS = 6;
 export const TOKEN_DECIMALS = 18;
@@ -226,4 +228,65 @@ export async function quoteSell(marketAddress, tokenIn) {
     functionName: 'quoteSell',
     args: [tokenIn],
   });
+}
+
+/**
+ * Whether this address is registered in the trusted MemeVerse factory.
+ * A false result is not "not a market" — an independent MemeMarket on Arc can still be traded.
+ */
+export async function isRegisteredFactoryMarket(address) {
+  const parsed = parseMarketAddress(address);
+  if (!parsed) return false;
+  try {
+    return await marketPublicClient.readContract({
+      address: arcContracts.memeVerseFactory,
+      abi: factoryAbi,
+      functionName: 'isMarket',
+      args: [getAddress(parsed)],
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Load a contract as a MemeVerse USDC market if it actually is one.
+ *
+ * Used when a visitor pastes an address that is on Arc but was not launched from this site.
+ * Fail-closed: an ERC-20 that does not expose the MemeMarket ABI, or that does not settle in
+ * Arc USDC, is not offered as buyable.
+ */
+export async function probeMemeMarket(address, userAddress) {
+  const parsed = parseMarketAddress(address);
+  if (!parsed) return { ok: false, code: 'INVALID_ADDRESS', market: null };
+  const checksummed = getAddress(parsed);
+  let market;
+  try {
+    market = await loadMarket(checksummed, userAddress);
+  } catch {
+    return { ok: false, code: 'NOT_MEME_MARKET', market: null };
+  }
+  let usdc;
+  try {
+    usdc = await marketPublicClient.readContract({
+      address: checksummed,
+      abi: marketAbi,
+      functionName: 'usdc',
+    });
+  } catch {
+    return { ok: false, code: 'NOT_MEME_MARKET', market: null };
+  }
+  try {
+    if (getAddress(usdc) !== getAddress(arcContracts.usdc)) {
+      return { ok: false, code: 'NOT_USDC_MARKET', market: null };
+    }
+  } catch {
+    return { ok: false, code: 'NOT_USDC_MARKET', market: null };
+  }
+  const registered = await isRegisteredFactoryMarket(checksummed);
+  return {
+    ok: true,
+    code: registered ? 'FACTORY' : 'ONCHAIN',
+    market: { ...market, origin: registered ? 'FACTORY' : 'IMPORTED' },
+  };
 }

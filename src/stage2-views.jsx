@@ -20,6 +20,7 @@ import {
 import { useOnchainAction } from './use-onchain-action';
 import { MEDIA_ACTIONS } from './media-authorization';
 import { publicMediaAssets } from './media-display';
+import { filterMediaAssets, sortMediaAssets } from './media-marketplace.js';
 import {
   AttachImageButton,
   ImagePicker,
@@ -210,6 +211,13 @@ function MediaCard({ asset, wallet, onChanged }) {
               : null}
           </div>
         ) : <div className="media-listing"><b>NOT LISTED</b></div>}
+
+        <div className="media-cta-row">
+          {!isOwner && listing?.fillable ? (
+            <span className="price-chip">{listing.priceUsdc} USDC</span>
+          ) : null}
+          {isOwner && !listing ? <span className="price-chip muted">Ready to list</span> : null}
+        </div>
 
         {/* Owner actions */}
         {isOwner && !listing ? (
@@ -554,6 +562,9 @@ function MintMedia({ wallet, onMinted }) {
 
 export function MediaAssets() {
   const wallet = useWalletContext();
+  const [tab, setTab] = useState('all');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('newest');
   const assets = useQuery({
     queryKey: ['media-assets'],
     queryFn: () => readMediaAssets(),
@@ -569,21 +580,47 @@ export function MediaAssets() {
     Arc — this is the presentation view of it, and it is the only thing rendered below.
   */
   const visibleAssets = publicMediaAssets(assets.data?.assets);
+  const boardAssets = useMemo(
+    () => sortMediaAssets(
+      filterMediaAssets(visibleAssets, { tab, query, wallet: wallet.address }),
+      sort,
+    ),
+    [visibleAssets, tab, query, sort, wallet.address],
+  );
+  const listedCount = visibleAssets.filter((asset) => asset.listing?.fillable).length;
 
   return (
-    <section className="page">
+    <section className="page marketplace-page">
       <div className="stage2-header">
-        <h1><sup>03 OWN</sup> CREATOR MEDIA</h1>
+        <h1><sup>03 OWN</sup> CREATOR MARKETPLACE</h1>
         <p className="surface-lede">
-          Creators mint media only against markets they actually created; the contract checks that
-          provenance onchain before a token can exist. Media then trades for USDC like any other
-          asset in the economy.
+          Media bound onchain to a real market, then bought and sold in USDC. Filter listed pieces,
+          jump to yours, and complete a fill in two signatures — approve, then buy.
         </p>
         <div className="stage2-meta">
           <span>NFT <ArcScanLink value={stage2Contracts.mediaNft} /></span>
           <span>MARKETPLACE <ArcScanLink value={stage2Contracts.nftMarketplace} /></span>
           <span>SETTLED IN ARC USDC — NO MARKETPLACE FEE</span>
         </div>
+      </div>
+
+      <div className="marketplace-toolbar">
+        <div className="marketplace-tabs" role="tablist" aria-label="Marketplace filters">
+          <button type="button" className={tab === 'all' ? 'active' : ''} onClick={() => setTab('all')}>ALL</button>
+          <button type="button" className={tab === 'listed' ? 'active' : ''} onClick={() => setTab('listed')}>FOR SALE{listedCount ? ` · ${listedCount}` : ''}</button>
+          <button type="button" className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>YOUR MEDIA</button>
+        </div>
+        <label>
+          SEARCH
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, token, or market" type="search" />
+        </label>
+        <label>
+          SORT
+          <select value={sort} onChange={(event) => setSort(event.target.value)}>
+            <option value="newest">Newest mint</option>
+            <option value="price">Price · low to high</option>
+          </select>
+        </label>
       </div>
 
       {!stage2Contracts.mediaNft ? (
@@ -607,9 +644,13 @@ export function MediaAssets() {
         <Unavailable title="NO MEDIA MINTED YET" detail="This collection is empty on Arc." />
       ) : null}
 
-      {visibleAssets.length ? (
-        <div className="nft-grid">
-          {visibleAssets.map((asset) => (
+      {visibleAssets.length && boardAssets.length === 0 ? (
+        <Unavailable title="NO MATCHING LISTINGS" detail="Nothing in this collection matches that filter." />
+      ) : null}
+
+      {boardAssets.length ? (
+        <div className="nft-grid marketplace-board">
+          {boardAssets.map((asset) => (
             <MediaCard
               key={String(asset.tokenId)}
               asset={asset}
