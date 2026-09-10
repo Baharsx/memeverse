@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # One-command production update for memeverse.biz
 #
-# On the server:
-#   sudo bash /opt/memeverse/scripts/update-production.sh
+# From the live host, as root — works even when this file is not on disk yet:
 #
-# Or, first time / from anywhere on the host:
-#   sudo bash -c 'git -C /opt/memeverse fetch origin main && git -C /opt/memeverse checkout origin/main -- scripts/update-production.sh && bash /opt/memeverse/scripts/update-production.sh'
+#   curl -fsSL https://raw.githubusercontent.com/Baharsx/memeverse/main/scripts/update-production.sh | sudo bash
+#
+# After the first successful run, this also works:
+#
+#   sudo bash /opt/memeverse/scripts/update-production.sh
 #
 # Pulls origin/main, installs deps, rebuilds the frontend with production VITE_*
 # values, and restarts the API. Worker is left running unless --restart-worker
-# is passed. Secrets are never printed.
+# is passed. Secrets are never printed. Git is always run as the memeverse user.
 
 set -euo pipefail
 
@@ -23,7 +25,7 @@ for arg in "$@"; do
   case "$arg" in
     --restart-worker) RESTART_WORKER=1 ;;
     -h|--help)
-      sed -n '2,16p' "$0"
+      sed -n '2,18p' "$0"
       exit 0
       ;;
   esac
@@ -43,6 +45,10 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo "Env file not found at $ENV_FILE" >&2
   exit 1
 fi
+
+# Repo is owned by $APP_USER. Root `git pull` otherwise dies with "dubious ownership".
+git config --system --add safe.directory "$REPO" >/dev/null 2>&1 || true
+sudo -u "$APP_USER" git config --global --add safe.directory "$REPO" >/dev/null 2>&1 || true
 
 export PATH="$NODE_BIN:/usr/local/bin:/usr/bin:/bin"
 
