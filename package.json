@@ -73,6 +73,7 @@
   },
   "overrides": {
     "tmp": "^0.2.7",
+    "qs": "6.16.0",
     "@coinbase/cdp-sdk": {
       "axios": "^1.19.0"
     }
