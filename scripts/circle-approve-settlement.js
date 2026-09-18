@@ -5,9 +5,11 @@ import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
 import { usdcAbi } from '../server/infrastructure/arc-contracts.js';
 import { circleIdempotencyKey } from './circle-idempotency.js';
+import { assertCircleDeployWallet, circleChain } from './circle-chain.js';
 
 loadLocalEnvironment();
 const config = loadServerConfig();
+const { blockchain } = circleChain(config);
 if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
   || !config.circleSettlementContractAddress) {
   console.error('Circle credentials, wallet ID, and settlement contract address are required.');
@@ -22,9 +24,7 @@ if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
   try {
     const walletResponse = await client.getWallet({ id: config.circleWalletId });
     const wallet = walletResponse.data?.wallet;
-    if (!wallet || wallet.blockchain !== 'ARC-TESTNET' || wallet.accountType !== 'EOA') {
-      throw new Error('Approval wallet must be an ARC-TESTNET EOA.');
-    }
+    assertCircleDeployWallet(wallet, blockchain);
     const amount = parseUnits(config.circleSettlementAllowanceUsdc, 6);
     const currentAllowance = await publicClient.readContract({
       address: config.arcUsdcAddress,
@@ -41,7 +41,7 @@ if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
       // Bound to the exact allowance operation. Raising CIRCLE_SETTLEMENT_ALLOWANCE_USDC or
       // repointing the settlement contract is a different approval, not a retry of this one.
       idempotencyKey: circleIdempotencyKey('settlement-allowance-approve', [
-        'ARC-TESTNET',
+        blockchain,
         config.circleWalletId,
         config.arcUsdcAddress,
         config.circleSettlementContractAddress,

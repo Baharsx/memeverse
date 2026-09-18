@@ -5,9 +5,11 @@ import { getAddress } from 'viem';
 import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
 import { circleIdempotencyKey } from './circle-idempotency.js';
+import { assertCircleDeployWallet, circleChain } from './circle-chain.js';
 
 loadLocalEnvironment();
 const config = loadServerConfig();
+const { blockchain, label } = circleChain(config);
 
 if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId) {
   console.error('CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, and CIRCLE_WALLET_ID are required.');
@@ -25,16 +27,14 @@ if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
   try {
     const walletResponse = await walletClient.getWallet({ id: config.circleWalletId });
     const wallet = walletResponse.data?.wallet;
-    if (!wallet || wallet.blockchain !== 'ARC-TESTNET' || wallet.accountType !== 'EOA') {
-      throw new Error('Deployment wallet must be an ARC-TESTNET EOA.');
-    }
+    assertCircleDeployWallet(wallet, blockchain);
 
     const constructorParameters = [wallet.address, config.arcUsdcAddress];
     // Bound to the artifact and constructor arguments: retrying the identical deployment reuses
     // the Circle request, while a recompiled bytecode or changed operator produces a new key.
     const artifactFingerprint = circleIdempotencyKey('settlement-artifact', [
       artifact.bytecode,
-      'ARC-TESTNET',
+      blockchain,
       config.circleWalletId,
       ...constructorParameters,
     ]);
@@ -43,7 +43,7 @@ if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
       idempotencyKey: circleIdempotencyKey('settlement-deploy', [artifactFingerprint]),
       name: 'MemeVerseSettlement',
       description: 'Idempotent creator USDC settlement contract built on Arc',
-      blockchain: 'ARC-TESTNET',
+      blockchain,
       walletId: config.circleWalletId,
       abiJson: JSON.stringify(artifact.abi),
       bytecode: artifact.bytecode,

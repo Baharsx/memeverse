@@ -59,7 +59,7 @@ export class ArcMarketSignalCollector {
   }) {
     this.publicClient = publicClient;
     this.chainId = chainId;
-    this.factoryAddress = getAddress(factoryAddress);
+    this.factoryAddress = factoryAddress ? getAddress(factoryAddress) : null;
     this.minConfirmations = BigInt(minConfirmations);
     this.lookbackBlocks = BigInt(lookbackBlocks);
     this.logPageSize = BigInt(logPageSize);

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { ArcRpcClient } from '../infrastructure/arc-rpc.js';
+import { ArcRpcClient, assertRpcChainId } from '../infrastructure/arc-rpc.js';
 import { JsonSettlementStore } from '../repositories/settlement-store.js';
 
 function record(overrides = {}) {
@@ -94,4 +94,30 @@ test('Arc RPC health fails closed on a different chain', async () => {
   const health = await client.health();
   assert.equal(health.status, 'degraded');
   assert.match(health.reason, /Expected Arc chain 5042002/);
+});
+
+test('boot aborts when the RPC chain id does not match the configured network', async () => {
+  await assert.rejects(
+    () => assertRpcChainId({
+      rpcUrl: 'https://rpc.invalid',
+      expectedChainId: 5042,
+      nodeEnv: 'production',
+      fetchImplementation: async () => new Response(JSON.stringify({
+        jsonrpc: '2.0', id: 1, result: '0x4cef52',
+      }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    }),
+    /Arc RPC chain mismatch/,
+  );
+});
+
+test('boot accepts a matching mainnet chain id 5042', async () => {
+  const chainId = await assertRpcChainId({
+    rpcUrl: 'https://rpc.invalid',
+    expectedChainId: 5042,
+    nodeEnv: 'production',
+    fetchImplementation: async () => new Response(JSON.stringify({
+      jsonrpc: '2.0', id: 1, result: '0x13b2',
+    }), { status: 200, headers: { 'content-type': 'application/json' } }),
+  });
+  assert.equal(chainId, 5042);
 });

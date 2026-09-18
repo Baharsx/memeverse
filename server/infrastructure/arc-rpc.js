@@ -51,3 +51,46 @@ export class ArcRpcClient {
     }
   }
 }
+
+/**
+ * Fail-closed boot check. Health reporting can degrade; process start cannot. A configured
+ * chain id that does not match `eth_chainId` of the RPC means the API would sign against the
+ * wrong network.
+ */
+export async function assertRpcChainId({
+  rpcUrl,
+  expectedChainId,
+  fetchImplementation = fetch,
+  timeoutMs = 8000,
+  nodeEnv = 'development',
+}) {
+  const client = new ArcRpcClient({
+    rpcUrl,
+    expectedChainId,
+    fetchImplementation,
+    timeoutMs,
+  });
+  try {
+    const chainHex = await client.call('eth_chainId', 1);
+    const chainId = Number.parseInt(chainHex, 16);
+    if (chainId !== expectedChainId) {
+      throw new Error(
+        `Arc RPC chain mismatch: ${rpcUrl} reported chain ${chainId}, configured ${expectedChainId}. Refusing to boot.`,
+      );
+    }
+    return chainId;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('Arc RPC chain mismatch')) throw error;
+    if (nodeEnv === 'production') {
+      throw new Error(`Arc RPC chain check failed at boot (${rpcUrl}): ${message}`);
+    }
+    console.warn(JSON.stringify({
+      type: 'arc_rpc_chain_check_skipped',
+      rpcUrl,
+      expectedChainId,
+      reason: message,
+    }));
+    return null;
+  }
+}

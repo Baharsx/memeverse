@@ -16,6 +16,10 @@ const ARC_RPC_ORIGINS = Object.freeze([
   'https://rpc.drpc.testnet.arc.io',
   'https://rpc.testnet.arc.network',
   'https://rpc.quicknode.testnet.arc.network',
+  'https://rpc.mainnet.arc.io',
+  'https://rpc.drpc.mainnet.arc.io',
+  'https://rpc.blockdaemon.mainnet.arc.io',
+  'https://rpc.quicknode.mainnet.arc.io',
 ]);
 
 // src/styles.css imports the Clash Display, Geist, and Space Mono web fonts. These are the

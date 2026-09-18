@@ -20,7 +20,13 @@ import { createConfig, http } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { createAppKit } from '@reown/appkit/react';
-import { ARC_READ_FALLBACK_RPC_URL, ARC_READ_RPC_URL, arc } from './arc.js';
+import {
+  ARC_READ_FALLBACK_RPC_URL,
+  ARC_READ_RPC_URL,
+  arc,
+  arcMainnet,
+  arcTestnet,
+} from './arc.js';
 import {
   reownAppKitConfigured,
   reownAppKitFeatures,
@@ -33,11 +39,22 @@ import {
 } from './wallet-connection.js';
 
 /**
- * MemeVerse's existing Arc transport, unchanged: primary endpoint first, documented fallback
- * behind it. Arc Testnet is not one of the chains Reown's Blockchain API serves, so the adapter
- * passes this through untouched rather than substituting an RPC of its own.
+ * MemeVerse's Arc transport, unchanged in shape: primary endpoint first, documented fallback
+ * behind it. Arc is not one of the chains Reown's Blockchain API serves, so the adapter passes
+ * this through untouched rather than substituting an RPC of its own. Both Arc networks are
+ * registered so a wallet sitting on the inactive one is still a configured chain.
  */
-const arcTransports = { [arc.id]: fallback([http(ARC_READ_RPC_URL), http(ARC_READ_FALLBACK_RPC_URL)]) };
+const arcTransports = {
+  [arc.id]: fallback([http(ARC_READ_RPC_URL), http(ARC_READ_FALLBACK_RPC_URL)]),
+  [arcTestnet.id]: fallback([
+    http(arcTestnet.rpcUrls.default.http[0]),
+    http(arcTestnet.rpcUrls.default.http[1]),
+  ]),
+  [arcMainnet.id]: fallback([
+    http(arcMainnet.rpcUrls.default.http[0]),
+    http(arcMainnet.rpcUrls.default.http[1]),
+  ]),
+};
 
 /**
  * Built only when a Reown project id is configured. Without one there is no relay to pair over,
@@ -101,7 +118,7 @@ export const walletModalAvailable = Boolean(reownAppKit);
 export const wagmiConfig = wagmiAdapter
   ? wagmiAdapter.wagmiConfig
   : createConfig({
-    chains: [arc],
+    chains: reownSessionNetworks,
     connectors: [injected()],
     transports: arcTransports,
   });

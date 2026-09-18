@@ -5,6 +5,7 @@ import { createPublicClient, getAddress, http } from 'viem';
 import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
 import { circleIdempotencyKey } from './circle-idempotency.js';
+import { assertCircleDeployWallet, circleChain } from './circle-chain.js';
 
 /**
  * Deploys the Stage 2 Arc contracts: the media NFT collection, its USDC marketplace, and the
@@ -19,7 +20,7 @@ import { circleIdempotencyKey } from './circle-idempotency.js';
 loadLocalEnvironment();
 const config = loadServerConfig();
 
-const ARC_CHAIN_ID = 5042002;
+const { chainId: ARC_CHAIN_ID, blockchain, label } = circleChain(config);
 
 function fail(message) {
   console.error(message);
@@ -33,7 +34,7 @@ if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
 const rpc = createPublicClient({ transport: http(config.arcRpcUrl) });
 const chainId = await rpc.getChainId();
 if (chainId !== ARC_CHAIN_ID) {
-  fail(`Refusing to deploy: RPC reports chain ${chainId}, expected Arc Testnet ${ARC_CHAIN_ID}.`);
+  fail(`Refusing to deploy: RPC reports chain ${chainId}, expected ${label} ${ARC_CHAIN_ID}.`);
 }
 
 const clientConfig = {
@@ -46,8 +47,10 @@ const contractClient = initiateSmartContractPlatformClient(clientConfig);
 
 const walletResponse = await walletClient.getWallet({ id: config.circleWalletId });
 const wallet = walletResponse.data?.wallet;
-if (!wallet || wallet.blockchain !== 'ARC-TESTNET' || wallet.accountType !== 'EOA') {
-  fail('Deployment wallet must be a live ARC-TESTNET EOA.');
+try {
+  assertCircleDeployWallet(wallet, blockchain);
+} catch (error) {
+  fail(error.message);
 }
 
 // The factory the media collection will trust forever. It must already be a real contract.
@@ -75,13 +78,13 @@ async function deploy(contractName, constructorParameters) {
   );
   const fingerprint = circleIdempotencyKey(`${contractName}-artifact`, [
     artifact.bytecode,
-    'ARC-TESTNET',
+    blockchain,
     ...constructorParameters,
   ]);
   const deployment = await contractClient.deployContract({
     idempotencyKey: circleIdempotencyKey(`${contractName}-deploy`, [fingerprint]),
     name: contractName,
-    blockchain: 'ARC-TESTNET',
+    blockchain,
     walletId: config.circleWalletId,
     abiJson: JSON.stringify(artifact.abi),
     bytecode: artifact.bytecode,

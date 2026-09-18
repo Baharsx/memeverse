@@ -3,6 +3,7 @@ import { createPublicClient, formatUnits, getAddress, http, parseUnits } from 'v
 import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
 import { circleIdempotencyKey } from './circle-idempotency.js';
+import { circleChain } from './circle-chain.js';
 
 /**
  * Provisions the second real Arc identity the Stage 2 end-to-end flows need.
@@ -21,7 +22,7 @@ const config = loadServerConfig();
 
 const COUNTERPARTY_REF = 'memeverse-arc-counterparty';
 const TARGET_USDC = process.env.COUNTERPARTY_TARGET_USDC ?? '3.00';
-const ARC_CHAIN_ID = 5042002;
+const { chainId: ARC_CHAIN_ID, blockchain } = circleChain(config);
 
 if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletSetId) {
   console.error('CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, and CIRCLE_WALLET_SET_ID are required.');
@@ -41,16 +42,16 @@ const client = initiateDeveloperControlledWalletsClient({
   baseUrl: config.circleApiBaseUrl,
 });
 
-const existing = await client.listWallets({ blockchain: 'ARC-TESTNET', refId: COUNTERPARTY_REF });
+const existing = await client.listWallets({ blockchain, refId: COUNTERPARTY_REF });
 let wallet = existing.data?.wallets?.[0];
 
 if (!wallet) {
   const created = await client.createWallets({
     idempotencyKey: circleIdempotencyKey('counterparty-wallet', [
-      config.circleWalletSetId, COUNTERPARTY_REF, 'ARC-TESTNET',
+      config.circleWalletSetId, COUNTERPARTY_REF, blockchain,
     ]),
     walletSetId: config.circleWalletSetId,
-    blockchains: ['ARC-TESTNET'],
+    blockchains: [blockchain],
     accountType: 'EOA',
     count: 1,
     refId: COUNTERPARTY_REF,
@@ -93,7 +94,7 @@ if (current >= targetUnits) {
     ]),
     walletId: config.circleWalletId,
     tokenAddress: config.arcUsdcAddress,
-    blockchain: 'ARC-TESTNET',
+    blockchain,
     destinationAddress: address,
     amounts: [formatUnits(topUp, 6)],
     fee: { type: 'level', config: { feeLevel: config.circleFeeLevel } },

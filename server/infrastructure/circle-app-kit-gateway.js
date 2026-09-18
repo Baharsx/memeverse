@@ -24,7 +24,7 @@ export class CircleAppKitGateway {
     const runtimeEnabled = Boolean(this.client && this.config.circleKitKey);
     return {
       provider: 'CIRCLE_STABLECOIN_KITS_API',
-      network: 'Arc_Testnet',
+      network: this.config.circleKitChainName ?? 'Arc_Testnet',
       kitKeyConfigured: Boolean(this.config.circleKitKey),
       runtimeEnabled,
       runtimeMode: runtimeEnabled ? 'SERVER_SIDE_NATIVE_FETCH' : 'DISABLED',
@@ -66,6 +66,7 @@ export function createCircleAppKitGateway(config, {
         apiBaseUrl: config.circleApiBaseUrl,
         walletGateway: circleGateway,
         fetchImpl,
+        circleChainCode: config.circleChainCode,
       })
       : null
   );

@@ -10,6 +10,7 @@ import {
 } from 'wagmi';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import {
+  ARC_IS_MAINNET,
   arc,
   arcCapabilities,
   arcContracts,
@@ -318,9 +319,9 @@ function NetworkStatus() {
   }
 
   return (
-    <div className="network-switch" role="group" aria-label="Arc Testnet connection status">
+    <div className="network-switch" role="group" aria-label={`${arc.name} connection status`}>
       <span className={onArc ? 'network-brand active' : 'network-brand'}>
-        <i />BUILT ON ARC<sup>{onArc ? 'ON' : 'TESTNET'}</sup>
+        <i />BUILT ON ARC<sup>{onArc ? 'ON' : (ARC_IS_MAINNET ? 'MAINNET' : 'TESTNET')}</sup>
       </span>
       {actionLabel ? (
         <button
@@ -342,7 +343,7 @@ function NetworkStatus() {
               </button>
             ) : null}
             {showManual ? (
-              <dl className="network-manual-settings" aria-label="Arc Testnet manual network settings">
+              <dl className="network-manual-settings" aria-label={`${arc.name} manual network settings`}>
                 <div><dt>NETWORK</dt><dd>{ARC_MANUAL_NETWORK.chainName}</dd></div>
                 <div><dt>CHAIN ID</dt><dd>{ARC_MANUAL_NETWORK.chainIdDecimal}</dd></div>
                 <div><dt>HEX</dt><dd>{ARC_MANUAL_NETWORK.chainIdHex}</dd></div>
@@ -396,7 +397,7 @@ function Shell() {
       <a className="skip-link" href="#main-content">SKIP TO PRODUCT</a>
       <Marquee />
       <div className="network-bar">
-        <span>ARC PUBLIC TESTNET // TEST ASSETS ONLY</span>
+        <span>{ARC_IS_MAINNET ? 'ARC MAINNET // REAL USDC' : 'ARC PUBLIC TESTNET // TEST ASSETS ONLY'}</span>
         <div className="network-center">
           <BackendStatus />
           <NetworkStatus />
@@ -404,7 +405,9 @@ function Shell() {
         <ExternalLink href={arcLinks.status}>NETWORK STATUS ↗</ExternalLink>
       </div>
       <div className="testnet-banner">
-        ARC PUBLIC TESTNET — REAL USDC MARKET TRANSACTIONS — TEST ASSETS HAVE NO REAL-WORLD VALUE
+        {ARC_IS_MAINNET
+          ? 'ARC MAINNET — REAL USDC — AUTONOMY PAUSED'
+          : 'ARC PUBLIC TESTNET — REAL USDC MARKET TRANSACTIONS — TEST ASSETS HAVE NO REAL-WORLD VALUE'}
       </div>
       <header className="site-header">
         <NavLink className="brand" to="/">
@@ -1152,6 +1155,7 @@ function Markets() {
       if (!probed.ok) {
         const copy = {
           INVALID_ADDRESS: 'Paste a 20-byte Arc contract address.',
+          BANNED_CONTRACT: 'That address is a banned legacy contract and cannot be imported.',
           NOT_MEME_MARKET: 'That contract is not a MemeVerse USDC market. Buy and sell only work on MemeMarket contracts.',
           NOT_USDC_MARKET: 'That market does not settle in Arc USDC, so it cannot be traded here.',
         }[probed.code] ?? 'That contract could not be loaded as a tradable market.';

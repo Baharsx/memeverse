@@ -12,7 +12,20 @@
  * Node tests pass an in-memory store. Backend, agent, and audit code must not import this.
  */
 
-export const IMPORTED_MARKETS_STORAGE_KEY = 'memeverse.imported-markets.v1';
+import { ARC_CHAIN_ID } from './arc.js';
+import { isBannedContract } from './arc-networks.js';
+
+export const IMPORTED_MARKETS_STORAGE_PREFIX = 'memeverse.imported-markets.v1';
+/** @deprecated Unkeyed prefix. Persistence is always `v1.<chainId>`. */
+export const IMPORTED_MARKETS_STORAGE_KEY = IMPORTED_MARKETS_STORAGE_PREFIX;
+
+export function importedMarketsStorageKey(chainId = ARC_CHAIN_ID) {
+  const id = Number(chainId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error('imported-markets storage key requires a positive chain id');
+  }
+  return `${IMPORTED_MARKETS_STORAGE_PREFIX}.${id}`;
+}
 
 const ADDRESS = /^0x[a-fA-F0-9]{40}$/;
 
@@ -33,11 +46,11 @@ function storageOf(storage) {
   return null;
 }
 
-export function readImportedMarketAddresses(storage) {
+export function readImportedMarketAddresses(storage, chainId = ARC_CHAIN_ID) {
   const store = storageOf(storage);
   if (!store) return [];
   try {
-    const parsed = JSON.parse(store.getItem(IMPORTED_MARKETS_STORAGE_KEY) ?? '[]');
+    const parsed = JSON.parse(store.getItem(importedMarketsStorageKey(chainId)) ?? '[]');
     if (!Array.isArray(parsed)) return [];
     const unique = [];
     const seen = new Set();
@@ -53,16 +66,16 @@ export function readImportedMarketAddresses(storage) {
   }
 }
 
-export function persistImportedMarketAddress(address, storage) {
+export function persistImportedMarketAddress(address, storage, chainId = ARC_CHAIN_ID) {
   const parsed = parseMarketAddress(address);
-  if (!parsed) return readImportedMarketAddresses(storage);
-  const current = readImportedMarketAddresses(storage);
+  if (!parsed || isBannedContract(parsed)) return readImportedMarketAddresses(storage, chainId);
+  const current = readImportedMarketAddresses(storage, chainId);
   if (current.includes(parsed)) return current;
   const next = [...current, parsed];
   const store = storageOf(storage);
   if (store) {
     try {
-      store.setItem(IMPORTED_MARKETS_STORAGE_KEY, JSON.stringify(next));
+      store.setItem(importedMarketsStorageKey(chainId), JSON.stringify(next));
     } catch {
       return current;
     }

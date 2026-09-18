@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
-  IMPORTED_MARKETS_STORAGE_KEY,
+  importedMarketsStorageKey,
   filterTradeableMarkets,
   marketSoldPercent,
   mergeTradeableMarkets,
@@ -62,10 +62,24 @@ test('imported addresses persist, de-duplicate, and survive hostile storage', ()
   assert.equal(first.length, 1);
   persistImportedMarketAddress('not-an-address', store);
   assert.equal(readImportedMarketAddresses(store).length, 1);
-  assert.equal(store.data[IMPORTED_MARKETS_STORAGE_KEY].includes('1d6c0556'), true);
+  assert.equal(store.data[importedMarketsStorageKey(5042002)].includes('1d6c0556'), true);
 
-  const broken = memoryStore({ [IMPORTED_MARKETS_STORAGE_KEY]: 'not-json' });
+  const broken = memoryStore({ [importedMarketsStorageKey(5042002)]: 'not-json' });
   assert.deepEqual(readImportedMarketAddresses(broken), []);
+});
+
+test('imported markets are keyed by chain id and do not leak across networks', () => {
+  const store = memoryStore();
+  persistImportedMarketAddress('0x1D6C0556aba63560daD71e96AE967eded94cDc40', store, 5042002);
+  persistImportedMarketAddress('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', store, 5042);
+  assert.deepEqual(readImportedMarketAddresses(store, 5042002), [
+    '0x1d6c0556aba63560dad71e96ae967eded94cdc40',
+  ]);
+  assert.deepEqual(readImportedMarketAddresses(store, 5042), [
+    '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  ]);
+  persistImportedMarketAddress('0x765E2Eaaba8eaEF4437B15CF42C1F268D3c8c08F', store, 5042);
+  assert.equal(readImportedMarketAddresses(store, 5042).length, 1, 'banned legacy factory is not persisted');
 });
 
 test('merge keeps factory order, appends new imports, and never mutates inputs', () => {

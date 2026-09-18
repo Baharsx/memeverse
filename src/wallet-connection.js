@@ -15,18 +15,27 @@
  * other.
  */
 import { mainnet } from 'viem/chains';
-import { ARC_READ_FALLBACK_RPC_URL, ARC_READ_RPC_URL, arc } from './arc.js';
+import {
+  ARC_CHAIN_ID,
+  ARC_READ_FALLBACK_RPC_URL,
+  ARC_READ_RPC_URL,
+  arc,
+  arcMainnet,
+  arcTestnet,
+} from './arc.js';
+import { ARC_NETWORKS } from './arc-networks.js';
 
 // `import.meta.env` only exists under Vite, exactly as in src/arc.js. Defaulting it keeps this
 // module importable from plain Node so the configuration can be unit tested.
 const viteEnv = import.meta.env ?? {};
 
 /**
- * The single Arc chain id MemeVerse operates on. Declared as a literal so a test can catch a
- * chain definition drifting underneath the wallet layer rather than discovering it when a
- * transaction is signed against the wrong network.
+ * Literal chain ids so a test can catch a chain definition drifting underneath the wallet layer
+ * rather than discovering it when a transaction is signed against the wrong network.
+ * 5042002 is Arc Testnet. 5042 is Arc mainnet. 1243 is Archie Chain and must never appear.
  */
 export const ARC_TESTNET_CHAIN_ID = 5042002;
+export const ARC_MAINNET_CHAIN_ID = 5042;
 
 /**
  * The Reown network is the existing Arc definition, not a second copy of it. Reown's adapter
@@ -35,34 +44,58 @@ export const ARC_TESTNET_CHAIN_ID = 5042002;
  * `arc` object keeps one source of truth for the RPC URLs, the explorer, and the currency.
  */
 export const reownArcNetwork = arc;
+export const reownArcMainnetNetwork = arcMainnet;
+export const reownArcTestnetNetwork = arcTestnet;
 
 /**
  * Networks the installed Reown/Wagmi adapter must be able to represent while establishing a
  * WalletConnect session.
  *
- * MemeVerse is still an Arc-only product. Ethereum is present solely because a real mobile wallet
- * that does not know Arc yet commonly returns an otherwise-valid session on `eip155:1`. AppKit
- * 1.8.23 then asks Wagmi to synchronise that returned chain before MemeVerse can run its own Arc
- * onboarding flow. If chain 1 is absent, Reown's WalletConnectConnector throws
- * `ChainNotConfiguredError` before any request reaches the wallet.
+ * MemeVerse is still an Arc-only product: the configured network is first and is the only one
+ * writes are gated on. The other Arc network is listed so a wallet already sitting on it is a
+ * representable chain rather than an unknown one. Ethereum is present solely because a real
+ * mobile wallet that does not know Arc yet commonly returns an otherwise-valid session on
+ * `eip155:1`. AppKit 1.8.23 then asks Wagmi to synchronise that returned chain before MemeVerse
+ * can run its own Arc onboarding flow. If chain 1 is absent, Reown's WalletConnectConnector
+ * throws `ChainNotConfiguredError` before any request reaches the wallet.
  *
- * AppKit's network switcher is disabled, Arc remains the default, and every MemeVerse write stays
- * gated by `useArcNetwork().onArc`, so this auxiliary entry cannot expose or enable product writes
- * on Ethereum.
+ * AppKit's network switcher is disabled, the configured Arc remains the default, and every
+ * MemeVerse write stays gated by `useArcNetwork().onArc`, so these auxiliary entries cannot
+ * expose or enable product writes on Ethereum or on the inactive Arc network.
  */
-export const reownSessionNetworks = Object.freeze([reownArcNetwork, mainnet]);
+export const reownSessionNetworks = Object.freeze([
+  reownArcNetwork,
+  ARC_CHAIN_ID === ARC_MAINNET_CHAIN_ID ? reownArcTestnetNetwork : reownArcMainnetNetwork,
+  mainnet,
+]);
 
 /**
- * Reown resolves its own RPC for the networks its Blockchain API supports. Arc Testnet is not one
- * of them, so nothing is substituted — but the URLs are still declared explicitly, and handed to
- * both the adapter and `createAppKit`, so the modal and the transport agree on which Arc endpoints
- * MemeVerse uses instead of leaving it to a default.
+ * Reown resolves its own RPC for the networks its Blockchain API supports. Arc is not one of
+ * them, so nothing is substituted — but the URLs are still declared explicitly, and handed to
+ * both the adapter and `createAppKit`, so the modal and the transport agree on which Arc
+ * endpoints MemeVerse uses instead of leaving it to a default.
  */
-export const reownArcCaipNetworkId = `eip155:${ARC_TESTNET_CHAIN_ID}`;
+export const reownArcCaipNetworkId = `eip155:${ARC_CHAIN_ID}`;
 export const reownCustomRpcUrls = Object.freeze({
-  [reownArcCaipNetworkId]: Object.freeze([
-    Object.freeze({ url: ARC_READ_RPC_URL }),
-    Object.freeze({ url: ARC_READ_FALLBACK_RPC_URL }),
+  [`eip155:${ARC_TESTNET_CHAIN_ID}`]: Object.freeze([
+    Object.freeze({
+      url: ARC_CHAIN_ID === ARC_TESTNET_CHAIN_ID ? ARC_READ_RPC_URL : ARC_NETWORKS.testnet.readRpcUrl,
+    }),
+    Object.freeze({
+      url: ARC_CHAIN_ID === ARC_TESTNET_CHAIN_ID
+        ? ARC_READ_FALLBACK_RPC_URL
+        : ARC_NETWORKS.testnet.readFallbackRpcUrl,
+    }),
+  ]),
+  [`eip155:${ARC_MAINNET_CHAIN_ID}`]: Object.freeze([
+    Object.freeze({
+      url: ARC_CHAIN_ID === ARC_MAINNET_CHAIN_ID ? ARC_READ_RPC_URL : ARC_NETWORKS.mainnet.readRpcUrl,
+    }),
+    Object.freeze({
+      url: ARC_CHAIN_ID === ARC_MAINNET_CHAIN_ID
+        ? ARC_READ_FALLBACK_RPC_URL
+        : ARC_NETWORKS.mainnet.readFallbackRpcUrl,
+    }),
   ]),
 });
 

@@ -2,9 +2,11 @@ import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-
 import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
 import { circleIdempotencyKey } from './circle-idempotency.js';
+import { circleChain } from './circle-chain.js';
 
 loadLocalEnvironment();
 const config = loadServerConfig();
+const { blockchain, label } = circleChain(config);
 
 if (!config.circleApiKey || !config.circleEntitySecret) {
   console.error('Missing CIRCLE_API_KEY or CIRCLE_ENTITY_SECRET in .env.local.');
@@ -35,9 +37,9 @@ if (!config.circleApiKey || !config.circleEntitySecret) {
     } else {
       const response = await client.createWallets({
         idempotencyKey: circleIdempotencyKey('wallet-create', [
-          'ARC-TESTNET', 'EOA', 1, walletSetId, 'memeverse-arc-settlement',
+          blockchain, 'EOA', 1, walletSetId, 'memeverse-arc-settlement',
         ]),
-        blockchains: ['ARC-TESTNET'],
+        blockchains: [blockchain],
         accountType: 'EOA',
         count: 1,
         walletSetId,
@@ -46,11 +48,11 @@ if (!config.circleApiKey || !config.circleEntitySecret) {
       wallet = response.data?.wallets?.[0];
     }
     if (!wallet) throw new Error('Circle did not return an Arc wallet.');
-    if (wallet.blockchain !== 'ARC-TESTNET' || wallet.accountType !== 'EOA') {
-      throw new Error('Circle wallet is not the required ARC-TESTNET EOA.');
+    if (wallet.blockchain !== blockchain || wallet.accountType !== 'EOA') {
+      throw new Error(`Circle wallet is not the required ${blockchain} EOA.`);
     }
 
-    console.log('Circle Arc Testnet wallet is ready. Add these non-secret IDs to .env.local:');
+    console.log(`Circle ${label} wallet is ready. Add these non-secret IDs to .env.local:`);
     console.log(`CIRCLE_WALLET_SET_ID=${walletSetId}`);
     console.log(`CIRCLE_WALLET_ID=${wallet.id}`);
     console.log(`Wallet address: ${wallet.address}`);

@@ -140,7 +140,7 @@ export function createArcDirectSettlementExecutionPlan(record, settlementContrac
   return {
     provider: 'CIRCLE_AGENT_WALLET',
     operation: 'ARC_DIRECT_SETTLEMENT',
-    chain: 'ARC-TESTNET',
+    chain: record.chainCode ?? 'ARC-TESTNET',
     asset: 'USDC',
     recipient: record.recipient,
     amountUsdc: record.amount.creatorPayoutUsdc,
@@ -174,7 +174,7 @@ export function createArcSettlementExecutionPlan(record, settlementContractAddre
   return {
     provider: 'CIRCLE_DEVELOPER_CONTROLLED_WALLET',
     operation: 'ARC_MEMO_CONTRACT_SETTLEMENT',
-    chain: 'ARC-TESTNET',
+    chain: record.chainCode ?? 'ARC-TESTNET',
     asset: 'USDC',
     recipient: record.recipient,
     amountUsdc: record.amount.creatorPayoutUsdc,

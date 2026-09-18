@@ -71,6 +71,74 @@ test('a claim heartbeat too slow to protect its own lease refuses to boot', () =
   assert.throws(() => loadServerConfig({ EXECUTION_CLAIM_HEARTBEAT_SECONDS: '301' }));
 });
 
+test('default network is Arc testnet so production cannot silently flip to mainnet', () => {
+  const config = loadServerConfig({});
+  assert.equal(config.arcNetwork, 'testnet');
+  assert.equal(config.arcChainId, 5042002);
+  assert.equal(config.circleChainCode, 'ARC-TESTNET');
+  assert.equal(config.arcRpcUrl, 'https://rpc.testnet.arc.io');
+  assert.equal(config.marketFactoryAddress, '0x363124490E953EEbB414eB4c3e2f03a40eef8F2C');
+});
+
+test('ARC_NETWORK=mainnet selects chain 5042 and Circle code ARC without the testnet factory', () => {
+  const config = loadServerConfig({ ARC_NETWORK: 'mainnet' });
+  assert.equal(config.arcNetwork, 'mainnet');
+  assert.equal(config.arcChainId, 5042);
+  assert.equal(config.circleChainCode, 'ARC');
+  assert.equal(config.arcRpcUrl, 'https://rpc.mainnet.arc.io');
+  assert.equal(config.arcFallbackRpcUrl, 'https://rpc.drpc.mainnet.arc.io');
+  assert.equal(config.arcExplorerUrl, 'https://explorer.arc.io');
+  assert.equal(config.marketFactoryAddress, null);
+  assert.equal(config.arcUsdcAddress, '0x3600000000000000000000000000000000000000');
+});
+
+test('mainnet refuses the testnet factory and a TEST_API_KEY', () => {
+  assert.throws(
+    () => loadServerConfig({
+      ARC_NETWORK: 'mainnet',
+      MARKET_FACTORY_ADDRESS: '0x363124490E953EEbB414eB4c3e2f03a40eef8F2C',
+    }),
+    /testnet \(5042002\)/,
+  );
+  assert.throws(
+    () => loadServerConfig({
+      ARC_NETWORK: 'mainnet',
+      CIRCLE_API_KEY: 'TEST_API_KEY:not-for-mainnet',
+    }),
+    /LIVE_API_KEY/,
+  );
+  assert.throws(
+    () => loadServerConfig({
+      CIRCLE_API_KEY: 'LIVE_API_KEY:not-for-testnet',
+    }),
+    /TEST_API_KEY/,
+  );
+});
+
+test('chain id 1243 is rejected as Archie Chain, not Arc', () => {
+  assert.throws(
+    () => loadServerConfig({ ARC_CHAIN_ID: '1243' }),
+    /Archie Chain/,
+  );
+  assert.throws(
+    () => loadServerConfig({ ARC_NETWORK: 'mainnet', ARC_CHAIN_ID: '1243' }),
+    /Archie Chain/,
+  );
+  assert.throws(
+    () => loadServerConfig({ ARC_NETWORK: 'testnet', VITE_ARC_NETWORK: 'mainnet' }),
+    /disagree/,
+  );
+});
+
+test('banned Phase 6A addresses cannot be configured on any network', () => {
+  assert.throws(
+    () => loadServerConfig({
+      MARKET_FACTORY_ADDRESS: '0x765E2Eaaba8eaEF4437B15CF42C1F268D3c8c08F',
+    }),
+    /banned legacy/,
+  );
+});
+
 test('the operator address must be a checksummed EVM address', () => {
   assert.throws(
     () => loadServerConfig({

@@ -24,7 +24,7 @@ reconciled **VERIFIED**, `operatorAddress: null`, human authorization consumed: 
 | --- | --- |
 | **Primary track** | Agentic |
 | **Supporting track** | DeFi |
-| **Network** | Arc Public Testnet (chain `5042002`) |
+| **Network** | Arc Public Testnet (chain `5042002`) — mainnet cutover is documented in [`docs/MAINNET.md`](./docs/MAINNET.md) and is **not live** until those gates complete |
 | **Settlement asset & gas** | USDC |
 
 ### Judge in 60 seconds

@@ -4,9 +4,17 @@ import { AutonomousAgentWorker } from './domain/autonomous-agent-worker.js';
 import { ReconciliationWorker } from './domain/reconciliation-worker.js';
 import { loadLocalEnvironment } from './load-env.js';
 import { createSettlementRuntime } from './runtime.js';
+import { assertRpcChainId } from './infrastructure/arc-rpc.js';
 
 loadLocalEnvironment();
 const config = loadServerConfig();
+if (process.env.ARC_SKIP_CHAIN_CHECK !== 'true') {
+  await assertRpcChainId({
+    rpcUrl: config.arcRpcUrl,
+    expectedChainId: config.arcChainId,
+    nodeEnv: config.nodeEnv,
+  });
+}
 if (!config.databaseUrl && process.env.WORKER_ONCE !== 'true') {
   throw new Error('DATABASE_URL is required for a continuously running separate worker.');
 }

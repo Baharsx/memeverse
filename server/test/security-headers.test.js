@@ -35,6 +35,8 @@ test('responses carry a strict Content Security Policy with no wildcard source',
   assert.deepEqual(directives['form-action'], ["'self'"]);
   assert.ok(directives['connect-src'].includes('https://rpc.testnet.arc.io'));
   assert.ok(directives['connect-src'].includes('https://rpc.drpc.testnet.arc.io'));
+  assert.ok(directives['connect-src'].includes('https://rpc.mainnet.arc.io'));
+  assert.ok(directives['connect-src'].includes('https://rpc.drpc.mainnet.arc.io'));
   // Only the exact web-font hosts the stylesheet imports, and only for styles and font files.
   assert.deepEqual(directives['style-src'], [
     "'self'", "'unsafe-inline'", 'https://api.fontshare.com', 'https://fonts.googleapis.com',

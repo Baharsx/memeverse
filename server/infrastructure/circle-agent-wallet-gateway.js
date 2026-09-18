@@ -12,7 +12,7 @@ const run = promisify(execFile);
  * This is the real Agent Stack component, driven through Circle's official CLI
  * (`@circle-fin/cli`, package name and command surface as documented at
  * <https://developers.circle.com/agent-stack/agent-wallets>). The wallet is a Circle Agent Wallet
- * created with `circle wallet create` on `ARC-TESTNET`, backed by 2-of-2 MPC whose key shares are
+ * created with `circle wallet create` on `ARC` / `ARC-TESTNET`, backed by 2-of-2 MPC whose key shares are
  * never exposed to this process. Nothing here holds or handles a private key.
  *
  * Two properties of the real product shaped this design, and both are load-bearing:
@@ -34,7 +34,7 @@ export class CircleAgentWalletGateway {
   constructor({
     config,
     cliPath = 'circle',
-    blockchain = 'ARC-TESTNET',
+    blockchain = config.circleChainCode ?? 'ARC-TESTNET',
     execute = run,
     timeoutMs = 180_000,
     store,

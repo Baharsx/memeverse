@@ -7,6 +7,7 @@ import { createPublicClient, getAddress, http } from 'viem';
 import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
 import { circleIdempotencyKey } from './circle-idempotency.js';
+import { circleChain } from './circle-chain.js';
 
 /**
  * Deploys the autonomous settlement contract whose immutable operator is the Circle Agent Wallet.
@@ -26,7 +27,7 @@ loadLocalEnvironment();
 const config = loadServerConfig();
 const run = promisify(execFile);
 
-const ARC_CHAIN_ID = 5042002;
+const { chainId: ARC_CHAIN_ID, blockchain, label } = circleChain(config);
 
 const rpc = createPublicClient({ transport: http(config.arcRpcUrl) });
 const chainId = await rpc.getChainId();
@@ -38,11 +39,11 @@ if (chainId !== ARC_CHAIN_ID) {
 // Resolve the Agent Wallet from the authenticated Circle CLI session rather than from
 // configuration, so the operator can never be a stale or mistyped address.
 const listed = await run('circle', [
-  'wallet', 'list', '--chain', 'ARC-TESTNET', '--type', 'agent', '--output', 'json',
+  'wallet', 'list', '--chain', blockchain, '--type', 'agent', '--output', 'json',
 ]);
 const agentWallets = JSON.parse(listed.stdout)?.data?.wallets ?? [];
 if (agentWallets.length === 0) {
-  console.error('No Circle Agent Wallet exists on ARC-TESTNET. Run `circle wallet create` first.');
+  console.error(`No Circle Agent Wallet exists on ${blockchain}. Run \`circle wallet create\` first.`);
   process.exit(1);
 }
 const agentWalletAddress = getAddress(agentWallets[0].address);
@@ -59,10 +60,10 @@ const contractClient = initiateSmartContractPlatformClient(clientConfig);
 try {
   const constructorParameters = [agentWalletAddress, config.arcUsdcAddress];
   const fingerprint = circleIdempotencyKey('autonomous-settlement-artifact', [
-    artifact.bytecode, 'ARC-TESTNET', ...constructorParameters,
+    artifact.bytecode, blockchain, ...constructorParameters,
   ]);
 
-  console.log('Deploying the autonomous settlement contract to Arc Testnet.');
+  console.log(`Deploying the autonomous settlement contract to ${label}.`);
   console.log(`  chain:            ${chainId}`);
   console.log(`  immutable operator: ${agentWalletAddress}  (Circle Agent Wallet)`);
   console.log(`  usdc:             ${config.arcUsdcAddress}`);
@@ -71,7 +72,7 @@ try {
   const deployment = await contractClient.deployContract({
     idempotencyKey: circleIdempotencyKey('autonomous-settlement-deploy', [fingerprint]),
     name: 'MemeVerseSettlementAutonomous',
-    blockchain: 'ARC-TESTNET',
+    blockchain,
     walletId: config.circleWalletId,
     abiJson: JSON.stringify(artifact.abi),
     bytecode: artifact.bytecode,

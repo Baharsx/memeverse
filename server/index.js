@@ -4,10 +4,18 @@ import { loadLocalEnvironment } from './load-env.js';
 import { CircleWebhookVerifier } from './infrastructure/circle-webhook-verifier.js';
 import { CircleWebhookService } from './domain/circle-webhook-service.js';
 import { createSettlementRuntime } from './runtime.js';
+import { assertRpcChainId } from './infrastructure/arc-rpc.js';
 
 loadLocalEnvironment();
 
 const config = loadServerConfig();
+if (process.env.ARC_SKIP_CHAIN_CHECK !== 'true') {
+  await assertRpcChainId({
+    rpcUrl: config.arcRpcUrl,
+    expectedChainId: config.arcChainId,
+    nodeEnv: config.nodeEnv,
+  });
+}
 const runtime = await createSettlementRuntime(config);
 const { store, circleGateway, arcIndexer, settlementService, arcRpc,
   agentDecisionService, autonomousAgentService, autonomyStore,

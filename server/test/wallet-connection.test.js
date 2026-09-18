@@ -60,8 +60,9 @@ test('the wallet layer reuses the existing Arc definition rather than a second c
 });
 
 test('Ethereum is represented only to preserve an off-Arc WalletConnect session', async () => {
-  assert.deepEqual(reownSessionNetworks.map((network) => network.id), [5042002, 1]);
+  assert.deepEqual(reownSessionNetworks.map((network) => network.id), [5042002, 5042, 1]);
   assert.equal(reownSessionNetworks[0], arc, 'Arc remains the default and first product network');
+  assert.equal(reownSessionNetworks[1].id, 5042, 'Arc mainnet is registered alongside testnet');
 
   const source = await readFile(new URL('../../src/reown-appkit.js', import.meta.url), 'utf8');
   assert.equal((source.match(/networks:\s*reownSessionNetworks/g) ?? []).length, 2,

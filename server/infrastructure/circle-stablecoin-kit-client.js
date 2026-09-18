@@ -90,6 +90,7 @@ export class CircleStablecoinKitClient {
     walletGateway,
     fetchImpl = globalThis.fetch,
     timeoutMs = DEFAULT_TIMEOUT_MS,
+    circleChainCode = 'ARC-TESTNET',
   }) {
     if (!KIT_KEY_PATTERN.test(kitKey ?? '')) {
       throw new Error('CIRCLE_KIT_KEY must use the KIT_KEY:<id>:<secret> format.');
@@ -100,6 +101,7 @@ export class CircleStablecoinKitClient {
     this.walletGateway = walletGateway;
     this.fetchImpl = fetchImpl;
     this.timeoutMs = timeoutMs;
+    this.circleChainCode = circleChainCode;
   }
 
   async estimateSwap(input) {
@@ -111,10 +113,18 @@ export class CircleStablecoinKitClient {
 
     const readiness = await this.walletGateway.readiness();
     const wallet = readiness.wallet;
-    if (!readiness.configured || !wallet?.address || wallet.blockchain !== 'ARC-TESTNET' || wallet.state !== 'LIVE') {
+    const expectedChain = this.circleChainCode ?? 'ARC-TESTNET';
+    if (expectedChain !== 'ARC-TESTNET') {
+      throw new DomainError(
+        'APP_KIT_UNSUPPORTED_NETWORK',
+        'Circle Stablecoin Kit swap estimates are not enabled on Arc mainnet in this deployment.',
+        { status: 503 },
+      );
+    }
+    if (!readiness.configured || !wallet?.address || wallet.blockchain !== expectedChain || wallet.state !== 'LIVE') {
       throw new DomainError(
         'APP_KIT_WALLET_NOT_READY',
-        'A live Circle developer-controlled wallet on Arc Testnet is required.',
+        'A live Circle developer-controlled wallet on the configured Arc network is required.',
         { status: 503 },
       );
     }

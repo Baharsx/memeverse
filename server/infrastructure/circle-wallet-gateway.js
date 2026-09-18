@@ -78,8 +78,9 @@ export class CircleWalletGateway {
       ]);
       const wallet = walletResponse.data?.wallet;
       const balances = balanceResponse.data?.tokenBalances ?? [];
+      const expectedChain = this.config.circleChainCode ?? 'ARC-TESTNET';
       const usdc = balances.find((balance) => (
-        balance.token.blockchain === 'ARC-TESTNET'
+        balance.token.blockchain === expectedChain
         && balance.token.symbol === 'USDC'
       ));
       return {

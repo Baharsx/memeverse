@@ -29,6 +29,7 @@ export class SettlementService {
     store,
     policy,
     chainId,
+    chainCode,
     quoteTtlSeconds,
     circleGateway,
     arcIndexer,
@@ -43,6 +44,7 @@ export class SettlementService {
     this.store = store;
     this.policy = policy;
     this.chainId = chainId;
+    this.chainCode = chainCode ?? (chainId === 5042 ? 'ARC' : 'ARC-TESTNET');
     this.quoteTtlSeconds = quoteTtlSeconds;
     this.circleGateway = circleGateway;
     this.arcIndexer = arcIndexer;
@@ -120,7 +122,7 @@ export class SettlementService {
       idempotencyKey,
       requestFingerprint,
       chainId: this.chainId,
-      chainCode: 'ARC-TESTNET',
+      chainCode: this.chainCode,
       asset: 'USDC',
       recipient: normalized.recipient,
       viralityScore: normalized.viralityScore,
@@ -214,7 +216,7 @@ export class SettlementService {
         ? this.circleGateway.createExecutionPlan(current)
         : {
           provider: 'CIRCLE_DEVELOPER_CONTROLLED_WALLET',
-          chain: 'ARC-TESTNET',
+          chain: this.chainCode,
           asset: 'USDC',
           recipient: current.recipient,
           amountUsdc: current.amount.creatorPayoutUsdc,
@@ -696,10 +698,12 @@ export class SettlementService {
    * details are preserved when an older snapshot arrives after a newer one.
    */
   mergeCircleTransaction(record, transaction, reason) {
-    if (transaction.blockchain && transaction.blockchain !== 'ARC-TESTNET') {
-      throw new DomainError('CIRCLE_CHAIN_MISMATCH', 'Circle transaction is not on Arc Testnet.', {
-        status: 502,
-      });
+    if (transaction.blockchain && transaction.blockchain !== this.chainCode) {
+      throw new DomainError(
+        'CIRCLE_CHAIN_MISMATCH',
+        `Circle transaction is not on ${this.chainCode}.`,
+        { status: 502 },
+      );
     }
     if (record.circle?.transactionId && record.circle.transactionId !== transaction.id) {
       throw new DomainError('CIRCLE_TRANSACTION_MISMATCH', 'Circle transaction ID does not match.', {

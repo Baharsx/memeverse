@@ -8,6 +8,7 @@ import {
   parseUnits,
 } from 'viem';
 import { ARC_READ_FALLBACK_RPC_URL, ARC_READ_RPC_URL, arc, arcContracts } from './arc.js';
+import { isBannedContract } from './arc-networks.js';
 import { parseMarketAddress } from './imported-markets.js';
 
 export const USDC_DECIMALS = 6;
@@ -145,6 +146,12 @@ export function minimumAfterSlippage(value, slippageBps) {
 
 export async function loadFactoryConfig() {
   const address = arcContracts.memeVerseFactory;
+  if (!address) {
+    return {
+      address: null, usdc: null, treasury: null, creatorFeeBps: 0n, treasuryFeeBps: 0n,
+      deployedAtBlock: 0n, marketCount: 0n,
+    };
+  }
   const functions = ['usdc', 'treasury', 'creatorFeeBps', 'treasuryFeeBps', 'deployedAtBlock', 'marketCount'];
   const [usdc, treasury, creatorFeeBps, treasuryFeeBps, deployedAtBlock, marketCount] = await marketPublicClient.multicall({
     contracts: functions.map((functionName) => ({ address, abi: factoryAbi, functionName })),
@@ -195,6 +202,7 @@ export async function loadMarket(address, userAddress) {
 }
 
 export async function loadMarkets(userAddress) {
+  if (!arcContracts.memeVerseFactory) return [];
   const marketCount = await marketPublicClient.readContract({
     address: arcContracts.memeVerseFactory,
     abi: factoryAbi,
@@ -236,7 +244,7 @@ export async function quoteSell(marketAddress, tokenIn) {
  */
 export async function isRegisteredFactoryMarket(address) {
   const parsed = parseMarketAddress(address);
-  if (!parsed) return false;
+  if (!parsed || !arcContracts.memeVerseFactory) return false;
   try {
     return await marketPublicClient.readContract({
       address: arcContracts.memeVerseFactory,
@@ -259,6 +267,7 @@ export async function isRegisteredFactoryMarket(address) {
 export async function probeMemeMarket(address, userAddress) {
   const parsed = parseMarketAddress(address);
   if (!parsed) return { ok: false, code: 'INVALID_ADDRESS', market: null };
+  if (isBannedContract(parsed)) return { ok: false, code: 'BANNED_CONTRACT', market: null };
   const checksummed = getAddress(parsed);
   let market;
   try {

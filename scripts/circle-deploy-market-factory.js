@@ -5,9 +5,11 @@ import { getAddress } from 'viem';
 import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
 import { circleIdempotencyKey } from './circle-idempotency.js';
+import { assertCircleDeployWallet, circleChain } from './circle-chain.js';
 
 loadLocalEnvironment();
 const config = loadServerConfig();
+const { blockchain, label } = circleChain(config);
 
 if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId) {
   console.error('CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, and CIRCLE_WALLET_ID are required.');
@@ -25,20 +27,18 @@ if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
   try {
     const walletResponse = await walletClient.getWallet({ id: config.circleWalletId });
     const wallet = walletResponse.data?.wallet;
-    if (!wallet || wallet.blockchain !== 'ARC-TESTNET' || wallet.accountType !== 'EOA') {
-      throw new Error('Deployment wallet must be an ARC-TESTNET EOA.');
-    }
+    assertCircleDeployWallet(wallet, blockchain);
     const constructorParameters = [config.arcUsdcAddress, wallet.address, '100', '100'];
     const artifactFingerprint = circleIdempotencyKey('market-factory-artifact', [
       artifact.bytecode,
-      'ARC-TESTNET',
+      blockchain,
       ...constructorParameters,
     ]);
 
     const deployment = await contractClient.deployContract({
       idempotencyKey: circleIdempotencyKey('market-factory-deploy', [artifactFingerprint]),
       name: 'MemeVerseFactory',
-      blockchain: 'ARC-TESTNET',
+      blockchain,
       walletId: config.circleWalletId,
       abiJson: JSON.stringify(artifact.abi),
       bytecode: artifact.bytecode,
@@ -68,7 +68,7 @@ if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWalletId
     const contractAddress = contract?.contractAddress ?? transaction.contractAddress;
     if (!contractAddress || !transaction.txHash) throw new Error('Circle returned no deployed address or hash.');
 
-    console.log('MemeVerse market factory is live on Arc Testnet.');
+    console.log(`MemeVerse market factory is live on ${label}.`);
     console.log(`CIRCLE_MARKET_FACTORY_CONTRACT_ID=${contractId}`);
     console.log(`CIRCLE_MARKET_FACTORY_DEPLOYMENT_TX_ID=${transactionId}`);
     console.log(`MARKET_FACTORY_ADDRESS=${getAddress(contractAddress)}`);

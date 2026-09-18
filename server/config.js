@@ -1,8 +1,14 @@
 import { resolve } from 'node:path';
 import { getAddress, isAddress } from 'viem';
 import { z } from 'zod';
+import {
+  assertAllowedProductContract,
+  assertCircleApiKeyPrefix,
+  resolveArcNetwork,
+} from '../src/arc-networks.js';
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+const emptyToUndefined = (value) => (value === '' ? undefined : value);
 
 // viem accepts an all-lowercase address because it carries no checksum information. A
 // privileged operator address must be unambiguous, so the exact EIP-55 form is required.
@@ -45,7 +51,14 @@ export function canonicalizeAppOrigin(value) {
 const environmentSchema = z.object({
   API_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   APP_ORIGIN: z.string().min(1).default('http://127.0.0.1:5173'),
-  ARC_RPC_URL: z.string().url().default('https://rpc.testnet.arc.io'),
+  ARC_NETWORK: z.preprocess(emptyToUndefined, z.enum(['mainnet', 'testnet']).optional()),
+  VITE_ARC_NETWORK: z.preprocess(emptyToUndefined, z.enum(['mainnet', 'testnet']).optional()),
+  ARC_CHAIN_ID: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
+  VITE_ARC_CHAIN_ID: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
+  ARC_RPC_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  ARC_FALLBACK_RPC_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  ARC_WALLET_RPC_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  ARC_EXPLORER_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
   SETTLEMENT_DATA_FILE: z.string().min(1).default('.data/settlements.json'),
   CIRCLE_NOTIFICATION_DATA_FILE: z.string().min(1).default('.data/circle-notifications.json'),
   DATABASE_URL: z.string().url().optional(),
@@ -100,14 +113,14 @@ const environmentSchema = z.object({
   CIRCLE_ENTITY_SECRET: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
   CIRCLE_WALLET_SET_ID: z.string().uuid().optional(),
   CIRCLE_WALLET_ID: z.string().uuid().optional(),
+  CIRCLE_AGENT_WALLET_ID: z.string().uuid().optional(),
   CIRCLE_SETTLEMENT_CONTRACT_ID: z.string().uuid().optional(),
   CIRCLE_SETTLEMENT_DEPLOYMENT_TX_ID: z.string().uuid().optional(),
   CIRCLE_SETTLEMENT_CONTRACT_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   CIRCLE_SETTLEMENT_APPROVAL_TX_ID: z.string().uuid().optional(),
   CIRCLE_MARKET_FACTORY_CONTRACT_ID: z.string().uuid().optional(),
   CIRCLE_MARKET_FACTORY_DEPLOYMENT_TX_ID: z.string().uuid().optional(),
-  MARKET_FACTORY_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/)
-    .default('0x363124490E953EEbB414eB4c3e2f03a40eef8F2C'),
+  MARKET_FACTORY_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   CIRCLE_SETTLEMENT_ALLOWANCE_USDC: z.string().regex(/^\d+(?:\.\d{1,6})?$/).default('20.00'),
   CIRCLE_API_BASE_URL: z.string().url().default('https://api.circle.com'),
   CIRCLE_FEE_LEVEL: z.enum(['LOW', 'MEDIUM', 'HIGH']).default('MEDIUM'),
@@ -145,6 +158,18 @@ function createRateLimits(nodeEnv) {
 
 export function loadServerConfig(environment = process.env) {
   const parsed = environmentSchema.parse(environment);
+  const network = resolveArcNetwork(environment);
+  assertCircleApiKeyPrefix(parsed.CIRCLE_API_KEY, network.name);
+  if (parsed.CIRCLE_SETTLEMENT_CONTRACT_ADDRESS) {
+    assertAllowedProductContract(
+      network.name, parsed.CIRCLE_SETTLEMENT_CONTRACT_ADDRESS, 'CIRCLE_SETTLEMENT_CONTRACT_ADDRESS',
+    );
+  }
+  if (parsed.AGENT_SETTLEMENT_CONTRACT_ADDRESS) {
+    assertAllowedProductContract(
+      network.name, parsed.AGENT_SETTLEMENT_CONTRACT_ADDRESS, 'AGENT_SETTLEMENT_CONTRACT_ADDRESS',
+    );
+  }
   if (parsed.NODE_ENV === 'production' && !parsed.DATABASE_URL) {
     throw new Error('DATABASE_URL is required when NODE_ENV=production.');
   }
@@ -173,7 +198,11 @@ export function loadServerConfig(environment = process.env) {
   return Object.freeze({
     port: parsed.API_PORT,
     appOrigin: canonicalizeAppOrigin(parsed.APP_ORIGIN),
-    arcRpcUrl: parsed.ARC_RPC_URL,
+    arcNetwork: network.name,
+    arcRpcUrl: network.readRpcUrl,
+    arcFallbackRpcUrl: network.readFallbackRpcUrl,
+    arcWalletRpcUrl: network.walletRpcUrl,
+    arcExplorerUrl: network.explorerUrl,
     dataFile: resolve(process.cwd(), parsed.SETTLEMENT_DATA_FILE),
     circleNotificationDataFile: resolve(process.cwd(), parsed.CIRCLE_NOTIFICATION_DATA_FILE),
     databaseUrl: parsed.DATABASE_URL,
@@ -222,19 +251,22 @@ export function loadServerConfig(environment = process.env) {
     secureCookies: parsed.NODE_ENV === 'production',
     rateLimits: createRateLimits(parsed.NODE_ENV),
     nodeEnv: parsed.NODE_ENV,
-    arcChainId: 5042002,
-    arcUsdcAddress: '0x3600000000000000000000000000000000000000',
+    arcChainId: network.chainId,
+    arcUsdcAddress: network.usdc,
+    circleChainCode: network.circleChainCode,
+    circleKitChainName: network.kitChainName,
     circleApiKey: parsed.CIRCLE_API_KEY,
     circleEntitySecret: parsed.CIRCLE_ENTITY_SECRET,
     circleWalletSetId: parsed.CIRCLE_WALLET_SET_ID,
     circleWalletId: parsed.CIRCLE_WALLET_ID,
+    circleAgentWalletId: parsed.CIRCLE_AGENT_WALLET_ID,
     circleSettlementContractId: parsed.CIRCLE_SETTLEMENT_CONTRACT_ID,
     circleSettlementDeploymentTransactionId: parsed.CIRCLE_SETTLEMENT_DEPLOYMENT_TX_ID,
     circleSettlementContractAddress: parsed.CIRCLE_SETTLEMENT_CONTRACT_ADDRESS,
     circleSettlementApprovalTransactionId: parsed.CIRCLE_SETTLEMENT_APPROVAL_TX_ID,
     circleMarketFactoryContractId: parsed.CIRCLE_MARKET_FACTORY_CONTRACT_ID,
     circleMarketFactoryDeploymentTransactionId: parsed.CIRCLE_MARKET_FACTORY_DEPLOYMENT_TX_ID,
-    marketFactoryAddress: parsed.MARKET_FACTORY_ADDRESS,
+    marketFactoryAddress: network.factory,
     circleSettlementAllowanceUsdc: parsed.CIRCLE_SETTLEMENT_ALLOWANCE_USDC,
     circleApiBaseUrl: parsed.CIRCLE_API_BASE_URL,
     circleFeeLevel: parsed.CIRCLE_FEE_LEVEL,
