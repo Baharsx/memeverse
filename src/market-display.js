@@ -53,6 +53,8 @@ export function isLegacyHiddenMarket(address) {
  * so the complete set stays available to anything that needs onchain truth.
  */
 export function publicMarkets(markets) {
+  // Callers pass factory enumeration that already dropped addresses where factory.isMarket is
+  // false. This filter only hides the historical testnet markets by address. It stays synchronous.
   if (!Array.isArray(markets)) return [];
   return markets.filter((market) => !isLegacyHiddenMarket(market?.address));
 }

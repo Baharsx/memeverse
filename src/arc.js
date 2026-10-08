@@ -12,6 +12,7 @@ export const ARC_NETWORK = resolveArcNetwork({
   VITE_ARC_FALLBACK_RPC_URL: viteEnv.VITE_ARC_FALLBACK_RPC_URL,
   VITE_ARC_WALLET_RPC_URL: viteEnv.VITE_ARC_WALLET_RPC_URL,
   VITE_ARC_EXPLORER_URL: viteEnv.VITE_ARC_EXPLORER_URL,
+  VITE_MEMEVERSE_FACTORY_ADDRESS: viteEnv.VITE_MEMEVERSE_FACTORY_ADDRESS,
   VITE_MARKET_FACTORY_ADDRESS: viteEnv.VITE_MARKET_FACTORY_ADDRESS,
   VITE_SETTLEMENT_ADDRESS: viteEnv.VITE_SETTLEMENT_ADDRESS,
   VITE_MEDIA_NFT_ADDRESS: viteEnv.VITE_MEDIA_NFT_ADDRESS,
@@ -42,7 +43,7 @@ export const ARC_NETWORK = resolveArcNetwork({
  * therefore remain the testnet read transport; `npm run rpc:burst:check` is the check that would
  * have caught it.
  *
- * Mainnet uses the published Circle/dRPC pair for reads and the published primary host for the
+ * Mainnet uses the published docs.arc.io pair for reads and the published primary host for the
  * wallet. The two remain separate env fields even when they happen to name the same URL.
  */
 export const ARC_READ_RPC_URL = ARC_NETWORK.readRpcUrl;
@@ -167,11 +168,13 @@ export const arcCapabilities = Object.freeze({
   // Developer-Controlled Wallet path alone. The Agent Wallet is an ERC-4337 smart account and
   // calls its own settlement contract directly instead.
   transactionMemos: 'MANUAL SETTLEMENT ROUTE / EOA ONLY',
-  batchedTransactions: ARC_IS_MAINNET ? 'MAINNET READY / EOA ONLY' : 'TESTNET READY / EOA ONLY',
+  batchedTransactions: ARC_IS_MAINNET ? 'FACTORY + ONE SEED MARKET' : 'TESTNET READY / EOA ONLY',
   postQuantum: 'ROADMAP / NOT YET AVAILABLE',
-  appKit: 'SWAP ESTIMATE LIVE / SERVER-ONLY',
-  // Two isolated routes: the Agent Wallet executes with no per-payout human approval, and the
-  // manual operator route still requires a wallet-signed session plus a settlement-bound approval.
-  // First mainnet ship keeps autonomy paused regardless of this label.
-  agentExecution: 'AUTONOMOUS AGENT WALLET + MANUAL OPERATOR ROUTES',
+  appKit: ARC_IS_MAINNET ? 'NOT USED ON MAINNET' : 'SWAP ESTIMATE LIVE / SERVER-ONLY',
+  // Two isolated routes on testnet: the Agent Wallet executes with no per-payout human approval,
+  // and the manual operator route still requires a wallet-signed session. Mainnet does not run
+  // either Circle route. Creator and treasury fees still settle inside the trade.
+  agentExecution: ARC_IS_MAINNET
+    ? 'NOT LIVE — FEES SETTLE INSIDE THE TRADE'
+    : 'AUTONOMOUS AGENT WALLET + MANUAL OPERATOR ROUTES',
 });

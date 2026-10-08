@@ -4,7 +4,8 @@
  * One module, no Vite env, so the browser bundle, the API, and the Circle deploy scripts all
  * name the same chain ids, RPCs, and Circle wallet codes. Selection happens in `resolveArcNetwork`.
  *
- * Facts re-verified 2026-09-18 against:
+ * Facts re-verified 2026-10-08 against docs.arc.io and eth_chainId on
+ * https://rpc.mainnet.arc.io (0x13b2 = 5042). Circle is not a mainnet deploy path.
  *   https://docs.arc.io/arc/references/rpc-endpoints
  *   https://docs.arc.io/integrate/connect-to-arc
  *   https://docs.arc.io/arc/references/contract-addresses
@@ -118,16 +119,15 @@ export const ARC_NETWORKS = Object.freeze({
     label: 'Arc',
     chainId: ARC_MAINNET_CHAIN_ID,
     chainIdHex: ARC_MAINNET_CHAIN_ID_HEX,
-    circleChainCode: 'ARC',
-    circleApiKeyPrefix: 'LIVE_API_KEY',
-    // Circle Stablecoin Kits chain string for Arc mainnet is not a documented constant in this
-    // repo. Swap estimates stay disabled on mainnet rather than guessing a kit name.
+    // Circle is not used on mainnet. A null chain code cannot be sent as blockchain "ARC".
+    circleChainCode: null,
+    circleApiKeyPrefix: null,
     kitChainName: null,
     readRpcUrl: 'https://rpc.mainnet.arc.io',
     readFallbackRpcUrl: 'https://rpc.drpc.mainnet.arc.io',
     walletRpcUrl: 'https://rpc.mainnet.arc.io',
-    websocketUrl: 'wss://rpc.quicknode.mainnet.arc.io',
-    fallbackWebsocketUrl: 'wss://rpc.blockdaemon.mainnet.arc.io/websocket',
+    websocketUrl: 'wss://rpc.mainnet.arc.io',
+    fallbackWebsocketUrl: 'wss://rpc.drpc.mainnet.arc.io',
     explorerName: 'Arc Explorer',
     explorerUrl: 'https://explorer.arc.io',
     explorerApiUrl: 'https://explorer.arc.io/api',
@@ -206,21 +206,79 @@ export function assertAllowedProductContract(networkName, address, label) {
   return parsed;
 }
 
+const STALE_TESTNET_HOSTS = new Set([
+  'rpc.testnet.arc.io',
+  'rpc.drpc.testnet.arc.io',
+  'rpc.testnet.arc.network',
+  'rpc.quicknode.testnet.arc.network',
+  'rpc.blockdaemon.testnet.arc.network',
+  'testnet.arcscan.app',
+  'explorer.testnet.arc.io',
+]);
+
+export function isStaleTestnetEndpoint(value) {
+  try {
+    return STALE_TESTNET_HOSTS.has(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function circleApiKeyMatchesNetwork(apiKey, networkName) {
   if (!apiKey) return true;
+  if (networkName === 'mainnet') return false;
   const prefix = ARC_NETWORKS[networkName].circleApiKeyPrefix;
-  return apiKey.startsWith(prefix);
+  return Boolean(prefix) && apiKey.startsWith(prefix);
 }
 
 export function assertCircleApiKeyPrefix(apiKey, networkName) {
   if (!apiKey) return;
+  if (networkName === 'mainnet') {
+    throw new Error(
+      'Circle is not used on Arc mainnet. Do not call circle:setup, circle:fund, or circle:deploy against chain 5042.',
+    );
+  }
   if (circleApiKeyMatchesNetwork(apiKey, networkName)) return;
   const expected = ARC_NETWORKS[networkName].circleApiKeyPrefix;
-  const other = networkName === 'mainnet' ? 'TEST_API_KEY' : 'LIVE_API_KEY';
   throw new Error(
     `CIRCLE_API_KEY for Arc ${networkName} must start with ${expected}. `
-    + `A ${other} key cannot sign this network.`,
+    + 'A LIVE_API_KEY cannot sign this network.',
   );
+}
+
+function pickEndpoint(networkName, label, catalogUrl, candidates) {
+  for (const value of candidates) {
+    if (!value) continue;
+    const url = optionalUrl(value, label);
+    if (networkName === 'mainnet' && isStaleTestnetEndpoint(url)) continue;
+    return url;
+  }
+  return catalogUrl;
+}
+
+/**
+ * On mainnet, leftover testnet product addresses in the server env are skipped so a cutover
+ * can keep the old lines and still not point chain 5042 at them. A new VITE factory value that
+ * is itself a testnet contract is rejected.
+ */
+function pickProductAddress(networkName, label, candidates) {
+  for (const candidate of candidates) {
+    if (!candidate.value) continue;
+    const parsed = optionalAddress(candidate.value, label);
+    if (isBannedContract(parsed)) {
+      throw new Error(
+        `${label} ${parsed} is a banned legacy Phase 6A contract and must not be used on any chain.`,
+      );
+    }
+    if (networkName === 'mainnet' && isTestnetProductContract(parsed)) {
+      if (candidate.stale) continue;
+      throw new Error(
+        `${label} ${parsed} is a testnet (5042002) MemeVerse contract and must not be configured on Arc mainnet (5042).`,
+      );
+    }
+    return parsed;
+  }
+  return undefined;
 }
 
 /**
@@ -247,58 +305,57 @@ export function resolveArcNetwork(env = {}) {
     );
   }
 
-  const factory = optionalAddress(
-    firstNonEmpty(env, ['MARKET_FACTORY_ADDRESS', 'VITE_MARKET_FACTORY_ADDRESS']),
-    'MARKET_FACTORY_ADDRESS',
+  const endpointOrder = (viteKey, serverKey) => (
+    name === 'mainnet'
+      ? [firstNonEmpty(env, [viteKey]), firstNonEmpty(env, [serverKey])]
+      : [firstNonEmpty(env, [serverKey]), firstNonEmpty(env, [viteKey])]
   );
-  const settlement = optionalAddress(
-    firstNonEmpty(env, ['CIRCLE_SETTLEMENT_CONTRACT_ADDRESS', 'VITE_SETTLEMENT_ADDRESS']),
-    'SETTLEMENT_ADDRESS',
-  );
-  const mediaNft = optionalAddress(
-    firstNonEmpty(env, ['MEDIA_NFT_ADDRESS', 'VITE_MEDIA_NFT_ADDRESS']),
-    'MEDIA_NFT_ADDRESS',
-  );
-  const nftMarketplace = optionalAddress(
-    firstNonEmpty(env, ['NFT_MARKETPLACE_ADDRESS', 'VITE_NFT_MARKETPLACE_ADDRESS']),
-    'NFT_MARKETPLACE_ADDRESS',
-  );
-  const vault = optionalAddress(
-    firstNonEmpty(env, ['USDC_VAULT_ADDRESS', 'VITE_USDC_VAULT_ADDRESS']),
-    'USDC_VAULT_ADDRESS',
-  );
+  const factory = pickProductAddress(name, 'MARKET_FACTORY_ADDRESS', [
+    { value: firstNonEmpty(env, ['VITE_MEMEVERSE_FACTORY_ADDRESS']), stale: false },
+    { value: firstNonEmpty(env, ['VITE_MARKET_FACTORY_ADDRESS']), stale: false },
+    { value: firstNonEmpty(env, ['MARKET_FACTORY_ADDRESS']), stale: true },
+  ]);
+  const settlement = pickProductAddress(name, 'SETTLEMENT_ADDRESS', [
+    { value: firstNonEmpty(env, ['VITE_SETTLEMENT_ADDRESS']), stale: true },
+    { value: firstNonEmpty(env, ['CIRCLE_SETTLEMENT_CONTRACT_ADDRESS']), stale: true },
+  ]);
+  const mediaNft = pickProductAddress(name, 'MEDIA_NFT_ADDRESS', [
+    { value: firstNonEmpty(env, ['VITE_MEDIA_NFT_ADDRESS']), stale: true },
+    { value: firstNonEmpty(env, ['MEDIA_NFT_ADDRESS']), stale: true },
+  ]);
+  const nftMarketplace = pickProductAddress(name, 'NFT_MARKETPLACE_ADDRESS', [
+    { value: firstNonEmpty(env, ['VITE_NFT_MARKETPLACE_ADDRESS']), stale: true },
+    { value: firstNonEmpty(env, ['NFT_MARKETPLACE_ADDRESS']), stale: true },
+  ]);
+  const vault = pickProductAddress(name, 'USDC_VAULT_ADDRESS', [
+    { value: firstNonEmpty(env, ['VITE_USDC_VAULT_ADDRESS']), stale: true },
+    { value: firstNonEmpty(env, ['USDC_VAULT_ADDRESS']), stale: true },
+  ]);
   const usdc = optionalAddress(firstNonEmpty(env, ['VITE_USDC_ADDRESS', 'ARC_USDC_ADDRESS']), 'USDC_ADDRESS')
     ?? catalog.usdc;
 
-  for (const [label, address] of [
-    ['MARKET_FACTORY_ADDRESS', factory],
-    ['SETTLEMENT_ADDRESS', settlement],
-    ['MEDIA_NFT_ADDRESS', mediaNft],
-    ['NFT_MARKETPLACE_ADDRESS', nftMarketplace],
-    ['USDC_VAULT_ADDRESS', vault],
-  ]) {
-    if (address) assertAllowedProductContract(name, address, label);
-  }
   if (usdc && isBannedContract(usdc)) {
     throw new Error(`USDC_ADDRESS ${usdc} is banned.`);
+  }
+  if (usdc && usdc.toLowerCase() !== ARC_USDC_ADDRESS.toLowerCase()) {
+    throw new Error(`USDC_ADDRESS must be ${ARC_USDC_ADDRESS} on Arc.`);
   }
 
   return Object.freeze({
     ...catalog,
-    readRpcUrl: optionalUrl(firstNonEmpty(env, ['ARC_RPC_URL', 'VITE_ARC_RPC_URL']), 'ARC_RPC_URL')
-      ?? catalog.readRpcUrl,
-    readFallbackRpcUrl: optionalUrl(
-      firstNonEmpty(env, ['ARC_FALLBACK_RPC_URL', 'VITE_ARC_FALLBACK_RPC_URL']),
-      'ARC_FALLBACK_RPC_URL',
-    ) ?? catalog.readFallbackRpcUrl,
-    walletRpcUrl: optionalUrl(
-      firstNonEmpty(env, ['ARC_WALLET_RPC_URL', 'VITE_ARC_WALLET_RPC_URL']),
-      'ARC_WALLET_RPC_URL',
-    ) ?? catalog.walletRpcUrl,
-    explorerUrl: optionalUrl(
-      firstNonEmpty(env, ['ARC_EXPLORER_URL', 'VITE_ARC_EXPLORER_URL']),
-      'ARC_EXPLORER_URL',
-    ) ?? catalog.explorerUrl,
+    readRpcUrl: pickEndpoint(name, 'ARC_RPC_URL', catalog.readRpcUrl, endpointOrder('VITE_ARC_RPC_URL', 'ARC_RPC_URL')),
+    readFallbackRpcUrl: pickEndpoint(
+      name, 'ARC_FALLBACK_RPC_URL', catalog.readFallbackRpcUrl,
+      endpointOrder('VITE_ARC_FALLBACK_RPC_URL', 'ARC_FALLBACK_RPC_URL'),
+    ),
+    walletRpcUrl: pickEndpoint(
+      name, 'ARC_WALLET_RPC_URL', catalog.walletRpcUrl,
+      endpointOrder('VITE_ARC_WALLET_RPC_URL', 'ARC_WALLET_RPC_URL'),
+    ),
+    explorerUrl: pickEndpoint(
+      name, 'ARC_EXPLORER_URL', catalog.explorerUrl,
+      endpointOrder('VITE_ARC_EXPLORER_URL', 'ARC_EXPLORER_URL'),
+    ),
     usdc,
     factory: factory ?? catalog.factory,
     settlement: settlement ?? catalog.settlement,

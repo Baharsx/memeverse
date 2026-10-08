@@ -159,15 +159,25 @@ function createRateLimits(nodeEnv) {
 export function loadServerConfig(environment = process.env) {
   const parsed = environmentSchema.parse(environment);
   const network = resolveArcNetwork(environment);
-  assertCircleApiKeyPrefix(parsed.CIRCLE_API_KEY, network.name);
-  if (parsed.CIRCLE_SETTLEMENT_CONTRACT_ADDRESS) {
+  const mainnet = network.name === 'mainnet';
+  // Testnet Circle keys may remain in the env during cutover. They are unused on mainnet and
+  // must not fail boot, and they must not be checked as if they were a mainnet Circle wallet.
+  if (!mainnet) {
+    assertCircleApiKeyPrefix(parsed.CIRCLE_API_KEY, network.name);
+  }
+  if (!mainnet && parsed.CIRCLE_SETTLEMENT_CONTRACT_ADDRESS) {
     assertAllowedProductContract(
       network.name, parsed.CIRCLE_SETTLEMENT_CONTRACT_ADDRESS, 'CIRCLE_SETTLEMENT_CONTRACT_ADDRESS',
     );
   }
-  if (parsed.AGENT_SETTLEMENT_CONTRACT_ADDRESS) {
+  if (!mainnet && parsed.AGENT_SETTLEMENT_CONTRACT_ADDRESS) {
     assertAllowedProductContract(
       network.name, parsed.AGENT_SETTLEMENT_CONTRACT_ADDRESS, 'AGENT_SETTLEMENT_CONTRACT_ADDRESS',
+    );
+  }
+  if (mainnet && parsed.AGENT_AUTONOMOUS_ENABLED === 'true') {
+    throw new Error(
+      'AGENT_AUTONOMOUS_ENABLED must be false on Arc mainnet. Autonomous rewards are not live.',
     );
   }
   if (parsed.NODE_ENV === 'production' && !parsed.DATABASE_URL) {
@@ -175,7 +185,7 @@ export function loadServerConfig(environment = process.env) {
   }
   // Privileged Circle settlement execution is only reachable through an authenticated operator
   // session. Production must therefore never boot with execution credentials but no operator.
-  const settlementExecutionConfigured = Boolean(
+  const settlementExecutionConfigured = mainnet ? false : Boolean(
     parsed.CIRCLE_API_KEY && parsed.CIRCLE_ENTITY_SECRET
     && parsed.CIRCLE_WALLET_ID && parsed.CIRCLE_SETTLEMENT_CONTRACT_ADDRESS,
   );
@@ -221,7 +231,7 @@ export function loadServerConfig(environment = process.env) {
     agentMaxFraudRisk: parsed.AGENT_MAX_FRAUD_RISK,
     agentMinConfidence: parsed.AGENT_MIN_CONFIDENCE,
     agentSignalMaxAgeSeconds: parsed.AGENT_SIGNAL_MAX_AGE_SECONDS,
-    agentAutonomousEnabled: parsed.AGENT_AUTONOMOUS_ENABLED === 'true',
+    agentAutonomousEnabled: mainnet ? false : parsed.AGENT_AUTONOMOUS_ENABLED === 'true',
     agentMinConfirmations: parsed.AGENT_MIN_CONFIRMATIONS,
     agentSignalLookbackBlocks: parsed.AGENT_SIGNAL_LOOKBACK_BLOCKS,
     agentAutonomousMaxPayoutUsdc: parsed.AGENT_AUTONOMOUS_MAX_PAYOUT_USDC,
@@ -232,9 +242,9 @@ export function loadServerConfig(environment = process.env) {
     agentDecisionTtlSeconds: parsed.AGENT_DECISION_TTL_SECONDS,
     agentWorkerIntervalMs: parsed.AGENT_WORKER_INTERVAL_MS,
     agentStatusCacheMs: parsed.AGENT_STATUS_CACHE_MS,
-    agentWalletAddress: parsed.AGENT_WALLET_ADDRESS
+    agentWalletAddress: !mainnet && parsed.AGENT_WALLET_ADDRESS
       ? getAddress(parsed.AGENT_WALLET_ADDRESS) : undefined,
-    agentSettlementContractAddress: parsed.AGENT_SETTLEMENT_CONTRACT_ADDRESS
+    agentSettlementContractAddress: !mainnet && parsed.AGENT_SETTLEMENT_CONTRACT_ADDRESS
       ? getAddress(parsed.AGENT_SETTLEMENT_CONTRACT_ADDRESS) : undefined,
     circleAgentSettlementContractId: parsed.CIRCLE_AGENT_SETTLEMENT_CONTRACT_ID,
     settlementOperatorAddress: parsed.SETTLEMENT_OPERATOR_ADDRESS
@@ -262,7 +272,7 @@ export function loadServerConfig(environment = process.env) {
     circleAgentWalletId: parsed.CIRCLE_AGENT_WALLET_ID,
     circleSettlementContractId: parsed.CIRCLE_SETTLEMENT_CONTRACT_ID,
     circleSettlementDeploymentTransactionId: parsed.CIRCLE_SETTLEMENT_DEPLOYMENT_TX_ID,
-    circleSettlementContractAddress: parsed.CIRCLE_SETTLEMENT_CONTRACT_ADDRESS,
+    circleSettlementContractAddress: mainnet ? undefined : parsed.CIRCLE_SETTLEMENT_CONTRACT_ADDRESS,
     circleSettlementApprovalTransactionId: parsed.CIRCLE_SETTLEMENT_APPROVAL_TX_ID,
     circleMarketFactoryContractId: parsed.CIRCLE_MARKET_FACTORY_CONTRACT_ID,
     circleMarketFactoryDeploymentTransactionId: parsed.CIRCLE_MARKET_FACTORY_DEPLOYMENT_TX_ID,

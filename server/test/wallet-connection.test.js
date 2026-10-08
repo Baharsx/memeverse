@@ -270,7 +270,8 @@ test('a disconnected page exposes only the header wallet connection action', asy
   assert.equal(networkStatus.includes('[ARC_NETWORK_ACTION.CONNECT]'), false,
     'the passive network status must not render a second disconnected action');
   assert.equal(networkStatus.includes("'CONNECT WALLET'"), false);
-  assert.match(networkStatus, /\[ARC_NETWORK_ACTION\.ADD\]: 'ADD ARC TESTNET'/);
+  assert.match(networkStatus, /ADD ARC TESTNET/);
+  assert.match(networkStatus, /ADD ARC MAINNET/);
   assert.match(networkStatus, /\[ARC_NETWORK_ACTION\.SWITCH\]: 'SWITCH TO ARC'/);
   assert.match(networkStatus, /\[ARC_NETWORK_ACTION\.RECONNECT\]: 'RECONNECT WALLET'/);
 });

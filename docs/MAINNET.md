@@ -1,11 +1,11 @@
 # Arc mainnet cutover
 
-Status: **code supports both networks. Production (https://memeverse.biz) is still Arc Testnet.**
-Do not say "MemeVerse is live on Arc" until Gate 6 trade proof is verified on chain 5042.
+Status: **code supports both networks. Production (https://memeverse.biz) is still Arc Testnet until the human gates below.**
+Do not say "MemeVerse is live on Arc" until a buy and a sell on chain 5042 are appended to this file.
 
-Autonomy stays paused (`AGENT_AUTONOMOUS_ENABLED=false`) on first mainnet ship.
+This cutover deploys with an EOA. **Circle is not used on mainnet.** Do not call the Circle Contracts API, `circle:setup`, `circle:fund`, or `circle:deploy:*` against chain 5042. Do not create a Circle agent wallet. `AGENT_AUTONOMOUS_ENABLED` stays `false`. Autonomous rewards are not live. Creator and treasury fees still settle inside the trade.
 
-Facts below were re-verified 2026-09-18 against docs.arc.io and developers.circle.com.
+Facts re-verified 2026-10-08 against docs.arc.io and `eth_chainId` on `https://rpc.mainnet.arc.io` (`0x13b2` = 5042). The same result came back from `https://rpc.drpc.mainnet.arc.io`.
 
 ## Official network facts
 
@@ -17,14 +17,11 @@ Facts below were re-verified 2026-09-18 against docs.arc.io and developers.circl
 | Read fallback | `https://rpc.drpc.mainnet.arc.io` | `https://rpc.drpc.testnet.arc.io` |
 | Wallet EIP-3085 RPC | `https://rpc.mainnet.arc.io` | `https://rpc.testnet.arc.network` |
 | Explorer | `https://explorer.arc.io` | Product still uses `https://testnet.arcscan.app`; official docs name `https://explorer.testnet.arc.io` |
-| Gas token | native USDC, 18 decimals | same model |
+| Gas token | native USDC, 18 decimals (`eth_getBalance`) | same model |
 | ERC-20 USDC | `0x3600000000000000000000000000000000000000` (6 decimals, **same address**, real money on mainnet) | same address, test assets |
-| Circle wallets chain code | `ARC` | `ARC-TESTNET` |
-| Circle API key prefix | `LIVE_API_KEY:` | `TEST_API_KEY:` |
-| Agent spend policies | mainnet only (`circle wallet limit set --chain ARC`) | application-level caps only |
-| CCTP domain | 26 | 26 |
+| Circle | **not used** | `ARC-TESTNET` and `TEST_API_KEY` only |
 
-Read vs wallet RPC stay separate env fields on both networks. Do not point Markets reads at the wallet URL.
+Read RPC and wallet EIP-3085 RPC stay separate env fields even when the host is the same. Mainnet has no faucet.
 
 ## Testnet product contracts — do not reuse on 5042
 
@@ -36,94 +33,83 @@ Read vs wallet RPC stay separate env fields on both networks. Do not point Marke
 | MediaNFT | `0x56A6f87e4d026E6D9d3E3c791A3A30e023bf1CFD` |
 | NFTMarketplace | `0xfc3e869bA4Dd808A0942bc9C034f6f8427a08666` |
 | Vault | `0xe26EeA49973226b406fd92Bd178484a29D7F7C05` |
+| Agent settlement | `0x2176107C2562Ed30ca1d490C43cD53C3369946e2` |
 
 Banned on every chain (legacy Phase 6A buy path):
 
 - Factory `0x765E2Eaaba8eaEF4437B15CF42C1F268D3c8c08F`
 - Market `0x5CcB34ec32e5ea12CdD7119157De9b8207b8880D`
 
-## Phase 0 inventory (pre-cutover hardcodes)
+## What this cutover deploys
 
-These were the committed testnet-only values before dual-network support. Default env still selects them so memeverse.biz does not flip until Gate 4.
+`npm run deploy:mainnet:eoa` deploys **MemeVerseFactory** and **one seed market** only. Constructor arguments match the testnet Phase 6A.1 exact-spend factory: USDC `0x3600…0000`, treasury = deployer, creator fee 100 bps, treasury fee 100 bps. The seed market is MEMEVERSE GENESIS / MMV, supply 100000, base price 100, slope 1000 (6-decimal USDC units).
+
+MediaNFT, the NFT marketplace, and the vault are skipped. Leave those env values empty or unchanged. Do not point them at the testnet addresses while `VITE_ARC_NETWORK=mainnet`.
+
+The script reads `DEPLOYER_PRIVATE_KEY` from the environment or from `/etc/memeverse/memeverse.env`. It never prints the key. It refuses to broadcast unless `eth_chainId` is 5042, the balance is at least 0.8 native USDC, and the estimated deploy cost leaves at least 0.15 native USDC.
+
+## Phase 0 inventory
+
+Default env still selects testnet, so memeverse.biz does not flip until the server env gate.
 
 | Kind | Where |
 | --- | --- |
-| Chain id `5042002` | `server/config.js` (now from `ARC_NETWORK`), scripts, tests, `src/arc.js` default |
-| Read RPC `rpc.testnet.arc.io` / `rpc.drpc.testnet.arc.io` | `src/arc.js`, `.env.example`, CSP, demo-preflight |
-| Wallet RPC `rpc.testnet.arc.network` | `src/arc.js` (EIP-3085 only) |
-| Explorer `testnet.arcscan.app` | `src/arc.js`, verify scripts, README |
-| Circle `ARC-TESTNET` | settlement service, Circle gateways, kit client, deploy scripts (now `config.circleChainCode`) |
-| Factory `0x3631…` | server default when network is testnet; frontend `arcContracts` / `VITE_MARKET_FACTORY_ADDRESS` |
-| VITE media / marketplace / vault | `.env.example` testnet addresses |
-| Imported-markets localStorage | was `memeverse.imported-markets.v1`; now `memeverse.imported-markets.v1.<chainId>` |
+| Chain id `5042002` | default of `resolveArcNetwork`, tests, `src/arc.js` when `VITE_ARC_NETWORK` is unset |
+| Read RPC `rpc.testnet.arc.io` / `rpc.drpc.testnet.arc.io` | testnet catalog, `.env.example`, CSP |
+| Wallet RPC `rpc.testnet.arc.network` | testnet catalog (EIP-3085 only) |
+| Explorer `testnet.arcscan.app` | testnet catalog and the testnet verify script |
+| Circle `ARC-TESTNET` | `scripts/circle-chain.js` returns this only after it has rejected chain 5042 |
+| Circle deploy entrypoints | `circle:setup`, `circle:fund`, `circle:deploy:*`, and `scripts/circle-webhook-setup.js` call `circleChain()` before any Circle client is constructed |
+| Factory `0x3631…` | testnet catalog default. On mainnet a stale `MARKET_FACTORY_ADDRESS` is ignored. A new `VITE_MEMEVERSE_FACTORY_ADDRESS` or `VITE_MARKET_FACTORY_ADDRESS` that is a testnet product contract is rejected |
+| VITE media / marketplace / vault | testnet addresses in `.env.example`. A mainnet build nulls them when they are testnet product contracts |
+| Imported-markets localStorage | `memeverse.imported-markets.v1.<chainId>` |
+| `publicMarkets()` | still a synchronous presentation filter. `loadMarkets` drops addresses where `factory.isMarket` is false |
 
-`publicMarkets()` still filters the presentation list. Factory enumeration still uses `factory.isMarket` via `markets(i)` / `isRegisteredFactoryMarket`.
-
-## Dual-network env shape
-
-```
-ARC_NETWORK=testnet|mainnet
-VITE_ARC_NETWORK=testnet|mainnet          # must agree with ARC_NETWORK
-VITE_ARC_CHAIN_ID=5042002|5042
-VITE_ARC_RPC_URL=                         # read transport
-VITE_ARC_FALLBACK_RPC_URL=
-VITE_ARC_WALLET_RPC_URL=                  # EIP-3085 only
-VITE_ARC_EXPLORER_URL=
-VITE_MARKET_FACTORY_ADDRESS=
-VITE_MEDIA_NFT_ADDRESS=
-VITE_NFT_MARKETPLACE_ADDRESS=
-VITE_USDC_VAULT_ADDRESS=
-VITE_USDC_ADDRESS=0x3600000000000000000000000000000000000000
-ARC_RPC_URL=                              # API/worker read RPC
-MARKET_FACTORY_ADDRESS=
-CIRCLE_API_KEY=                           # TEST_API_KEY: or LIVE_API_KEY:
-CIRCLE_ENTITY_SECRET=                     # 64 hex; never in git; never in VITE_*
-CIRCLE_WALLET_ID=
-CIRCLE_AGENT_WALLET_ID=
-AGENT_AUTONOMOUS_ENABLED=false
-```
-
-Default when unset: **testnet**. Production after cutover: **mainnet**, set only in `/etc/memeverse/memeverse.env` at Gate 4.
-
-Boot: API and worker call `eth_chainId` and refuse to start if it does not match the configured chain id. Production also refuses to start if the RPC is unreachable.
+Server boot calls `eth_chainId` and refuses to start on a mismatch. A mainnet boot also refuses when the RPC cannot be reached. The browser does the same check before render when `VITE_ARC_NETWORK=mainnet`.
 
 ## Mainnet contract addresses
 
-Filled at Phase 2. Empty until then. Never copy the testnet factory here.
+Filled after the EOA deploy. Empty until then. Never copy a testnet address into this table.
 
-| Contract | Address | Tx |
+| Contract | Address | Transaction |
 | --- | --- | --- |
 | Factory | _pending deploy_ | |
-| Seed market | | |
-| MediaNFT | | |
-| NFTMarketplace | | |
-| Vault | | |
-| Settlement (manual) | | |
-| Settlement (agent) | | |
+| Seed market | _pending deploy_ | |
+| MediaNFT | not in this cutover | |
+| NFTMarketplace | not in this cutover | |
+| Vault | not in this cutover | |
+| Settlement | not in this cutover. Circle settlement stays testnet-only | |
+
+Proof trade (filled only after both receipts are on chain 5042):
+
+| Side | Transaction |
+| --- | --- |
+| Buy | _pending_ |
+| Sell | _pending_ |
 
 ## Language
 
-- No independent audit. Never write "audited".
-- Do not say official partner / founding validator / Circle's chain.
-- "MemeVerse is live on Arc." only after Gate 6.
-- No APY claims.
+- No independent audit. Do not write "audited".
+- Do not say official partner, founding validator, or Circle's chain.
+- Do not say autonomous rewards are live on mainnet.
+- "MemeVerse is live on Arc." only after the proof-trade receipts are in this file.
+- Built on Arc. USDC markets.
 
 ## Rollback
 
-Production is still testnet until Gate 4–5. After a mistaken mainnet env flip:
-
 1. Restore the testnet env backup:
    `sudo cp /etc/memeverse/memeverse.env.bak-testnet /etc/memeverse/memeverse.env`
-2. Confirm `VITE_ARC_NETWORK=testnet`, `ARC_NETWORK=testnet`, `AGENT_AUTONOMOUS_ENABLED=false`.
-3. Rebuild and restart with the updater (do not `git pull` as root):
+2. Confirm `VITE_ARC_NETWORK=testnet` and `AGENT_AUTONOMOUS_ENABLED=false`.
+3. Rebuild with the updater. Do not `git pull` as root:
    `curl -fsSL https://raw.githubusercontent.com/Baharsx/memeverse/main/scripts/update-production.sh | sudo bash`
 
-If `feat/arc-mainnet` is not on `main` yet, do not run that updater against main; stay on the current live SHA.
+If `feat/arc-mainnet` is not on `main` yet, check out that branch before the updater's `git checkout` of `origin/main`. Do not force-push `main`.
 
-Code rollback of the dual-network branch is `VITE_ARC_NETWORK=testnet` + rebuild. Do not force-push `main`.
+## Human gates
 
-## Gate order
+Work stops at each gate until the operator replies `DONE GATE N` (or "انجام شد") with the requested values.
 
-0 inventory → 1 code (this file + dual-network) → Gate 1 Circle LIVE keys → Gate 2 fund deployer → Phase 2 deploy on 5042 → Gate 3 agent wallet + policy → Phase 3 commit addresses → Gate 4 server env → Gate 5 updater → Gate 6 one buy and one sell → Phase 4 announcement.
-
-Fresh DB and fresh Circle wallets on mainnet. No testnet state copy.
+1. Fund the deployer with about 1 USDC on chain 5042 if `eth_getBalance` is under 0.8 USDC.
+2. Backup `/etc/memeverse/memeverse.env`, paste the `VITE_*` block, keep database secrets, set `AGENT_AUTONOMOUS_ENABLED=false`, mode `0600`, owner `memeverse`.
+3. Run the production updater as root. If this branch is not on `main`, check the branch out first.
+4. From the deployer wallet, buy a tiny amount of the seed market and sell it back. Paste both explorer URLs.

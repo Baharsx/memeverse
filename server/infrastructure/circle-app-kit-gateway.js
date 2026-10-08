@@ -21,6 +21,24 @@ export class CircleAppKitGateway {
   }
 
   configuration() {
+    if (
+      this.config.arcNetwork === 'mainnet'
+      || this.config.arcChainId === 5042
+      || this.config.circleChainCode === 'ARC'
+    ) {
+      return {
+        provider: 'CIRCLE_STABLECOIN_KITS_API',
+        network: 'DISABLED',
+        kitKeyConfigured: false,
+        runtimeEnabled: false,
+        runtimeMode: 'DISABLED',
+        dependencyStatus: 'NOT_CONFIGURED',
+        capabilities: arcTestnetCapabilities.map((capability) => ({
+          ...capability,
+          enabled: false,
+        })),
+      };
+    }
     const runtimeEnabled = Boolean(this.client && this.config.circleKitKey);
     return {
       provider: 'CIRCLE_STABLECOIN_KITS_API',
@@ -58,6 +76,9 @@ export function createCircleAppKitGateway(config, {
   client,
   fetchImpl,
 } = {}) {
+  if (config.arcNetwork === 'mainnet' || config.arcChainId === 5042 || config.circleChainCode === 'ARC') {
+    return new CircleAppKitGateway({ config, client: null });
+  }
   const circleConfigured = circleGateway?.configuration?.().configured === true;
   const resolvedClient = client ?? (
     config.circleKitKey && circleConfigured

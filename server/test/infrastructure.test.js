@@ -110,6 +110,20 @@ test('boot aborts when the RPC chain id does not match the configured network', 
   );
 });
 
+test('mainnet boot aborts when the RPC cannot be reached, even outside production', async () => {
+  await assert.rejects(
+    () => assertRpcChainId({
+      rpcUrl: 'https://rpc.invalid',
+      expectedChainId: 5042,
+      nodeEnv: 'development',
+      fetchImplementation: async () => {
+        throw new Error('connect ECONNREFUSED');
+      },
+    }),
+    /chain check failed at boot/,
+  );
+});
+
 test('boot accepts a matching mainnet chain id 5042', async () => {
   const chainId = await assertRpcChainId({
     rpcUrl: 'https://rpc.invalid',

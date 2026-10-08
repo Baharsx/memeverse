@@ -113,7 +113,7 @@ export class CircleStablecoinKitClient {
 
     const readiness = await this.walletGateway.readiness();
     const wallet = readiness.wallet;
-    const expectedChain = this.circleChainCode ?? 'ARC-TESTNET';
+    const expectedChain = this.circleChainCode;
     if (expectedChain !== 'ARC-TESTNET') {
       throw new DomainError(
         'APP_KIT_UNSUPPORTED_NETWORK',

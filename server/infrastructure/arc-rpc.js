@@ -1,3 +1,4 @@
+import { ARC_MAINNET_CHAIN_ID } from '../../src/arc-networks.js';
 import { DomainError } from '../domain/errors.js';
 
 export class ArcRpcClient {
@@ -82,7 +83,8 @@ export async function assertRpcChainId({
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('Arc RPC chain mismatch')) throw error;
-    if (nodeEnv === 'production') {
+    // Mainnet is real USDC. A transport failure must not boot as if the chain were unchecked.
+    if (nodeEnv === 'production' || expectedChainId === ARC_MAINNET_CHAIN_ID) {
       throw new Error(`Arc RPC chain check failed at boot (${rpcUrl}): ${message}`);
     }
     console.warn(JSON.stringify({

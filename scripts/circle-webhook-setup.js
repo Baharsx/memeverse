@@ -1,9 +1,12 @@
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
 import { loadServerConfig } from '../server/config.js';
 import { loadLocalEnvironment } from '../server/load-env.js';
+import { circleChain } from './circle-chain.js';
 
 loadLocalEnvironment();
 const config = loadServerConfig();
+// Throws before any Circle client exists when the resolved network is mainnet.
+circleChain(config);
 
 if (!config.circleApiKey || !config.circleEntitySecret || !config.circleWebhookUrl) {
   console.error('CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, and CIRCLE_WEBHOOK_URL are required.');

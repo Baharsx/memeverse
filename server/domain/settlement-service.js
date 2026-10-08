@@ -44,7 +44,8 @@ export class SettlementService {
     this.store = store;
     this.policy = policy;
     this.chainId = chainId;
-    this.chainCode = chainCode ?? (chainId === 5042 ? 'ARC' : 'ARC-TESTNET');
+    // Chain 5042 has no Circle blockchain code. Do not label it "ARC".
+    this.chainCode = chainCode ?? (chainId === 5042 ? null : 'ARC-TESTNET');
     this.quoteTtlSeconds = quoteTtlSeconds;
     this.circleGateway = circleGateway;
     this.arcIndexer = arcIndexer;

@@ -34,7 +34,9 @@ export class CircleAgentWalletGateway {
   constructor({
     config,
     cliPath = 'circle',
-    blockchain = config.circleChainCode ?? 'ARC-TESTNET',
+    blockchain = (config.arcNetwork === 'mainnet' || config.arcChainId === 5042 || config.circleChainCode === 'ARC')
+      ? null
+      : (config.circleChainCode ?? 'ARC-TESTNET'),
     execute = run,
     timeoutMs = 180_000,
     store,
@@ -51,6 +53,14 @@ export class CircleAgentWalletGateway {
   }
 
   configuration() {
+    if (
+      this.config.arcNetwork === 'mainnet'
+      || this.config.arcChainId === 5042
+      || this.blockchain == null
+      || this.blockchain === 'ARC'
+    ) {
+      return { configured: false, missing: ['CIRCLE_MAINNET_REFUSED'], provider: 'CIRCLE_AGENT_WALLET' };
+    }
     const missing = [];
     if (!this.config.agentWalletAddress) missing.push('AGENT_WALLET_ADDRESS');
     if (!this.config.agentSettlementContractAddress) missing.push('AGENT_SETTLEMENT_CONTRACT_ADDRESS');
@@ -74,6 +84,18 @@ export class CircleAgentWalletGateway {
 
   /** Runs one Circle CLI command and parses its JSON envelope. */
   async #cli(args, operation) {
+    if (
+      this.config.arcNetwork === 'mainnet'
+      || this.config.arcChainId === 5042
+      || this.blockchain == null
+      || this.blockchain === 'ARC'
+    ) {
+      throw new DomainError(
+        'CIRCLE_MAINNET_REFUSED',
+        'Circle is not used on Arc mainnet (chain 5042).',
+        { status: 503 },
+      );
+    }
     let stdout;
     try {
       ({ stdout } = await this.execute(this.cliPath, [...args, '--output', 'json'], {

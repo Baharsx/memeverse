@@ -1,5 +1,6 @@
 import { formatUnits, getAddress, parseAbi, parseUnits } from 'viem';
-import { arcContracts } from './arc.js';
+import { ARC_IS_MAINNET, arcContracts } from './arc.js';
+import { isBannedContract, isTestnetProductContract } from './arc-networks.js';
 import { marketPublicClient, marketAbi, USDC_DECIMALS, usdcAbi } from './market.js';
 
 /**
@@ -20,6 +21,9 @@ const viteEnv = import.meta.env ?? {};
 function configuredAddress(value) {
   const trimmed = value?.trim();
   if (!trimmed || !/^0x[a-fA-F0-9]{40}$/.test(trimmed) || trimmed === ZERO) return null;
+  if (isBannedContract(trimmed)) return null;
+  // A mainnet build must not point MediaNFT, the marketplace, or the vault at testnet contracts.
+  if (ARC_IS_MAINNET && isTestnetProductContract(trimmed)) return null;
   return getAddress(trimmed);
 }
 

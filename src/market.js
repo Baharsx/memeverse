@@ -217,7 +217,18 @@ export async function loadMarkets(userAddress) {
     })),
     allowFailure: false,
   });
-  return Promise.all(addresses.map((address) => loadMarket(address, userAddress)));
+  if (addresses.length === 0) return [];
+  const registered = await marketPublicClient.multicall({
+    contracts: addresses.map((address) => ({
+      address: arcContracts.memeVerseFactory,
+      abi: factoryAbi,
+      functionName: 'isMarket',
+      args: [address],
+    })),
+    allowFailure: false,
+  });
+  const live = addresses.filter((_, index) => registered[index]);
+  return Promise.all(live.map((address) => loadMarket(address, userAddress)));
 }
 
 export async function quoteBuy(marketAddress, usdcIn) {

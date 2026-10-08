@@ -276,7 +276,7 @@ export function createApp({
     response.json({
       data: {
         chainId: config.arcChainId,
-        chainCode: config.circleChainCode ?? 'ARC-TESTNET',
+        chainCode: config.arcNetwork === 'mainnet' ? null : (config.circleChainCode ?? 'ARC-TESTNET'),
         asset: 'USDC',
         quoteTtlSeconds: config.quoteTtlSeconds,
         policy: {

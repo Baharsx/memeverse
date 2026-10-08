@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { arc, arcContracts, arcLinks } from './arc';
+import { ARC_IS_MAINNET, arc, arcContracts, arcLinks } from './arc';
 import { getAgentAutonomy, getApiHealth } from './api';
 import { formatUsdc, loadFactoryConfig, marketPublicClient } from './market';
 import { readMediaAssets, stage2Contracts } from './assets';
@@ -639,9 +639,13 @@ export function ProofCenter() {
       <section className="proof-block limitations">
         <h2>LIMITATIONS — STATED PLAINLY</h2>
         <ul className="boundary-list">
-          <li><b>Arc Public Testnet MVP — not mainnet-ready.</b> This deployment is live and publicly hosted on Arc Public Testnet. Test assets have no real-world value, and nothing here runs on mainnet.</li>
+          <li><b>{ARC_IS_MAINNET ? 'Arc mainnet — autonomous rewards are not live.' : 'Arc Public Testnet MVP — not mainnet-ready.'}</b> {ARC_IS_MAINNET
+            ? 'Creator and treasury fees settle inside each trade. This deployment is not an official partner and has no security audit.'
+            : 'This deployment is live and publicly hosted on Arc Public Testnet. Test assets have no real-world value, and nothing here runs on mainnet.'}</li>
           <li><b>No independent security audit.</b> No third party has reviewed this code.</li>
-          <li><b>Mainnet would require more.</b> Independent security review, operational hardening, key custody review, and production monitoring are all prerequisites before any mainnet deployment.</li>
+          <li><b>{ARC_IS_MAINNET ? 'This cutover deploys the factory and one seed market.' : 'Mainnet would require more.'}</b> {ARC_IS_MAINNET
+            ? 'Media NFT, the NFT marketplace, and the vault are not part of this cutover. Autonomous rewards are not live.'
+            : 'Independent security review, operational hardening, key custody review, and production monitoring are all prerequisites before any mainnet deployment.'}</li>
           <li><b>Agent spending caps are application-level.</b> Circle wallet-level spend limits are a mainnet feature, so every cap in force here is enforced by this application&rsquo;s database, not by the wallet.</li>
           <li><b>The payout policy is deterministic and does not use an LLM.</b> It is arithmetic over confirmed onchain trade data, which is what makes every decision reproducible and auditable.</li>
           <li><b>Risk scoring detects shape, not intent.</b> A patient, well-funded adversary can trade a market into a passing profile; the caps bound the damage rather than preventing it.</li>
@@ -653,7 +657,7 @@ export function ProofCenter() {
         <a href={arcLinks.docs} target="_blank" rel="noreferrer noopener">ARC DOCS ↗</a>
         <a href={arcLinks.explorer} target="_blank" rel="noreferrer noopener">ARCSCAN ↗</a>
         <a href={arcLinks.status} target="_blank" rel="noreferrer noopener">ARC NETWORK STATUS ↗</a>
-        <a href={arcLinks.faucet} target="_blank" rel="noreferrer noopener">CIRCLE FAUCET ↗</a>
+        {ARC_IS_MAINNET ? null : <a href={arcLinks.faucet} target="_blank" rel="noreferrer noopener">CIRCLE FAUCET ↗</a>}
         <a href={arcLinks.contracts} target="_blank" rel="noreferrer noopener">ARC CONTRACT ADDRESSES ↗</a>
       </div>
     </div>

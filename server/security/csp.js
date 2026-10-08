@@ -5,10 +5,9 @@
  * policy through a `<meta http-equiv>` tag. Development keeps Vite's own relaxed behaviour
  * because the dev server needs inline module preambles and an eval-based HMR client.
  */
-// Every Arc endpoint the browser may legitimately reach. The first two are the application read
-// transport and are what the page actually uses; the `.arc.network` pair stays allowed because
-// `VITE_ARC_RPC_URL` is environment-overridable and because a deployment may prefer them. All four
-// were verified to answer `eth_chainId` with `0x4cef52`. An allowlist entry permits a request; it
+// Every Arc endpoint the browser may legitimately reach. Testnet read hosts were verified as
+// eth_chainId 0x4cef52 (5042002). Mainnet hosts rpc.mainnet.arc.io and rpc.drpc.mainnet.arc.io
+// were verified 2026-10-08 as eth_chainId 0x13b2 (5042). An allowlist entry permits a request; it
 // does not choose one — which endpoint is read is decided in src/arc.js, and only the read pair
 // survives a Markets-page burst (see `npm run rpc:burst:check`).
 const ARC_RPC_ORIGINS = Object.freeze([

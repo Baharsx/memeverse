@@ -13,6 +13,7 @@
     "markets:audit:onchain": "node scripts/audit-market-factory-onchain.js",
     "markets:verify": "npm run contracts:compile && node scripts/verify-market-factory.js",
     "markets:e2e:testnet": "node scripts/market-e2e-testnet.js",
+    "deploy:mainnet:eoa": "npm run contracts:compile && node scripts/deploy-arc-mainnet-eoa.js",
     "circle:deploy:assets": "npm run contracts:compile && node scripts/circle-deploy-assets.js",
     "circle:setup:counterparty": "node scripts/circle-setup-counterparty.js",
     "assets:audit:onchain": "node scripts/audit-assets-onchain.js",

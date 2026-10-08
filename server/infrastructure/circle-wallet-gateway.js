@@ -3,7 +3,16 @@ import { DomainError } from '../domain/errors.js';
 import { parseUnits } from 'viem';
 import { createArcSettlementExecutionPlan } from './arc-contracts.js';
 
+function circleMainnetRefused(config) {
+  return config?.arcNetwork === 'mainnet'
+    || config?.arcChainId === 5042
+    || config?.circleChainCode === 'ARC';
+}
+
 export function circleConfigurationStatus(config) {
+  if (circleMainnetRefused(config)) {
+    return { configured: false, missing: ['CIRCLE_MAINNET_REFUSED'] };
+  }
   const missing = [];
   if (!config.circleApiKey) missing.push('CIRCLE_API_KEY');
   if (!config.circleEntitySecret) missing.push('CIRCLE_ENTITY_SECRET');
@@ -67,6 +76,13 @@ export class CircleWalletGateway {
   }
 
   async readiness() {
+    if (circleMainnetRefused(this.config)) {
+      return {
+        configured: false,
+        missing: ['CIRCLE_MAINNET_REFUSED'],
+        provider: 'CIRCLE_DEVELOPER_CONTROLLED_WALLET',
+      };
+    }
     const configuration = this.configuration();
     if (!configuration.configured) {
       return { ...configuration, provider: 'CIRCLE_DEVELOPER_CONTROLLED_WALLET' };
@@ -174,7 +190,7 @@ export class CircleWalletGateway {
 
 export function createCircleWalletGateway(config, clientFactory = initiateDeveloperControlledWalletsClient) {
   const hasSdkCredentials = Boolean(config.circleApiKey && config.circleEntitySecret);
-  const client = hasSdkCredentials
+  const client = hasSdkCredentials && !circleMainnetRefused(config)
     ? clientFactory({
       apiKey: config.circleApiKey,
       entitySecret: config.circleEntitySecret,

@@ -16,6 +16,7 @@ import {
   arcContracts,
   arcLinks,
 } from './arc';
+import { assertBrowserReadChain } from './boot-chain.js';
 import { openWalletModal, wagmiConfig, walletModalAvailable } from './reown-appkit.js';
 import {
   ARC_MANUAL_NETWORK,
@@ -287,7 +288,7 @@ function NetworkStatus() {
     switchStatus: arcSwitch.status,
   });
   const actionLabel = {
-    [ARC_NETWORK_ACTION.ADD]: 'ADD ARC TESTNET',
+    [ARC_NETWORK_ACTION.ADD]: ARC_IS_MAINNET ? 'ADD ARC MAINNET' : 'ADD ARC TESTNET',
     [ARC_NETWORK_ACTION.SWITCH]: 'SWITCH TO ARC',
     [ARC_NETWORK_ACTION.RECONNECT]: 'RECONNECT WALLET',
   }[action] ?? null;
@@ -406,7 +407,7 @@ function Shell() {
       </div>
       <div className="testnet-banner">
         {ARC_IS_MAINNET
-          ? 'ARC MAINNET — REAL USDC — AUTONOMY PAUSED'
+          ? 'ARC MAINNET — REAL USDC — AUTONOMOUS REWARDS ARE NOT LIVE'
           : 'ARC PUBLIC TESTNET — REAL USDC MARKET TRANSACTIONS — TEST ASSETS HAVE NO REAL-WORLD VALUE'}
       </div>
       <header className="site-header">
@@ -520,11 +521,13 @@ function Home() {
       health.isPending,
     ],
     [
-      'CIRCLE AGENT WALLET',
-      executor?.configured === true && executor?.state === 'LIVE',
-      executor?.configured
-        ? `ERC-4337 / ${executor.state ?? 'UNKNOWN'}`
-        : 'AUTONOMOUS EXECUTOR',
+      ARC_IS_MAINNET ? 'AUTONOMOUS REWARDS' : 'CIRCLE AGENT WALLET',
+      ARC_IS_MAINNET ? false : executor?.configured === true && executor?.state === 'LIVE',
+      ARC_IS_MAINNET
+        ? 'NOT LIVE — FEES SETTLE IN THE TRADE'
+        : (executor?.configured
+          ? `ERC-4337 / ${executor.state ?? 'UNKNOWN'}`
+          : 'AUTONOMOUS EXECUTOR'),
       agent.isPending,
     ],
     [
@@ -557,9 +560,9 @@ function Home() {
             <br /><mark>ECONOMY.</mark>
           </h1>
           <p>
-            MemeVerse turns a meme into a real Arc market. People trade it in USDC, the creator
-            earns from every trade and keeps onchain provenance of their media — and an autonomous
-            agent watches the real trading record and pays that creator without anyone approving it.
+            {ARC_IS_MAINNET
+              ? 'MemeVerse turns a meme into an Arc market. People trade it in USDC. Creator and treasury fees settle inside the trade. Autonomous rewards are not live.'
+              : 'MemeVerse turns a meme into a real Arc market. People trade it in USDC, the creator earns from every trade and keeps onchain provenance of their media — and an autonomous agent watches the real trading record and pays that creator without anyone approving it.'}
           </p>
           <div className="hero-actions">
             <NavLink className="btn primary" to="/launch">LAUNCH A MEME →</NavLink>
@@ -574,8 +577,8 @@ function Home() {
             PRODUCT: MEMEVERSE
             <br />INFRASTRUCTURE: <b className="acid">BUILT ON ARC</b>
             <br />MONEY + GAS: USDC
-            <br />AGENT: <b className="acid">CIRCLE AGENT WALLET</b>
-            <br />ASSETS: TESTNET ONLY
+            <br />AGENT: <b className="acid">{ARC_IS_MAINNET ? 'NOT LIVE' : 'CIRCLE AGENT WALLET'}</b>
+            <br />ASSETS: {ARC_IS_MAINNET ? 'REAL USDC' : 'TESTNET ONLY'}
           </p>
         </aside>
       </section>
@@ -607,7 +610,7 @@ function Home() {
           <NavLink to="/launch"><small>STEP 01 / WALLET SIGNED</small><strong>LAUNCH A MEME</strong><span>Deploy a real Arc market →</span></NavLink>
           <NavLink to="/markets"><small>STEP 02 / REAL USDC</small><strong>TRADE THE CURVE</strong><span>Buy, sell, and pay the creator →</span></NavLink>
           <NavLink to="/nft"><small>STEP 03 / ONCHAIN PROVENANCE</small><strong>OWN THE MEDIA</strong><span>Mint and sell for USDC →</span></NavLink>
-          <NavLink to="/agent"><small>STEP 04 / NO HUMAN APPROVAL</small><strong>AUTONOMOUS REWARDS</strong><span>Watch the agent decide →</span></NavLink>
+          <NavLink to="/agent"><small>{ARC_IS_MAINNET ? 'STEP 04 / NOT LIVE' : 'STEP 04 / NO HUMAN APPROVAL'}</small><strong>AUTONOMOUS REWARDS</strong><span>{ARC_IS_MAINNET ? 'Not live. Fees settle inside the trade →' : 'Watch the agent decide →'}</span></NavLink>
           <NavLink to="/safety"><small>STEP 05 / INDEPENDENTLY CHECKABLE</small><strong>PROOF CENTER</strong><span>Contracts, modes, and limits →</span></NavLink>
           <NavLink to="/vault"><small>SUPPORTING / ERC-4626</small><strong>TREASURY PRIMITIVE</strong><span>Deposit and redeem USDC →</span></NavLink>
         </div>
@@ -871,7 +874,7 @@ function Launch() {
           </div>
           <button className="btn primary full" disabled={action.state.status === 'WALLET_SIGNATURE' || action.state.status === 'SUBMITTED'}>REVIEW ONCHAIN LAUNCH →</button>
           {formError ? <small className="tx-error" role="alert">{formError}</small> : null}
-          {review ? <div className="onchain-review" role="region" aria-label="Launch review"><b>REVIEW BEFORE SIGNING</b><span>CREATOR // {address ?? 'CONNECT WALLET'}</span><span>FACTORY // {arcContracts.memeVerseFactory}</span><span>PRICE // {basePrice} + UP TO {slopePrice} USDC</span><span>FEES // {factory.data ? `${Number(factory.data.creatorFeeBps) / 100}% CREATOR + ${Number(factory.data.treasuryFeeBps) / 100}% TREASURY` : 'READING ONCHAIN'}</span><button className="btn primary full" type="button" disabled={!onArc || !factory.data || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(action.state.status)} onClick={launchMarket}>{!isConnected ? 'CONNECT WALLET FIRST' : !onArc ? 'SWITCH TO ARC TESTNET' : 'SIGN + LAUNCH ON ARC →'}</button></div> : null}
+          {review ? <div className="onchain-review" role="region" aria-label="Launch review"><b>REVIEW BEFORE SIGNING</b><span>CREATOR // {address ?? 'CONNECT WALLET'}</span><span>FACTORY // {arcContracts.memeVerseFactory}</span><span>PRICE // {basePrice} + UP TO {slopePrice} USDC</span><span>FEES // {factory.data ? `${Number(factory.data.creatorFeeBps) / 100}% CREATOR + ${Number(factory.data.treasuryFeeBps) / 100}% TREASURY` : 'READING ONCHAIN'}</span><button className="btn primary full" type="button" disabled={!onArc || !factory.data || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(action.state.status)} onClick={launchMarket}>{!isConnected ? 'CONNECT WALLET FIRST' : !onArc ? (ARC_IS_MAINNET ? 'SWITCH TO ARC MAINNET' : 'SWITCH TO ARC TESTNET') : 'SIGN + LAUNCH ON ARC →'}</button></div> : null}
           <TransactionStatus state={action.state} />
           {result ? <div className="receipt onchain-receipt" role="status"><b>MARKET CONFIRMED ON ARC</b><span>MARKET + TOKEN // {result.market}</span><span>CREATOR // {result.creator}</span><ExternalLink href={`${arcLinks.explorer}/tx/${result.hash}`}>VIEW TRANSACTION ON ARCSCAN ↗</ExternalLink><ExternalLink href={`${arcLinks.explorer}/address/${result.market}`}>VIEW MARKET CONTRACT ↗</ExternalLink></div> : null}
           {/*
@@ -1728,6 +1731,9 @@ function Agent() {
   return (
     <section className="page agent-page">
       <Title n="04 REWARD" t="AUTONOMOUS AGENT" />
+      {ARC_IS_MAINNET ? (
+        <p className="lede">Autonomous rewards are not live on Arc mainnet. Creator and treasury fees settle inside each trade.</p>
+      ) : null}
       {/*
         The autonomous system comes first: it is the real agent, and it pays creators with no
         human in the execution path. The operator-driven flow below it is the separate, manual
@@ -1896,8 +1902,10 @@ function Safety() {
         trusting this page. What is live, what is deployed, who executes, and what is not ready.
       </p>
       <div className="risk-banner">
-        <strong>TESTNET ONLY</strong>
-        <span>Arc Public Testnet. Test assets have no real-world value. No MemeVerse screen should ever ask for a seed phrase or private key — treat unsolicited support DMs as scams.</span>
+        <strong>{ARC_IS_MAINNET ? 'REAL USDC' : 'TESTNET ONLY'}</strong>
+        <span>{ARC_IS_MAINNET
+          ? 'Arc mainnet. Gas and markets use real USDC. Autonomous rewards are not live. Creator and treasury fees settle inside the trade. No MemeVerse screen should ever ask for a seed phrase or private key — treat unsolicited support DMs as scams.'
+          : 'Arc Public Testnet. Test assets have no real-world value. No MemeVerse screen should ever ask for a seed phrase or private key — treat unsolicited support DMs as scams.'}</span>
       </div>
       <Suspense fallback={<LazySection />}><ProofCenter /></Suspense>
       <div className="safety-grid">
@@ -1920,14 +1928,24 @@ function Safety() {
   );
 }
 
-createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <WagmiProvider config={wagmiConfig}>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter basename={routerBase}>
-          <Shell />
-        </BrowserRouter>
-      </QueryClientProvider>
-    </WagmiProvider>
-  </React.StrictMode>,
-);
+const rootElement = document.getElementById('root');
+assertBrowserReadChain()
+  .then(() => {
+    createRoot(rootElement).render(
+      <React.StrictMode>
+        <WagmiProvider config={wagmiConfig}>
+          <QueryClientProvider client={queryClient}>
+            <BrowserRouter basename={routerBase}>
+              <Shell />
+            </BrowserRouter>
+          </QueryClientProvider>
+        </WagmiProvider>
+      </React.StrictMode>,
+    );
+  })
+  .catch((error) => {
+    const message = error instanceof Error
+      ? error.message
+      : 'Arc mainnet chain check failed. Refusing to boot.';
+    rootElement.replaceChildren(document.createTextNode(message));
+  });

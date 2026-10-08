@@ -80,32 +80,54 @@ test('default network is Arc testnet so production cannot silently flip to mainn
   assert.equal(config.marketFactoryAddress, '0x363124490E953EEbB414eB4c3e2f03a40eef8F2C');
 });
 
-test('ARC_NETWORK=mainnet selects chain 5042 and Circle code ARC without the testnet factory', () => {
+test('ARC_NETWORK=mainnet selects chain 5042 and does not use Circle', () => {
   const config = loadServerConfig({ ARC_NETWORK: 'mainnet' });
   assert.equal(config.arcNetwork, 'mainnet');
   assert.equal(config.arcChainId, 5042);
-  assert.equal(config.circleChainCode, 'ARC');
+  assert.equal(config.circleChainCode, null);
   assert.equal(config.arcRpcUrl, 'https://rpc.mainnet.arc.io');
   assert.equal(config.arcFallbackRpcUrl, 'https://rpc.drpc.mainnet.arc.io');
   assert.equal(config.arcExplorerUrl, 'https://explorer.arc.io');
   assert.equal(config.marketFactoryAddress, null);
+  assert.equal(config.settlementExecutionConfigured, false);
+  assert.equal(config.agentAutonomousEnabled, false);
   assert.equal(config.arcUsdcAddress, '0x3600000000000000000000000000000000000000');
 });
 
-test('mainnet refuses the testnet factory and a TEST_API_KEY', () => {
+test('mainnet ignores leftover testnet Circle config and refuses autonomy', () => {
+  const config = loadServerConfig({
+    ARC_NETWORK: 'mainnet',
+    MARKET_FACTORY_ADDRESS: '0x363124490E953EEbB414eB4c3e2f03a40eef8F2C',
+    CIRCLE_API_KEY: 'TEST_API_KEY:left-over',
+    CIRCLE_ENTITY_SECRET: 'a'.repeat(64),
+    CIRCLE_WALLET_ID: '11111111-2222-4333-8444-555555555555',
+    CIRCLE_SETTLEMENT_CONTRACT_ADDRESS: '0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7',
+    AGENT_SETTLEMENT_CONTRACT_ADDRESS: '0x2176107C2562Ed30ca1d490C43cD53C3369946e2',
+    AGENT_WALLET_ADDRESS: '0x65da73c6d9300F3dAb1dF785219f76DeCA5e0FE3',
+    ARC_RPC_URL: 'https://rpc.testnet.arc.io',
+    VITE_ARC_RPC_URL: 'https://rpc.mainnet.arc.io',
+    VITE_MEMEVERSE_FACTORY_ADDRESS: '0x2222222222222222222222222222222222222222',
+  });
+  assert.equal(config.marketFactoryAddress, '0x2222222222222222222222222222222222222222');
+  assert.equal(config.arcRpcUrl, 'https://rpc.mainnet.arc.io');
+  assert.equal(config.settlementExecutionConfigured, false);
+  assert.equal(config.circleSettlementContractAddress, undefined);
+  assert.equal(config.agentSettlementContractAddress, undefined);
+  assert.equal(config.agentWalletAddress, undefined);
+  assert.equal(config.agentAutonomousEnabled, false);
   assert.throws(
     () => loadServerConfig({
       ARC_NETWORK: 'mainnet',
-      MARKET_FACTORY_ADDRESS: '0x363124490E953EEbB414eB4c3e2f03a40eef8F2C',
+      VITE_MARKET_FACTORY_ADDRESS: '0x363124490E953EEbB414eB4c3e2f03a40eef8F2C',
     }),
     /testnet \(5042002\)/,
   );
   assert.throws(
     () => loadServerConfig({
       ARC_NETWORK: 'mainnet',
-      CIRCLE_API_KEY: 'TEST_API_KEY:not-for-mainnet',
+      AGENT_AUTONOMOUS_ENABLED: 'true',
     }),
-    /LIVE_API_KEY/,
+    /Autonomous rewards are not live/,
   );
   assert.throws(
     () => loadServerConfig({
