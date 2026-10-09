@@ -53,4 +53,4 @@ location /api/ {
 
 ## License
 
-MIT
+[MIT](./LICENSE). Copyright (c) 2026 Soheil SL. The file is the full MIT license, warranty disclaimer included.

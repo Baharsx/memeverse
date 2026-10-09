@@ -2,6 +2,7 @@
   "name": "memeverse",
   "private": true,
   "version": "1.2.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "contracts:compile": "node scripts/compile-contracts.js",
