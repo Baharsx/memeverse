@@ -795,6 +795,7 @@ input,textarea,select{border-radius:var(--radius-sm)}
   background:rgba(11,11,13,.78);
 }
 .trade-modal-panel{
+  position:relative;
   width:min(760px,100%);
   max-height:min(920px,calc(100vh - 28px));
   overflow:auto;
@@ -805,8 +806,7 @@ input,textarea,select{border-radius:var(--radius-sm)}
   outline:none;
 }
 .trade-modal-close{
-  position:sticky;top:0;z-index:2;float:right;
-  margin:14px 14px 0 0;
+  position:absolute;top:14px;left:14px;z-index:2;
   min-height:36px;padding:0 14px;
   border:1px solid var(--line);border-radius:999px;
   background:var(--bg-2);color:var(--ink);
