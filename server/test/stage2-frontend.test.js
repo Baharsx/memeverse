@@ -153,9 +153,12 @@ test('no simulated NFT or vault data remains in the browser bundle sources', asy
     assert.equal(stage2.includes(banned), false, `stage2-views.jsx must not claim "${banned}"`);
   }
 
-  // The real views are routed.
-  assert.ok(main.includes('MediaAssets'), '/nft must render the real media view');
-  assert.ok(main.includes('UsdcVault'), '/vault must render the real vault view');
+  // NFT and the vault are routed, but this cutover shows they are still being built.
+  assert.ok(main.includes('function UnderBuild'), 'visitors need a coming-soon surface');
+  assert.ok(main.includes('<UnderBuild n="03" title="NFT"'), '/nft must say it is under build');
+  assert.ok(main.includes('<UnderBuild n="04" title="VAULT"'), '/vault must say it is under build');
+  assert.equal(/\bMediaAssets\b/.test(main), false, 'the live media view is not routed while NFT is under build');
+  assert.equal(main.includes('UsdcVault'), false, 'the live vault view is not routed while the vault is under build');
   assert.equal(
     main.includes('AgentCommandCenter'),
     false,

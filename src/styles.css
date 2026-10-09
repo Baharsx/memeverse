@@ -828,3 +828,41 @@ input,textarea,select{border-radius:var(--radius-sm)}
   .trade-modal{place-items:center;padding:28px 16px}
   .trade-modal-panel{border-radius:18px;max-height:min(860px,calc(100vh - 48px))}
 }
+
+.under-build{
+  min-height:calc(100vh - 200px);
+  display:grid;
+  place-items:center;
+  padding:56px 20px 80px;
+}
+.under-build-card{
+  width:min(680px,100%);
+  padding:48px 36px 40px;
+  text-align:center;
+  border:1px solid var(--line);
+  border-radius:22px;
+  background:
+    radial-gradient(520px 160px at 50% 0%, rgba(198,244,50,.18), transparent 72%),
+    linear-gradient(180deg, #161618 0%, #0B0B0D 100%);
+  box-shadow:0 24px 70px rgba(0,0,0,.35);
+}
+.under-build-card .mascot{width:72px;height:72px;margin:0 auto 18px}
+.under-build-chip{
+  display:inline-flex;align-items:center;gap:8px;
+  margin-bottom:18px;padding:7px 12px;
+  border:1px solid var(--acid);border-radius:999px;
+  color:var(--acid);font:11px var(--mono);letter-spacing:.16em;
+}
+.under-build-chip i{
+  width:7px;height:7px;border-radius:99px;background:var(--acid);
+  box-shadow:0 0 12px var(--acid);
+}
+.under-build-index{
+  margin:0 0 8px;color:var(--mute);font:11px var(--mono);letter-spacing:.2em;
+}
+.under-build h1{
+  margin:0;font:600 clamp(42px,7vw,72px)/0.95 var(--display);letter-spacing:-.03em;
+}
+.under-build .lede{max-width:42ch;margin:16px auto 0;color:var(--mute)}
+.under-build-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:28px}
+.under-build-actions .btn{border-radius:999px;min-height:46px;padding:0 18px}

@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseEventLogs } from 'viem';
 import {
@@ -29,16 +29,6 @@ import {
   isRestrictedEmbeddedBrowser,
   walletButtonLabel,
 } from './wallet-connection.js';
-/**
- * NFT and the vault read several contracts and are only visited deliberately, so they are
- * split out of the initial bundle rather than loaded for every visitor on the markets page.
- */
-const MediaAssets = lazy(() => import('./stage2-views.jsx').then((module) => ({ default: module.MediaAssets })));
-const UsdcVault = lazy(() => import('./stage2-views.jsx').then((module) => ({ default: module.UsdcVault })));
-
-function LazySection() {
-  return <div className="empty"><span>LOADING…</span></div>;
-}
 import { getApiHealth } from './api';
 import {
   marketAvailability,
@@ -392,14 +382,8 @@ function Shell() {
           <Route path="/markets" element={<Markets />} />
           <Route path="/trade" element={<Markets />} />
           <Route path="/launch" element={<Launch />} />
-          <Route
-            path="/nft"
-            element={<Suspense fallback={<LazySection />}><MediaAssets /></Suspense>}
-          />
-          <Route
-            path="/vault"
-            element={<Suspense fallback={<LazySection />}><UsdcVault /></Suspense>}
-          />
+          <Route path="/nft" element={<UnderBuild n="03" title="NFT" body="Creator pieces, minted and sold in USDC, land here later. Launch and trade are already live." />} />
+          <Route path="/vault" element={<UnderBuild n="04" title="VAULT" body="Deposits and redemptions land here later. Markets already settle in real USDC." />} />
         </Routes>
       </main>
       <footer className="site-footer">
@@ -418,8 +402,8 @@ function Shell() {
 const economySteps = [
   ['01', 'CREATE', '/launch', 'A meme becomes an Arc market: a token and its USDC curve, deployed from your own wallet.'],
   ['02', 'TRADE', '/markets', 'Anyone buys and sells it in USDC. The price, the reserve, and the receipt are the chain.'],
-  ['03', 'OWN', '/nft', 'The creator mints media bound to the market they made, then sells that piece for USDC.'],
-  ['04', 'VAULT', '/vault', 'A USDC vault for deposits and redemptions, when this network has one configured.'],
+  ['03', 'OWN', '/nft', 'Creator media, minted and sold in USDC, is next. This surface is under build.'],
+  ['04', 'VAULT', '/vault', 'A USDC vault for deposits and redemptions is next. This surface is under build.'],
 ];
 
 function AssetCarousel({ label, detail, trackRef, count, children }) {
@@ -575,8 +559,8 @@ function Home() {
         <div>
           <NavLink to="/launch"><small>STEP 01 / WALLET SIGNED</small><strong>LAUNCH A MEME</strong><span>Deploy a real Arc market →</span></NavLink>
           <NavLink to="/markets"><small>STEP 02 / REAL USDC</small><strong>TRADE THE CURVE</strong><span>Buy, sell, and pay the creator →</span></NavLink>
-          <NavLink to="/nft"><small>STEP 03 / ONCHAIN PROVENANCE</small><strong>OWN THE MEDIA</strong><span>Mint and sell for USDC →</span></NavLink>
-          <NavLink to="/vault"><small>STEP 04 / ERC-4626</small><strong>USDC VAULT</strong><span>Deposit and redeem USDC →</span></NavLink>
+          <NavLink to="/nft"><small>STEP 03 / COMING NEXT</small><strong>OWN THE MEDIA</strong><span>Under build →</span></NavLink>
+          <NavLink to="/vault"><small>STEP 04 / COMING NEXT</small><strong>USDC VAULT</strong><span>Under build →</span></NavLink>
         </div>
       </section>
 
@@ -673,6 +657,24 @@ function NotFound() {
         ))}
       </div>
       <NavLink className="btn primary" to="/">BACK TO MEMEVERSE →</NavLink>
+    </section>
+  );
+}
+
+function UnderBuild({ n, title, body }) {
+  return (
+    <section className="page under-build">
+      <div className="under-build-card">
+        <Mascot />
+        <span className="under-build-chip"><i />UNDER BUILD</span>
+        <p className="under-build-index">{n}</p>
+        <h1>{title}</h1>
+        <p className="lede">{body}</p>
+        <div className="under-build-actions">
+          <NavLink className="btn primary" to="/markets">TRADE LIVE MARKETS →</NavLink>
+          <NavLink className="btn" to="/launch">LAUNCH A MEME</NavLink>
+        </div>
+      </div>
     </section>
   );
 }
