@@ -1,143 +1,87 @@
 # MemeVerse
 
-## A meme becomes an economy.
+A meme becomes a market. People trade it in USDC. The creator and the treasury earn inside that same trade, and every receipt is an Arc transaction you can open yourself.
 
-MemeVerse turns a meme into a real Arc market. People trade it in USDC, the creator earns from
-every trade and keeps onchain provenance of their media — and **an autonomous agent reads the real
-trading record and pays that creator from a Circle Agent Wallet, with no human approving the
-payment.**
+**MemeVerse is live on Arc.** The markets run on Arc mainnet, chain `5042`. The money is real USDC, and USDC is the gas too.
 
-Every step resolves to an Arc transaction anyone can verify.
+Come in: **<https://memeverse.biz>**
+
+The first market is MEMEVERSE GENESIS (`MMV`). Someone bought it, then sold it back. Both receipts, the factory, and the seed market are written down in [`docs/MAINNET.md`](./docs/MAINNET.md).
 
 ```
 CREATE → TRADE → OWN → REWARD → PROVE
 ```
 
-**Live proof, right now, on Arc Public Testnet:** an autonomous creator payout of **0.100000 USDC**,
-executed by Circle Agent Wallet [`0x65da73c6…0FE3`](https://testnet.arcscan.app/address/0x65da73c6d9300F3dAb1dF785219f76DeCA5e0FE3),
-reconciled **VERIFIED**, `operatorAddress: null`, human authorization consumed: **no** —
-[`0xffad62e6…6b6799`](https://testnet.arcscan.app/tx/0xffad62e616262a682dcfd0ac85a7ced9f7b16290b29beadec6225e008c6b6799).
+Create and trade are on mainnet. Owning media, and the autonomous part of reward, still live on Arc testnet. Autonomous rewards are not live on mainnet. There is no independent audit. Beyond the markets, the product is not mainnet-ready.
 
-## ▶ Live demo: **<https://memeverse.biz>**
-
-| | |
-| --- | --- |
-| **Primary track** | Agentic |
-| **Supporting track** | DeFi |
-| **Network** | Arc Public Testnet (chain `5042002`) — mainnet cutover is documented in [`docs/MAINNET.md`](./docs/MAINNET.md) and is **not live** until those gates complete |
-| **Settlement asset & gas** | USDC |
-
-### Judge in 60 seconds
-
-1. Open **<https://memeverse.biz>** — the five-step economy and live runtime checks are on the homepage
-2. **[/markets](https://memeverse.biz/markets)** — real factory-deployed USDC markets, live curve state
-3. **[/agent](https://memeverse.biz/agent)** — the autonomous agent: Circle Agent Wallet, budget, policy, decisions
-4. **[/safety](https://memeverse.biz/safety)** — every deployed contract, both execution modes, the limits
-5. Open any ArcScan link and verify the payout yourself — no need to trust this page
-
-### Start here
+## Start here
 
 | If you want to… | Go to |
 | --- | --- |
-| **Use the live product** | **<https://memeverse.biz>** |
-| Watch the autonomous agent | <https://memeverse.biz/agent> |
-| Verify contracts and proofs | <https://memeverse.biz/safety> |
-| See the Circle Stablecoin Kits quote | <https://memeverse.biz/quote> |
-| Read the submission copy, contracts, proofs, and judge Q&A | [`docs/SUBMISSION.md`](./docs/SUBMISSION.md) |
-| See the 3-minute demo, click by click, with fallbacks | [`docs/DEMO-SCRIPT.md`](./docs/DEMO-SCRIPT.md) |
-| Prepare a live presentation | [`docs/DEMO-CHECKLIST.md`](./docs/DEMO-CHECKLIST.md) |
-| Understand what Stage 3 changed and why it is safe | [`docs/STAGE-3-FINAL.md`](./docs/STAGE-3-FINAL.md) |
-| Read the full autonomous trust boundary | [`docs/PHASE-6B-STAGE-2.md`](./docs/PHASE-6B-STAGE-2.md) |
-| Check readiness before a demo | `npm run demo:preflight` |
+| Trade a market | <https://memeverse.biz/markets> |
+| Read the limits in plain language | <https://memeverse.biz/safety> |
+| See the mainnet addresses and the proof trade | [`docs/MAINNET.md`](./docs/MAINNET.md) |
+| Walk the older demo, click by click | [`docs/DEMO-SCRIPT.md`](./docs/DEMO-SCRIPT.md) |
 
-### Architecture in six lines
+## How it fits together
 
 ```
-Browser (React 19 / Vite)     reads Arc contracts directly; only VITE_* values ever reach it
+Browser                   reads the Arc contracts itself
       │
-Express 5 API                 sanitized status, operator auth, App Kit estimates
+API                       status, operator sign-in, quotes
       │
-Autonomous worker (separate)  Arc log collector → deterministic policy → spend admission → payout
+Worker                    testnet only: watches trades, may pay a creator
       │
-PostgreSQL                    epoch claims, spend reservations, settlement audit trail
+PostgreSQL                remembers what was reserved and what was paid
       │
-Circle Agent Wallet (ERC-4337, MPC)   signs autonomous payouts — no private key in this repo
-      │
-Arc Public Testnet            markets, media NFT, marketplace, vault, two settlement contracts
+Arc mainnet               the live USDC markets
+Arc testnet               media NFTs, the marketplace, the vault, Circle settlement
 ```
 
-### Why Arc, and why Circle
+Arc is the ground because USDC is both the money and the gas. A price, a fee, and the cost of the click are the same unit. You do not keep a second coin just to press a button.
 
-**Arc** because USDC is native money *and* native gas. A bounded autonomous spend policy — at most
-0.1 USDC per payout, 0.3 per market per day — is only expressible when the agent's budget, its
-payouts, and its transaction costs are the same unit of account. A separate volatile gas token
-would require a second treasury and a price feed before the agent could make one bounded decision.
+Circle is not used on mainnet. On testnet, a separate worker can still pay a creator from a Circle Agent Wallet, with no person approving that one payment. That path is real, and it is not the mainnet product. The two routes never share a wallet.
 
-**Circle** because the executor is a real **Agent Wallet**: an ERC-4337 smart account backed by
-2-of-2 MPC, created with the official CLI. No private key exists in this codebase. The separate
-human-authorized route uses a **Developer-Controlled Wallet**; every contract was deployed through
-the **Smart Contract Platform**; `/quote` uses **Stablecoin Kits** for live estimates.
-
-### Verify it yourself
+## Look for yourself
 
 ```bash
 npm ci
-npm run demo:preflight        # read-only: RPC, chain ID, every contract's bytecode, proof txs
-npm run contracts:audit:onchain
-npm run markets:audit:onchain
-npm run assets:audit:onchain
-NODE_ENV=test npm test        # 302 backend + 54 contract = 356
+npm run demo:preflight
+NODE_ENV=test npm test
 NODE_ENV=production npm run build
-npm audit
 ```
 
-None of those write to the chain.
+Those commands only read. They do not send a transaction.
 
-### Update production in one command
+## Update the live site
 
-On the live host (`unruly-fuel`), as root. This works even when the checkout is still on an older SHA (do not `git pull` as root — the repo is owned by `memeverse`):
+On the host, as root. Do not `git pull` as root. The checkout belongs to `memeverse`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Baharsx/memeverse/main/scripts/update-production.sh | sudo bash
 ```
 
-After that, later updates are:
-
-```bash
-sudo bash /opt/memeverse/scripts/update-production.sh
-```
-
-The script fetches `origin/main` as the `memeverse` user, installs deps, rebuilds `/opt/memeverse/dist` with production `VITE_*` values from `/etc/memeverse/memeverse.env`, and restarts `memeverse-api`. The worker is left running; pass `--restart-worker` only when the worker code itself changed.
+Later updates are `sudo bash /opt/memeverse/scripts/update-production.sh`. The script fetches `origin/main` as `memeverse`, rebuilds the site from the `VITE_*` lines in `/etc/memeverse/memeverse.env`, and restarts the API. The worker stays up unless you pass `--restart-worker`.
 
 ---
 
-**MemeVerse is an Arc Public Testnet product. It is not independently audited and is not mainnet
-ready.** Test assets have no real-world value.
+Markets, balances, and receipts come from the chain. Nothing on the markets page is invented. Mainnet USDC is real money. Testnet USDC is not.
 
----
-
-The current release is an Arc Public Testnet product. Markets, balances, quotes, positions, fees, and receipts come from deployed contracts and the Arc RPC; no market financial data is fabricated.
-
-**Backend (Stage 2, Phase 6B):** real Arc media NFTs with onchain market provenance, a real USDC NFT marketplace, a real ERC-4626 USDC vault, and a genuinely autonomous creator-settlement agent that reads confirmed Arc evidence, decides by deterministic policy, and pays creators in USDC with no human approval in the execution path. All three contracts are deployed and verified on Arc Testnet, and each has been proven with live transactions — including one real autonomous payout. See [`docs/PHASE-6B-STAGE-2.md`](./docs/PHASE-6B-STAGE-2.md) for addresses, transaction hashes, and the full trust boundary.
-
-**Browser UI:** the NFT, marketplace, vault, and agent surfaces all read deployed Arc contracts and the sanitized backend status. No simulated market, NFT, or vault data exists anywhere in the product. The manual operator settlement path is unchanged and still requires a wallet-signed session plus a one-time approval bound to the exact settlement; on `/agent` it is presented as a collapsed secondary route so it cannot be mistaken for the autonomous one.
-
-**Circle Agent Stack is integrated.** Autonomous payouts execute through a Circle **Agent Wallet** (`0x65da73c6d9300F3dAb1dF785219f76DeCA5e0FE3`), created with the official `@circle-fin/cli` on Arc Testnet. Because an Agent Wallet is an ERC-4337 smart contract account, and Arc's Memo `CallFrom` only preserves a directly signing EOA, the autonomous route calls its own settlement contract directly while the manual operator route keeps the Developer-Controlled Wallet and the Memo hop. The two routes share no wallet, contract, or allowance. Circle's wallet-level spending policies are mainnet-only, so on testnet every cap is application-level — see [`docs/PHASE-6B-STAGE-2.md`](./docs/PHASE-6B-STAGE-2.md).
+Media NFTs, the marketplace, the vault, and the autonomous worker are the Arc testnet product. Their story, addresses, and the one verified testnet payout are in [`docs/PHASE-6B-STAGE-2.md`](./docs/PHASE-6B-STAGE-2.md). On `/agent`, the manual operator path stays folded away so it is not mistaken for that worker.
 
 
 ## Built on Arc
 
-MemeVerse is an independent product. The MemeVerse name and visual identity lead; Arc is the stablecoin infrastructure underneath it.
+MemeVerse is its own product. The name and the pictures are ours. Arc is the ground under them: USDC markets, USDC gas, and a receipt for every trade.
 
-The product explores two Arc ecosystem tracks:
+Two ideas sit side by side.
 
-- **DeFi:** USDC-denominated meme markets, bonding curves, treasury controls, creator revenue splits, and conditional settlement.
-- **Agentic economy:** an autonomous worker that discovers registered markets, reads confirmed Arc trading evidence, scores it with deterministic policy, and executes bounded creator payouts from a Circle Agent Wallet with no per-payout human approval — each one reconciled back against Arc.
+- **Markets.** A fixed supply, a curve, a creator fee, and a treasury fee. On mainnet, those fees settle inside the trade.
+- **A quieter agent, on testnet.** A worker can read confirmed trades and pay a creator from a Circle Agent Wallet, with no person approving that single payment. That worker is not live on mainnet.
 
-## Current MVP
+## What is built
 
-Everything below is implemented and running against Arc Public Testnet. Grouped so the shape is
-readable; the detailed mechanics are in the sections further down and in `docs/`.
+The pieces below are real. Markets run on Arc mainnet. Media, the marketplace, the vault, and autonomous rewards run on Arc testnet. The longer notes are further down, and in `docs/`.
 
 **Meme markets (DeFi)** — wallet-signed token + bonding-market deployment through
 `MemeVerseFactory`; factory-discovered markets with live supply, price, reserve, and position;
@@ -193,9 +137,25 @@ verification with replay protection; route-class rate limits, strict CSP, and ex
 fail-closed Circle Stablecoin Kits quote boundary with server-only Kit Key; ArcScan links shown
 only after a real hash or final receipt exists; responsive tactile-brutalist interface.
 
-## Arc Testnet configuration
+## Networks
 
-MemeVerse uses only parameters currently published in the official Arc documentation. No mainnet RPC, chain ID, or contract address will be added until Arc publishes it through official documentation.
+The numbers below are the ones Arc publishes. Mainnet is where the markets are. Testnet is where the rest of the product still lives.
+
+### Arc mainnet
+
+| Property | Value |
+|---|---|
+| Chain ID | `5042` (`0x13b2`) |
+| Native gas | USDC, 18 decimals |
+| ERC-20 USDC | `0x3600000000000000000000000000000000000000`, 6 decimals |
+| Read RPC | `https://rpc.mainnet.arc.io` |
+| Read fallback | `https://rpc.drpc.mainnet.arc.io` |
+| Wallet RPC | `https://rpc.mainnet.arc.io` |
+| Explorer | `https://explorer.arc.io` |
+| Factory | [`0x177492EFFbe5F7847994696ef4C9B24b8C9C13BE`](https://explorer.arc.io/address/0x177492EFFbe5F7847994696ef4C9B24b8C9C13BE) |
+| Seed market | [`0xDCa07Bd83bc7A4220C79afB60F8C2Bb7DC746932`](https://explorer.arc.io/address/0xDCa07Bd83bc7A4220C79afB60F8C2Bb7DC746932) MEMEVERSE GENESIS / MMV |
+
+### Arc testnet
 
 | Property | Value |
 |---|---|
@@ -278,13 +238,11 @@ them to `false` as the intended configuration and as the fallback when that fetc
 
 ### Arc-only product, WalletConnect session continuity
 
-MemeVerse exposes and writes to Arc Testnet only. The AppKit/Wagmi configuration also represents
-Ethereum chain `1` internally because a mobile wallet that has not learned Arc commonly establishes
-its first WalletConnect session there. AppKit 1.8.23 synchronises the chain returned by that session;
-without the auxiliary entry its connector throws `ChainNotConfiguredError` before a provider
-request reaches the wallet. Ethereum is not a product network: AppKit's network selector is disabled,
-Arc is the default, MemeVerse alone owns add/switch/reconnect, and all signing and contract controls
-remain disabled unless the actual chain and the WalletConnect session both authorize Arc `5042002`.
+MemeVerse trades on Arc. Mainnet is chain `5042`. Testnet is chain `5042002`. The wallet list also
+carries Ethereum chain `1`, only so a phone wallet can open its first WalletConnect session.
+Without that extra entry, AppKit throws `ChainNotConfiguredError` before the wallet ever hears the
+request. Ethereum is not a place MemeVerse trades. The network picker is off, Arc is the default,
+and signing stays closed until the wallet is actually on the Arc chain this deployment asked for.
 
 ### What is deliberately not enabled
 
@@ -329,7 +287,7 @@ The Phase 6A factory [`0x765E2Eaa…8c08F`](https://testnet.arcscan.app/address/
 ```text
 Connected wallet → MemeVerseFactory → MemeMarket / ERC-20 asset
                                           ↕
-                              Arc Testnet USDC ERC-20
+                              Arc USDC (the same 6-decimal token on both networks)
                                           ↓
                                Creator + treasury fees
 ```
@@ -828,7 +786,7 @@ no secrets, and losing it degrades artwork to the MemeVerse mark without affecti
 - **The Agent Wallet session is time-bounded** (current Circle docs: 7 days; testnet and mainnet sessions are stored separately). Verify it with the Circle CLI before relying on it — when it lapses the agent reports `UNAVAILABLE` and stops paying until a human logs in again.
 - **Autonomous execution needs the `circle` CLI on `PATH`** in the worker's environment; it is a subprocess dependency, not a library call.
 - **Single Arc RPC** for the backend collector: a sustained outage means no autonomous decisions. The collector fails closed rather than guessing.
-- **Arc Public Testnet MVP — not mainnet-ready.** The deployment at <https://memeverse.biz> is a live public Testnet MVP. Independent security review, operational hardening, custody review, and production monitoring are all required before any mainnet deployment.
+- **Markets are live. The wider product is not mainnet-ready.** <https://memeverse.biz> trades real USDC on Arc mainnet. Media NFTs, the marketplace, the vault, and autonomous rewards are not part of that deployment. There has been no independent audit.
 
 ## Post-hackathon hardening
 
@@ -836,7 +794,7 @@ no secrets, and losing it degrades artwork to the MemeVerse mark without affecti
 - Add multi-operator support, role separation, and a documented operator rotation procedure.
 - Deploy the API, worker, and managed PostgreSQL to a public testnet environment with backup and restore drills.
 - Add Send, Bridge, swap execution, and Unified Balance only after separate transaction-policy and dependency reviews; capability discovery currently reports them disabled.
-- Obtain an independent professional smart-contract audit before any mainnet consideration.
+- An independent audit is still the right step before media, the vault, or autonomous rewards move to mainnet.
 
 ## License
 
