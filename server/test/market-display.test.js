@@ -204,7 +204,10 @@ test('both judge-facing surfaces filter through the one shared helper', async ()
   // Selection, the rendered list, the empty state, and the artwork lookup all read the filtered
   // factory set (then merged with imported onchain markets). A hidden factory market can never
   // be selected or quoted unless a visitor explicitly pastes its address.
-  assert.ok(marketsPage.includes('visibleMarkets.map('), 'the factory set still feeds the board');
+  assert.ok(
+    marketsPage.includes('mergeTradeableMarkets(visibleMarkets'),
+    'the factory set still feeds the board',
+  );
   assert.ok(marketsPage.includes('boardMarkets.find('), 'selection reads the tradeable board');
   assert.ok(marketsPage.includes('boardMarkets.map('), 'the board renders the tradeable set');
   assert.ok(marketsPage.includes('!boardMarkets.length'), 'the empty state reads the tradeable set');
