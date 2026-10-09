@@ -863,6 +863,9 @@ input,textarea,select{border-radius:var(--radius-sm)}
 .under-build h1{
   margin:0;font:600 clamp(42px,7vw,72px)/0.95 var(--display);letter-spacing:-.03em;
 }
-.under-build .lede{max-width:42ch;margin:16px auto 0;color:var(--mute)}
+.under-build .lede{max-width:42ch;margin:18px auto 0;color:var(--mute)}
 .under-build-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:28px}
-.under-build-actions .btn{border-radius:999px;min-height:46px;padding:0 18px}
+.under-build-actions .btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  border-radius:999px;min-height:48px;padding:0 22px;line-height:1;
+}
