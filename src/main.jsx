@@ -505,16 +505,6 @@ function Home() {
         ))}
       </section>
 
-      <section className="demo-surfaces">
-        <Title n="PATH" t="THE THREE-MINUTE TOUR" as="h2" />
-        <div>
-          <NavLink to="/launch"><small>STEP 01 / WALLET SIGNED</small><strong>LAUNCH A MEME</strong><span>Deploy a real Arc market →</span></NavLink>
-          <NavLink to="/markets"><small>STEP 02 / REAL USDC</small><strong>TRADE THE CURVE</strong><span>Buy, sell, and pay the creator →</span></NavLink>
-          <NavLink to="/nft"><small>STEP 03 / COMING NEXT</small><strong>OWN THE MEDIA</strong><span>Under build →</span></NavLink>
-          <NavLink to="/vault"><small>STEP 04 / COMING NEXT</small><strong>USDC VAULT</strong><span>Under build →</span></NavLink>
-        </div>
-      </section>
-
       <section className="home-collections" aria-label="Tokens and NFTs">
         <AssetCarousel
           label="Tokens"

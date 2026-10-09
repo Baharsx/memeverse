@@ -608,16 +608,16 @@ test('the homepage opens with the old hero and ends in two carousels', async () 
   const homeEnd = main.indexOf('\nfunction ', homeStart + 1);
   const home = main.slice(homeStart, homeEnd === -1 ? undefined : homeEnd);
   const hero = home.indexOf('A MEME');
-  const tour = home.indexOf('THE THREE-MINUTE TOUR');
+  const economy = home.indexOf('className="economy-flow"');
   // The carousel sets aria-label from the label prop, so the source has label="Tokens".
   const tokens = home.indexOf('label="Tokens"');
   const nfts = home.indexOf('label="NFTs"');
 
   assert.ok(home.includes('BECOMES AN'), 'the old headline stays');
   assert.ok(home.includes('<mark>ECONOMY.</mark>'), 'the old mark stays');
-  assert.ok(tour > hero, 'the tour stays on the home page after the hero');
-  assert.ok(home.includes('className="economy-flow"'), 'the economy strip stays');
-  assert.ok(tokens > tour && nfts > tokens, 'the carousels come after the tour, tokens then NFTs');
+  assert.equal(home.includes('THE THREE-MINUTE TOUR'), false, 'the tour is gone from the home page');
+  assert.ok(economy > hero, 'the economy strip stays after the hero');
+  assert.ok(tokens > economy && nfts > tokens, 'the carousels come after the economy strip, tokens then NFTs');
   assert.ok(home.includes('>TOKEN<'), 'live markets appear as tokens');
   assert.ok(home.includes('>NFT<'), 'NFTs have their own cards');
   assert.ok(home.includes('readMediaAssets({ limit: 240 })'), 'the NFT carousel is not capped at a handful');
