@@ -14,8 +14,6 @@ export class ApiError extends Error {
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
-    // The operator session is an HttpOnly, SameSite=Strict cookie. It is never readable from
-    // JavaScript and is only ever sent to the same origin as the application.
     credentials: 'same-origin',
     headers: {
       accept: 'application/json',
@@ -47,125 +45,10 @@ export async function getApiHealth() {
   }
 }
 
-export async function createSettlementQuote(input, idempotencyKey) {
-  return request('/api/v1/settlements/quote', {
-    method: 'POST',
-    headers: { 'idempotency-key': idempotencyKey },
-    body: JSON.stringify(input),
-  });
-}
-
-export async function createAgentDecision(input, idempotencyKey) {
-  return request('/api/v1/agent/decisions', {
-    method: 'POST',
-    headers: { 'idempotency-key': idempotencyKey },
-    body: JSON.stringify(input),
-  });
-}
-
-export async function getAppKitCapabilities() {
-  return request('/api/v1/app-kit/capabilities');
-}
-
-export async function estimateAppKitSwap(input) {
-  return request('/api/v1/app-kit/swap/estimate', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-}
-
-export async function prepareSettlement(settlementId) {
-  return request(`/api/v1/settlements/${encodeURIComponent(settlementId)}/prepare`, {
-    method: 'POST',
-  });
-}
-
-export async function requestOperatorChallenge(address) {
-  return request('/api/v1/auth/challenge', {
-    method: 'POST',
-    body: JSON.stringify({ address }),
-  });
-}
-
-export async function verifyOperatorSignature(challengeId, signature) {
-  return request('/api/v1/auth/verify', {
-    method: 'POST',
-    body: JSON.stringify({ challengeId, signature }),
-  });
-}
-
-export async function getOperatorSession() {
-  return request('/api/v1/auth/session');
-}
-
-export async function endOperatorSession() {
-  return request('/api/v1/auth/logout', { method: 'POST' });
-}
-
-export async function authorizeSettlementExecution(settlementId) {
-  return request(
-    `/api/v1/settlements/${encodeURIComponent(settlementId)}/execution-authorization`,
-    { method: 'POST' },
-  );
-}
-
-export async function executeSettlement(settlementId, authorizationId) {
-  return request(`/api/v1/settlements/${encodeURIComponent(settlementId)}/execute`, {
-    method: 'POST',
-    body: JSON.stringify({ authorizationId }),
-  });
-}
-
-export async function reconcileSettlement(settlementId) {
-  return request(`/api/v1/settlements/${encodeURIComponent(settlementId)}/reconcile`, {
-    method: 'POST',
-  });
-}
-
-export async function getCircleWallet() {
-  return request('/api/v1/circle/wallet');
-}
-
-/**
- * Sanitized public view of the autonomous agent.
- *
- * Readable without an operator session: it carries policy versions, caps, and decision outcomes,
- * but no Circle wallet identifiers or credentials.
- */
-export async function getAgentAutonomy() {
-  /*
-    A longer deadline than the 8s default, for the one endpoint that legitimately needs it.
-
-    A cold assembly of this status reads the Circle Agent Wallet, and even with those reads issued
-    concurrently and a short server-side cache in front of them it can sit a little past eight
-    seconds. Aborting at that point did not make the page faster — it produced a failed poll, a
-    retry, and another cold read, so the visitor waited far longer than if the first request had
-    simply been allowed to finish. The extra headroom is what stops that loop; it is not a way to
-    hide slowness, and every other call keeps the tighter default.
-  */
-  const payload = await request('/api/v1/agent/autonomy', {
-    signal: AbortSignal.timeout(20_000),
-  });
-  return payload.data;
-}
-
-/** Operator-only emergency stop. Never required for an eligible payout to execute. */
-export async function setAgentAutonomyPaused(paused, reason) {
-  const payload = await request('/api/v1/agent/autonomy', {
-    method: 'POST',
-    body: JSON.stringify(reason ? { paused, reason } : { paused }),
-  });
-  return payload.data;
-}
-
 /**
  * Uploads image bytes under a creator's wallet authorization.
  *
- * The body is the file itself, unmodified: no base64, no multipart, no filename. Everything the
- * server needs to check the authorization rides in headers, and the server hashes the bytes it
- * actually receives — so this helper cannot misrepresent what is being attached even if it wanted
- * to. The timeout is long relative to other calls because a 5 MB body on a phone connection is a
- * legitimately slow request, not a hung one.
+ * The body is the file itself. The server hashes the bytes it actually receives.
  */
 export async function uploadMedia({
   bytes, mimeType, action, market, contentHash, expiresAt, signature, signal,
@@ -200,29 +83,28 @@ export async function uploadMedia({
 /**
  * Resolves artwork for a list of markets in one request.
  *
- * Markets without an image are simply absent from the result, and a failure resolves to an empty
- * map rather than throwing: artwork is decoration over live financial data, and a media outage
- * must never stop a market list from rendering its prices.
+ * Markets without an image are absent. A media outage resolves to an empty map so prices still render.
  */
 export async function getMarketImages(markets) {
-  const addresses = [...new Set((markets ?? []).filter(Boolean))].slice(0, 100);
+  const addresses = [...new Set((markets ?? []).filter(Boolean))];
   if (addresses.length === 0) return {};
-  try {
-    const payload = await request(
-      `/api/v1/media/markets?markets=${encodeURIComponent(addresses.join(','))}`,
-    );
-    return payload?.data ?? {};
-  } catch {
-    return {};
+  const images = {};
+  for (let index = 0; index < addresses.length; index += 100) {
+    const page = addresses.slice(index, index + 100);
+    try {
+      const payload = await request(
+        `/api/v1/media/markets?markets=${encodeURIComponent(page.join(','))}`,
+      );
+      Object.assign(images, payload?.data ?? {});
+    } catch {
+      // Artwork is decoration. A failed page leaves those markets without an image.
+    }
   }
+  return images;
 }
 
 /** Absolute, same-origin URL for a stored image. */
 export function mediaContentUrl(path) {
   if (typeof path !== 'string' || !path.startsWith('/api/v1/media/content/')) return null;
   return `${API_BASE_URL}${path}`;
-}
-
-export function createIdempotencyKey() {
-  return `memeverse-${crypto.randomUUID()}`;
 }

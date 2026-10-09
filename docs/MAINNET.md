@@ -57,8 +57,7 @@ Default env still selects testnet, so memeverse.biz does not flip until the serv
 | Read RPC `rpc.testnet.arc.io` / `rpc.drpc.testnet.arc.io` | testnet catalog, `.env.example`, CSP |
 | Wallet RPC `rpc.testnet.arc.network` | testnet catalog (EIP-3085 only) |
 | Explorer `testnet.arcscan.app` | testnet catalog and the testnet verify script |
-| Circle `ARC-TESTNET` | `scripts/circle-chain.js` returns this only after it has rejected chain 5042 |
-| Circle deploy entrypoints | `circle:setup`, `circle:fund`, `circle:deploy:*`, and `scripts/circle-webhook-setup.js` call `circleChain()` before any Circle client is constructed |
+| Circle | not used. The Circle and agent settlement programs were removed from this repository |
 | Factory `0x3631…` | testnet catalog default. On mainnet a stale `MARKET_FACTORY_ADDRESS` is ignored. A new `VITE_MEMEVERSE_FACTORY_ADDRESS` or `VITE_MARKET_FACTORY_ADDRESS` that is a testnet product contract is rejected |
 | VITE media / marketplace / vault | testnet addresses in `.env.example`. A mainnet build nulls them when they are testnet product contracts |
 | Imported-markets localStorage | `memeverse.imported-markets.v1.<chainId>` |

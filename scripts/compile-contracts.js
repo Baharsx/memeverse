@@ -8,11 +8,6 @@ const require = createRequire(import.meta.url);
 
 const builds = [
   {
-    sourceName: 'MemeVerseSettlement.sol',
-    contractNames: ['MemeVerseSettlement'],
-    viaIR: false,
-  },
-  {
     sourceName: 'MemeVerseMarket.sol',
     contractNames: ['MemeMarket', 'MemeVerseFactory'],
     viaIR: true,

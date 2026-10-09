@@ -10,8 +10,8 @@
 #   sudo bash /opt/memeverse/scripts/update-production.sh
 #
 # Pulls origin/main, installs deps, rebuilds the frontend with production VITE_*
-# values, and restarts the API. Worker is left running unless --restart-worker
-# is passed. Secrets are never printed. Git is always run as the memeverse user.
+# values, and restarts the API. The agent worker is not part of this deployment.
+# Secrets are never printed. Git is always run as the memeverse user.
 
 set -euo pipefail
 
@@ -149,11 +149,9 @@ systemctl restart memeverse-api.service
 wait_for_api
 
 if [[ "$RESTART_WORKER" -eq 1 ]]; then
-  echo "==> restart worker"
-  systemctl restart memeverse-worker.service
-  wait_for_unit memeverse-worker.service worker
+  echo "==> agent worker was removed; not starting it"
 else
-  echo "==> worker left running (pass --restart-worker to bounce it)"
+  echo "==> agent worker is not part of this deployment"
 fi
 
 echo "==> live SHA"

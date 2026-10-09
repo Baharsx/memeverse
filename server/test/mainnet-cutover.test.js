@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { circleChain } from '../../scripts/circle-chain.js';
 import {
   MIN_BALANCE_WEI,
   RESERVE_WEI,
@@ -74,45 +73,13 @@ test('factory constructor args match the 6A.1 exact-spend shape', () => {
   assert.match(SEED_MARKET.description, /settle inside the trade/);
 });
 
-test('circleChain refuses mainnet before any blockchain code ARC is returned', () => {
-  assert.throws(
-    () => circleChain({ arcNetwork: 'mainnet', arcChainId: 5042, circleChainCode: null }),
-    /Circle is not used on Arc mainnet/,
-  );
-  assert.throws(
-    () => circleChain({ arcNetwork: 'testnet', arcChainId: 5042, circleChainCode: 'ARC-TESTNET' }),
-    /Circle is not used on Arc mainnet/,
-  );
-  assert.throws(
-    () => circleChain({ arcNetwork: 'testnet', arcChainId: 5042002, circleChainCode: 'ARC' }),
-    /Circle is not used on Arc mainnet/,
-  );
-  assert.deepEqual(
-    circleChain({
-      arcNetwork: 'testnet',
-      arcChainId: 5042002,
-      circleChainCode: 'ARC-TESTNET',
-      arcExplorerUrl: 'https://testnet.arcscan.app',
-    }),
-    {
-      chainId: 5042002,
-      blockchain: 'ARC-TESTNET',
-      explorer: 'https://testnet.arcscan.app',
-      label: 'Arc Testnet',
-    },
-  );
-});
-
-test('deploy and circle scripts do not print the key or return Circle chain ARC', async () => {
+test('the deploy script does not print the key and stays on chain 5042', async () => {
   const deploy = await readFile('scripts/deploy-arc-mainnet-eoa.js', 'utf8');
-  const circle = await readFile('scripts/circle-chain.js', 'utf8');
-  const webhook = await readFile('scripts/circle-webhook-setup.js', 'utf8');
   assert.equal(/console\.(log|error|info|debug)\(\s*(privateKey|account)\b/.test(deploy), false);
   assert.equal(/\$\{privateKey\}/.test(deploy), false);
   assert.equal(/console\.(log|error|info|debug)\([^)\n]*DEPLOYER_PRIVATE_KEY/.test(deploy), false);
-  assert.equal(circle.includes("blockchain: 'ARC'"), false);
-  assert.ok(webhook.indexOf('circleChain(config)') < webhook.indexOf('initiateDeveloperControlledWalletsClient('));
   assert.equal(deploy.includes('5042'), true);
+  assert.equal(deploy.includes('@circle-fin/'), false);
 });
 
 test('browser boot aborts unless the read RPC is chain 5042', async () => {

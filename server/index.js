@@ -1,10 +1,10 @@
 import { createApp } from './app.js';
 import { loadServerConfig } from './config.js';
 import { loadLocalEnvironment } from './load-env.js';
-import { CircleWebhookVerifier } from './infrastructure/circle-webhook-verifier.js';
-import { CircleWebhookService } from './domain/circle-webhook-service.js';
-import { createSettlementRuntime } from './runtime.js';
-import { assertRpcChainId } from './infrastructure/arc-rpc.js';
+import { ArcRpcClient, assertRpcChainId } from './infrastructure/arc-rpc.js';
+import { createMediaStore } from './infrastructure/media-store.js';
+import { createMarketResolver } from './infrastructure/market-resolver.js';
+import { MediaService } from './domain/media-service.js';
 
 loadLocalEnvironment();
 
@@ -16,50 +16,24 @@ if (process.env.ARC_SKIP_CHAIN_CHECK !== 'true') {
     nodeEnv: config.nodeEnv,
   });
 }
-const runtime = await createSettlementRuntime(config);
-const { store, circleGateway, arcIndexer, settlementService, arcRpc,
-  agentDecisionService, autonomousAgentService, autonomyStore,
-  appKitGateway, operatorAuthService, mediaService } = runtime;
-const webhookVerifier = new CircleWebhookVerifier({
-  circleGateway,
-  cacheSeconds: config.circleWebhookKeyCacheSeconds,
+
+const arcRpc = new ArcRpcClient({
+  rpcUrl: config.arcRpcUrl,
+  expectedChainId: config.arcChainId,
 });
-const circleWebhookService = new CircleWebhookService({
-  verifier: webhookVerifier,
-  notificationStore: store,
-  settlementService,
+const mediaService = new MediaService({
+  store: createMediaStore(config),
+  collector: createMarketResolver(config),
+  chainId: config.arcChainId,
 });
-const app = createApp({
-  config,
-  settlementService,
-  arcRpc,
-  circleGateway,
-  circleWebhookService,
-  arcIndexer,
-  store,
-  agentDecisionService,
-  autonomousAgentService,
-  autonomyStore,
-  appKitGateway,
-  operatorAuthService,
-  mediaService,
-});
-// One best-effort sweep at boot; the supervised worker repeats it on an interval.
-runtime.purgeExpiredAuthRecords().catch((error) => console.error(JSON.stringify({
-  type: 'auth_cleanup_error',
-  message: error?.message ?? String(error),
-})));
+const app = createApp({ config, arcRpc, mediaService });
 
 const server = app.listen(config.port, '127.0.0.1', () => {
   console.info(JSON.stringify({
     type: 'server_started',
     port: config.port,
     chainId: config.arcChainId,
-    persistence: config.databaseUrl ? 'POSTGRES' : 'PGLITE_POSTGRES',
-    circleConfigured: circleGateway.configuration().configured,
-    operatorAuthConfigured: operatorAuthService.configured,
-    executionMode: 'MANUAL_OPERATOR',
-    reconciliationMode: 'SEPARATE_WORKER',
+    mediaConfigured: mediaService.available,
   }));
 });
 
@@ -68,7 +42,6 @@ async function shutdown(signal) {
   await new Promise((resolvePromise, reject) => {
     server.close((error) => (error ? reject(error) : resolvePromise()));
   });
-  await runtime.close();
 }
 
 process.on('SIGINT', () => shutdown('SIGINT').catch(console.error));

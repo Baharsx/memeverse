@@ -105,7 +105,10 @@ test('the filter never reaches the backend, the agent, or the audits', async () 
   }
   const files = (await Promise.all(['../../server', '../../scripts'].map(walk))).flat()
     .filter((path) => !path.includes('/test/'));
-  assert.ok(files.length > 20);
+  assert.ok(
+    files.some((path) => path.endsWith('server/app.js')) && files.some((path) => path.endsWith('scripts/demo-preflight.js')),
+    'the walk should have found the server sources',
+  );
   for (const path of files) {
     const text = await source(path);
     for (const forbidden of [

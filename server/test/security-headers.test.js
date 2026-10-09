@@ -5,7 +5,7 @@ import {
   serializeContentSecurityPolicy,
 } from '../security/csp.js';
 import { startTestApp, unlimitedRateLimits } from './helpers/app.js';
-import { operatorAccount, originHeaders } from './helpers/operator.js';
+import { originHeaders } from './helpers/operator.js';
 
 let app;
 
@@ -86,21 +86,21 @@ test('standard hardening headers are present and the server does not advertise i
   assert.ok(response.headers.get('x-request-id'));
 });
 
-test('the auth challenge route has its own conservative rate limit', async () => {
+test('the media upload route has its own conservative rate limit', async () => {
   const limited = await startTestApp({
-    configOverrides: { rateLimits: { ...unlimitedRateLimits, authChallenge: 3 } },
+    configOverrides: { rateLimits: { ...unlimitedRateLimits, mediaUpload: 3 } },
   });
   try {
     const statuses = [];
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      const response = await fetch(`${limited.baseUrl}/api/v1/auth/challenge`, {
+      const response = await fetch(`${limited.baseUrl}/api/v1/media/uploads`, {
         method: 'POST',
         headers: originHeaders(),
-        body: JSON.stringify({ address: operatorAccount.address }),
+        body: JSON.stringify({}),
       });
       statuses.push(response.status);
     }
-    assert.deepEqual(statuses, [201, 201, 201, 429, 429]);
+    assert.deepEqual(statuses, [503, 503, 503, 429, 429]);
   } finally {
     await limited.close();
   }
@@ -108,17 +108,17 @@ test('the auth challenge route has its own conservative rate limit', async () =>
 
 test('a forged X-Forwarded-For cannot reset a rate limit when no proxy is trusted', async () => {
   const limited = await startTestApp({
-    configOverrides: { rateLimits: { ...unlimitedRateLimits, authVerify: 2 }, trustedProxyHopCount: 0 },
+    configOverrides: { rateLimits: { ...unlimitedRateLimits, mediaUpload: 2 }, trustedProxyHopCount: 0 },
   });
   try {
-    const attempt = (forwarded) => fetch(`${limited.baseUrl}/api/v1/auth/verify`, {
+    const attempt = (forwarded) => fetch(`${limited.baseUrl}/api/v1/media/uploads`, {
       method: 'POST',
       headers: originHeaders({ 'x-forwarded-for': forwarded }),
-      body: JSON.stringify({ challengeId: 'ffffffff-ffff-4fff-8fff-ffffffffffff', signature: '0xdead' }),
+      body: JSON.stringify({}),
     });
 
-    assert.equal((await attempt('10.0.0.1')).status, 401);
-    assert.equal((await attempt('10.0.0.2')).status, 401);
+    assert.equal((await attempt('10.0.0.1')).status, 503);
+    assert.equal((await attempt('10.0.0.2')).status, 503);
     assert.equal((await attempt('10.0.0.3')).status, 429);
   } finally {
     await limited.close();
@@ -130,7 +130,7 @@ test('the global limit still bounds unauthenticated public traffic', async () =>
   try {
     const statuses = [];
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      statuses.push((await fetch(`${limited.baseUrl}/api/v1/config`)).status);
+      statuses.push((await fetch(`${limited.baseUrl}/api/health`)).status);
     }
     assert.deepEqual(statuses, [200, 200, 200, 200, 429, 429]);
   } finally {

@@ -151,7 +151,6 @@ export const arcContracts = Object.freeze({
   usdc: ARC_NETWORK.usdc,
   memo: ARC_NETWORK.memo,
   multicall3From: ARC_NETWORK.multicall3From,
-  memeVerseSettlement: ARC_NETWORK.settlement,
   memeVerseFactory: ARC_NETWORK.factory,
 });
 

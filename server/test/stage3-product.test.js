@@ -3,7 +3,6 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { decodeMetadata, jsonDataUri, safeMediaUrl, usdcAmountUnits } from '../../src/assets.js';
 import { launchPriceUnits, tokenSupplyValue } from '../../src/market.js';
-import { autonomyDisplayState } from '../../src/agent-status.js';
 import {
   CHECK_STATES, describeConfigured, formatCheckLine, overallVerdict,
 } from '../../scripts/demo-preflight.js';
@@ -83,146 +82,6 @@ test('the content security policy still refuses scripts and wildcards after the 
   for (const [name, values] of Object.entries(directives)) {
     assert.equal(values.includes('*'), false, `${name} must never carry a wildcard`);
   }
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Agent status truthfulness
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('the agent never reads ACTIVE unless it is configured, LIVE, loaded, and unpaused', () => {
-  const live = { executor: { configured: true, state: 'LIVE' }, paused: false };
-  assert.equal(autonomyDisplayState({ loaded: true, data: live }), 'ACTIVE');
-
-  // Every way infrastructure can be absent, and none of them may look healthy. The Proof Center
-  // previously answered ACTIVE for the first three of these, because it only checked `paused`.
-  assert.equal(autonomyDisplayState({ loaded: false, data: undefined }), 'UNAVAILABLE', 'pending');
-  assert.equal(autonomyDisplayState({ loaded: false, data: live }), 'UNAVAILABLE', 'not loaded');
-  assert.equal(autonomyDisplayState({ loaded: true, data: undefined }), 'UNAVAILABLE', 'failed');
-  assert.equal(autonomyDisplayState({ loaded: true, data: {} }), 'UNAVAILABLE', 'no executor');
-  assert.equal(
-    autonomyDisplayState({ loaded: true, data: { executor: { configured: false }, paused: false } }),
-    'UNAVAILABLE',
-    'an unconfigured Agent Wallet is not an active agent',
-  );
-  assert.equal(
-    autonomyDisplayState({
-      loaded: true, data: { executor: { configured: true, state: 'UNAVAILABLE' }, paused: false },
-    }),
-    'UNAVAILABLE',
-    'a lapsed Agent Wallet session cannot pay, so it is not active',
-  );
-  assert.equal(autonomyDisplayState(), 'UNAVAILABLE', 'called with nothing at all');
-});
-
-test('a deliberately stopped agent reads PAUSED rather than broken', () => {
-  assert.equal(
-    autonomyDisplayState({
-      loaded: true, data: { executor: { configured: true, state: 'LIVE' }, paused: true },
-    }),
-    'PAUSED',
-  );
-  // Configured but stopped is still PAUSED even if the wallet session has also lapsed: an
-  // operator engaged the emergency stop, and that is the fact worth reporting.
-  assert.equal(
-    autonomyDisplayState({
-      loaded: true, data: { executor: { configured: true, state: 'UNAVAILABLE' }, paused: true },
-    }),
-    'PAUSED',
-  );
-});
-
-test('both agent surfaces derive their status from the one shared rule', async () => {
-  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
-  // The Command Center and the Proof Center drifted once. Neither may re-implement the rule.
-  assert.equal(
-    (stage3.match(/autonomyDisplayState\(/g) ?? []).length,
-    2,
-    'the Agent Command Center and the Proof Center must both call the shared helper',
-  );
-  assert.equal(
-    /paused \? 'PAUSED' : 'ACTIVE'/.test(stage3),
-    false,
-    'no surface may decide ACTIVE from the pause flag alone',
-  );
-});
-
-test('the agent explains what it does before it explains what it is not', async () => {
-  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
-
-  // Leading with the disclaimer taught a judge what MemeVerse is not before they understood what
-  // it is. The autonomy comes first; the deterministic-policy note stays, but underneath.
-  const heading = stage3.indexOf('OBSERVE → DECIDE → PAY → PROVE');
-  const llmNote = stage3.indexOf('No LLM participates in the payout decision');
-  assert.ok(heading > 0, 'the agent surface must lead with what the agent actually does');
-  assert.ok(llmNote > heading, 'the determinism note must follow the autonomy, not precede it');
-  assert.equal(
-    stage3.includes('ECONOMIC ACTOR, NOT A CHATBOT'),
-    false,
-    'the defensive heading is replaced, not merely supplemented',
-  );
-
-  // The four things a judge has to be able to answer, stated on the surface itself.
-  for (const claim of [
-    'discovers the markets registered',
-    'confirmed Arc trading evidence',
-    'market.creator()',
-    'Circle Agent Wallet',
-    'No human approves an individual',
-    'reconciled back against Arc',
-  ]) {
-    assert.ok(stage3.includes(claim), `the agent story must state: ${claim}`);
-  }
-
-  // And it still must not claim intelligence it does not have.
-  for (const overclaim of ['AI-powered', 'intelligent agent', 'machine learning', 'reasoning model']) {
-    assert.equal(
-      stage3.toLowerCase().includes(overclaim.toLowerCase()),
-      false,
-      `the agent must not claim "${overclaim}"`,
-    );
-  }
-});
-
-test('agent payment and the Circle route are not part of the site', async () => {
-  const main = await readFile('src/main.jsx', 'utf8');
-  for (const gone of [
-    '<details className="manual-route">',
-    'AgentCommandCenter',
-    'ProofCenter',
-    'CreatorEconomy',
-    'OPERATOR SETTLEMENT ROUTE',
-    'executeWithCircle',
-    'path="/agent"',
-    'path="/quote"',
-    'path="/safety"',
-    'CIRCLE AGENT WALLET',
-  ]) {
-    assert.equal(main.includes(gone), false, `${gone} must be gone from the site`);
-  }
-});
-
-test('the recorded epoch timestamp is not overstated as every evaluation', async () => {
-  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
-  // The backend derives this from the most recent payout epoch claim, so an evaluation denied
-  // before a claim existed is not represented. The label has to say what the data is.
-  assert.equal(
-    stage3.includes('label="LAST EVALUATION"'),
-    false,
-    'the field is not a record of every evaluation and must not claim to be',
-  );
-  assert.ok(stage3.includes('label="LAST RECORDED EPOCH"'), 'it is a recorded epoch, and says so');
-});
-
-test('creator economy rewards are labelled as a recent window, not a lifetime total', async () => {
-  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
-  // The status endpoint returns a bounded window of recent epochs, never a complete ledger.
-  assert.ok(stage3.includes('RECENT AUTONOMOUS REWARDS'), 'the heading states recency');
-  assert.equal(
-    /<small>04 AUTONOMOUS REWARDS<\/small>/.test(stage3),
-    false,
-    'an unqualified heading would read as a lifetime total',
-  );
-  assert.ok(stage3.includes('IN RECENT WINDOW'), 'and so does the count');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -555,11 +414,6 @@ test('the shell carries the classes its scoped chrome CSS depends on', async () 
   const main = await readFile('src/main.jsx', 'utf8');
   assert.ok(main.includes('<header className="site-header">'));
   assert.ok(main.includes('<footer className="site-footer">'));
-
-  // The component-level semantic elements keep their own markup and their own class-scoped CSS.
-  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
-  assert.ok(stage3.includes('<header>'), 'TimelineEntry keeps a semantic header');
-  assert.ok(stage3.includes('<footer>'), 'TimelineEntry keeps a semantic footer');
 });
 
 test('form controls do not take the outward action outline that overlapped their labels', async () => {
@@ -705,16 +559,13 @@ test('an unmatched deep link renders a real surface rather than an empty page', 
 test('inner routes carry no guided-tour card, and the dead component is fully gone', async () => {
   const main = await readFile('src/main.jsx', 'utf8');
   const stage2 = await readFile('src/stage2-views.jsx', 'utf8');
-  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
   const router = await readFile('src/router.jsx', 'utf8');
   const css = await readFile('src/styles.css', 'utf8');
 
-  // The homepage now carries the whole guided journey. Repeating it at the bottom of every inner
-  // route made finished pages read like a prototype, so those cards are gone — and nothing dead is
-  // left behind: no component, no import, no CSS.
+  // The homepage carries the tour. Repeating it at the bottom of every inner route made finished
+  // pages read like a prototype, so those cards are gone.
   for (const [name, source] of [
-    ['main.jsx', main], ['stage2-views.jsx', stage2], ['stage3-views.jsx', stage3],
-    ['router.jsx', router],
+    ['main.jsx', main], ['stage2-views.jsx', stage2], ['router.jsx', router],
   ]) {
     assert.equal(/<NextStep/.test(source), false, `${name} must not render a NextStep card`);
     assert.equal(/\bNextStep\b/.test(source), false, `${name} must not reference NextStep at all`);
@@ -751,68 +602,33 @@ test('current-facing documentation points at the live deployment, not a local on
   assert.ok(html.includes('property="og:url" content="https://memeverse.biz/"'), 'og:url');
 });
 
-test('the homepage is a carousel of tokens, NFTs, and the product', async () => {
+test('the homepage opens with the old hero and ends in two carousels', async () => {
   const main = await readFile('src/main.jsx', 'utf8');
+  const homeStart = main.indexOf('function Home()');
+  const homeEnd = main.indexOf('\nfunction ', homeStart + 1);
+  const home = main.slice(homeStart, homeEnd === -1 ? undefined : homeEnd);
+  const hero = home.indexOf('A MEME');
+  const tour = home.indexOf('THE THREE-MINUTE TOUR');
+  // The carousel sets aria-label from the label prop, so the source has label="Tokens".
+  const tokens = home.indexOf('label="Tokens"');
+  const nfts = home.indexOf('label="NFTs"');
 
-  assert.ok(main.includes('aria-label="Tokens, NFTs, and the product"'), 'the homepage carousel must remain');
-  assert.ok(main.includes('>TOKEN<'), 'live markets appear as tokens');
-  assert.ok(main.includes('>NFT<'), 'NFTs have their own cards');
-  assert.ok(main.includes('to="/vault"'), 'the vault is one of the product cards');
-  assert.equal(main.includes('THE THREE-MINUTE TOUR'), false);
+  assert.ok(home.includes('BECOMES AN'), 'the old headline stays');
+  assert.ok(home.includes('<mark>ECONOMY.</mark>'), 'the old mark stays');
+  assert.ok(tour > hero, 'the tour stays on the home page after the hero');
+  assert.ok(home.includes('className="economy-flow"'), 'the economy strip stays');
+  assert.ok(tokens > tour && nfts > tokens, 'the carousels come after the tour, tokens then NFTs');
+  assert.ok(home.includes('>TOKEN<'), 'live markets appear as tokens');
+  assert.ok(home.includes('>NFT<'), 'NFTs have their own cards');
+  assert.ok(home.includes('readMediaAssets({ limit: 240 })'), 'the NFT carousel is not capped at a handful');
+  assert.equal(home.includes('limit: 8'), false);
   assert.equal(main.includes('AUTONOMOUS REWARDS'), false);
+  assert.equal(main.includes('CIRCLE AGENT WALLET'), false);
+  assert.equal(main.includes('path="/agent"'), false);
 });
 
-test('the Stage 3 surfaces state absence rather than inventing a value', async () => {
-  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
-
-  // Explicit unavailability is the whole point of these surfaces.
-  for (const required of [
-    'NOT CONFIGURED', 'UNAVAILABLE', 'NO AUTONOMOUS REWARD IN THIS DEPLOYMENT YET', 'NONE YET',
-  ]) {
-    assert.ok(stage3.includes(required), `Stage 3 must be able to render "${required}"`);
-  }
-
-  // And no surface may claim a capability the project does not have. The words themselves are
-  // allowed — the Proof Center has to be able to say "nothing here is mainnet" — so what is
-  // banned is the affirmative claim.
-  for (const banned of [
-    'is mainnet-ready', 'now mainnet-ready', 'independently audited', 'security audited',
-    'guaranteed', 'generates yield', 'earn yield', 'exactly-once', 'simulated', 'demo data',
-    'example value', 'placeholder',
-  ]) {
-    assert.equal(
-      stage3.toLowerCase().includes(banned.toLowerCase()),
-      false,
-      `Stage 3 must not claim "${banned}"`,
-    );
-  }
-});
-
-test('the proof receipt cannot render for a payout that did not execute onchain', async () => {
-  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
-  // The single most misleading thing this page could do is show a receipt for a decision that
-  // never produced a transaction, so the guard is asserted directly on the source.
-  assert.ok(
-    /if \(!payout \|\| payout\.outcome !== 'EXECUTED' \|\| !payout\.transactionHash\) return null;/
-      .test(stage3),
-    'ProofReceipt must return null without an EXECUTED outcome and a real Arc transaction hash',
-  );
-});
-
-test('the Proof Center states the project limitations it must not hide', async () => {
-  const stage3 = await readFile('src/stage3-views.jsx', 'utf8');
-  for (const admission of [
-    'Arc Public Testnet MVP — not mainnet-ready',
-    'No independent security audit',
-    'application-level',
-    'deterministic and does not use an LLM',
-  ]) {
-    assert.ok(stage3.includes(admission), `the Proof Center must state: ${admission}`);
-  }
-});
-
-test('no Stage 3 external link opens without noopener and noreferrer', async () => {
-  for (const file of ['src/stage3-views.jsx', 'src/stage2-views.jsx']) {
+test('no external link opens without noopener and noreferrer', async () => {
+  for (const file of ['src/main.jsx', 'src/stage2-views.jsx']) {
     const source = await readFile(file, 'utf8');
     const targets = source.match(/target="_blank"/g) ?? [];
     const guarded = source.match(/rel="noreferrer noopener"/g) ?? [];

@@ -26,22 +26,8 @@ const FALLBACK_RPC = 'https://rpc.drpc.testnet.arc.io';
  */
 const PINNED = Object.freeze({
   'ARC USDC': '0x3600000000000000000000000000000000000000',
-  'ARC MEMO': '0x5294E9927c3306DcBaDb03fe70b92e01cCede505',
   'MARKET FACTORY': '0x363124490E953EEbB414eB4c3e2f03a40eef8F2C',
-  'SETTLEMENT / MANUAL': '0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7',
 });
-
-/**
- * Previously verified autonomous payouts, recorded in docs/PHASE-6B-STAGE-2.md §12.
- *
- * These are checked read-only so a demo that cannot trigger a live payout inside three minutes
- * still has a real, still-readable Arc receipt to show. They are historical proof and must always
- * be presented as such — never as something that just happened.
- */
-const KNOWN_PROOF_TRANSACTIONS = Object.freeze([
-  '0xcca2c7803c86a53ee346c5d5a71c497821b25f93f485b06b7843eb050a0b880c',
-  '0xffad62e616262a682dcfd0ac85a7ced9f7b16290b29beadec6225e008c6b6799',
-]);
 
 export const CHECK_STATES = Object.freeze({
   PASS: 'PASS',
@@ -105,18 +91,6 @@ async function checkBytecode(client, label, address) {
   }
 }
 
-async function checkProofTransaction(client, hash, index) {
-  const label = `PROOF TX ${index + 1}`;
-  try {
-    const receipt = await client.getTransactionReceipt({ hash });
-    return receipt.status === 'success'
-      ? check(label, CHECK_STATES.PASS, `block ${receipt.blockNumber} / success`)
-      : check(label, CHECK_STATES.FAIL, `receipt status ${receipt.status}`);
-  } catch (error) {
-    return check(label, CHECK_STATES.WARN, `unreadable — ${shortReason(error)}`);
-  }
-}
-
 async function checkBackend(origin) {
   try {
     const response = await fetch(`${origin}/api/health`, {
@@ -136,15 +110,15 @@ async function checkBackend(origin) {
 
 async function checkDatabase(databaseUrl) {
   if (!databaseUrl) {
-    return check('DATABASE', CHECK_STATES.WARN, 'DATABASE_URL unset — PGlite fallback in use');
+    return check('DATABASE', CHECK_STATES.WARN, 'DATABASE_URL unset');
   }
   const { default: pg } = await import('pg');
   const client = new pg.Client({ connectionString: databaseUrl, connectionTimeoutMillis: 5000 });
   try {
     await client.connect();
     // A trivially cheap read. Nothing is created, altered, or migrated by this script.
-    const result = await client.query('SELECT count(*)::int AS markets FROM agent_payout_epochs');
-    return check('DATABASE', CHECK_STATES.PASS, `reachable / ${result.rows[0].markets} agent epochs`);
+    await client.query('SELECT 1');
+    return check('DATABASE', CHECK_STATES.PASS, 'reachable');
   } catch (error) {
     return check('DATABASE', CHECK_STATES.FAIL, shortReason(error));
   } finally {
@@ -174,41 +148,6 @@ export async function runPreflight(environment = process.env) {
   checks.push(await checkBytecode(client, 'MEDIA NFT', environment.MEDIA_NFT_ADDRESS));
   checks.push(await checkBytecode(client, 'NFT MARKETPLACE', environment.NFT_MARKETPLACE_ADDRESS));
   checks.push(await checkBytecode(client, 'USDC VAULT', environment.USDC_VAULT_ADDRESS));
-  checks.push(await checkBytecode(
-    client, 'SETTLEMENT / AGENT', environment.AGENT_SETTLEMENT_CONTRACT_ADDRESS,
-  ));
-  // An Agent Wallet is an ERC-4337 smart account: it only has bytecode once it has been deployed
-  // by its first user operation. Absent code is therefore reported, not treated as a failure.
-  checks.push(await checkBytecode(client, 'AGENT WALLET', environment.AGENT_WALLET_ADDRESS));
-
-  checks.push(check(
-    'AGENT WALLET CONFIG',
-    environment.AGENT_WALLET_ADDRESS ? CHECK_STATES.PASS : CHECK_STATES.WARN,
-    describeConfigured(environment.AGENT_WALLET_ADDRESS),
-  ));
-  checks.push(check(
-    'CIRCLE CREDENTIALS',
-    environment.CIRCLE_API_KEY && environment.CIRCLE_ENTITY_SECRET
-      ? CHECK_STATES.PASS : CHECK_STATES.WARN,
-    `api key ${describeConfigured(environment.CIRCLE_API_KEY)} / entity secret ${describeConfigured(environment.CIRCLE_ENTITY_SECRET)}`,
-  ));
-  checks.push(check(
-    'CIRCLE KIT KEY',
-    environment.CIRCLE_KIT_KEY ? CHECK_STATES.PASS : CHECK_STATES.WARN,
-    describeConfigured(environment.CIRCLE_KIT_KEY),
-  ));
-  checks.push(check(
-    'AUTONOMOUS WORKER',
-    environment.AGENT_AUTONOMOUS_ENABLED === 'true' ? CHECK_STATES.PASS : CHECK_STATES.WARN,
-    environment.AGENT_AUTONOMOUS_ENABLED === 'true'
-      ? 'AGENT_AUTONOMOUS_ENABLED=true'
-      : 'disabled — the agent will not evaluate markets',
-  ));
-  checks.push(check(
-    'OPERATOR ADDRESS',
-    environment.SETTLEMENT_OPERATOR_ADDRESS ? CHECK_STATES.PASS : CHECK_STATES.WARN,
-    describeConfigured(environment.SETTLEMENT_OPERATOR_ADDRESS),
-  ));
 
   const viteMissing = ['VITE_MEDIA_NFT_ADDRESS', 'VITE_NFT_MARKETPLACE_ADDRESS', 'VITE_USDC_VAULT_ADDRESS']
     .filter((name) => !environment[name]);
@@ -222,10 +161,6 @@ export async function runPreflight(environment = process.env) {
   checks.push(await checkBackend(
     (environment.PREFLIGHT_API_ORIGIN ?? environment.APP_ORIGIN ?? 'http://127.0.0.1:8787').replace(/\/$/, ''),
   ));
-
-  for (const [index, hash] of KNOWN_PROOF_TRANSACTIONS.entries()) {
-    checks.push(await checkProofTransaction(client, hash, index));
-  }
 
   return checks;
 }

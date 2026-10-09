@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import {
   ARC_IS_MAINNET,
   arc,
+  arcCapabilities,
   arcContracts,
   arcLinks,
 } from './arc';
@@ -45,6 +46,7 @@ import {
   marketSpotPerTokenLabel,
   publicMarkets,
 } from './market-display';
+import { publicMediaAssets } from './media-display';
 import {
   filterTradeableMarkets,
   marketSoldPercent,
@@ -410,7 +412,59 @@ function Shell() {
   );
 }
 
+/**
+ * The economy, in the order a visitor walks it. Each step is a real surface.
+ */
+const economySteps = [
+  ['01', 'CREATE', '/launch', 'A meme becomes an Arc market: a token and its USDC curve, deployed from your own wallet.'],
+  ['02', 'TRADE', '/markets', 'Anyone buys and sells it in USDC. The price, the reserve, and the receipt are the chain.'],
+  ['03', 'OWN', '/nft', 'The creator mints media bound to the market they made, then sells that piece for USDC.'],
+  ['04', 'VAULT', '/vault', 'A USDC vault for deposits and redemptions, when this network has one configured.'],
+];
+
+function AssetCarousel({ label, detail, trackRef, count, children }) {
+  function scrollCards(direction) {
+    const node = trackRef.current;
+    if (!node) return;
+    const card = node.querySelector('.carousel-card');
+    const width = card ? card.getBoundingClientRect().width + 16 : 296;
+    node.scrollBy({ left: direction * width, behavior: 'smooth' });
+  }
+
+  return (
+    <div className="carousel" aria-roledescription="carousel" aria-label={label}>
+      <div className="carousel-head">
+        <div>
+          <h2>{label}</h2>
+          <p>{detail}</p>
+        </div>
+        {count > 1 ? (
+          <div className="carousel-controls">
+            <button type="button" onClick={() => scrollCards(-1)} aria-label={`Previous ${label}`}>←</button>
+            <button type="button" onClick={() => scrollCards(1)} aria-label={`Next ${label}`}>→</button>
+          </div>
+        ) : null}
+      </div>
+      <div className="carousel-track" ref={trackRef}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function Home() {
+  const health = useQuery({
+    queryKey: ['api-health'],
+    queryFn: getApiHealth,
+    retry: 1,
+    refetchInterval: 30_000,
+  });
+  const factory = useQuery({
+    queryKey: ['market-factory-config'],
+    queryFn: loadFactoryConfig,
+    retry: 1,
+    refetchInterval: 30_000,
+  });
   const markets = useQuery({
     queryKey: ['onchain-markets', 'home'],
     queryFn: () => loadMarkets(),
@@ -425,41 +479,123 @@ function Home() {
     enabled: listed.length > 0,
     staleTime: 30_000,
   });
+  const nftConfigured = Boolean(stage2Contracts.mediaNft);
   const collection = useQuery({
     queryKey: ['home-nfts'],
-    queryFn: () => readMediaAssets({ limit: 8 }),
-    enabled: Boolean(stage2Contracts.mediaNft),
+    queryFn: () => readMediaAssets({ limit: 240 }),
+    enabled: nftConfigured,
     retry: 1,
     refetchInterval: 30_000,
   });
-  const track = useRef(null);
-
-  function scrollCards(direction) {
-    const node = track.current;
-    if (!node) return;
-    const card = node.querySelector('.carousel-card');
-    const width = card ? card.getBoundingClientRect().width + 16 : 296;
-    node.scrollBy({ left: direction * width, behavior: 'smooth' });
-  }
-
-  const nftAssets = collection.data?.configured ? collection.data.assets : [];
+  const tokenTrack = useRef(null);
+  const nftTrack = useRef(null);
+  const stage2Configured = Boolean(
+    stage2Contracts.mediaNft && stage2Contracts.nftMarketplace && stage2Contracts.usdcVault,
+  );
+  const checks = [
+    [
+      'ARC RPC',
+      health.data?.arc?.status === 'verified',
+      health.data?.arc?.blockNumber ? `HEAD BLOCK ${health.data.arc.blockNumber}` : 'VERIFYING',
+      health.isPending,
+    ],
+    [
+      'MARKET FACTORY',
+      Boolean(factory.data),
+      factory.data ? `${factory.data.marketCount} LIVE MARKETS` : 'READING ARC',
+      factory.isPending,
+    ],
+    [
+      'NFT / VAULT',
+      stage2Configured,
+      stage2Configured ? 'COLLECTION / MARKETPLACE / VAULT' : 'NOT ON THIS NETWORK',
+      false,
+    ],
+  ];
+  const nftAssets = collection.data?.configured ? publicMediaAssets(collection.data.assets) : [];
 
   return (
-    <section className="home-stage">
-      <div className="home-bar">
-        <h1>Trade memes in USDC.</h1>
-        <div className="hero-actions">
-          <NavLink className="btn primary" to="/markets">MARKETS</NavLink>
-          <NavLink className="btn secondary" to="/launch">LAUNCH</NavLink>
+    <>
+      <section className="hero">
+        <div>
+          <div className="eyebrow">
+            {arcCapabilities.phase} / CHAIN {network.chain.id}
+          </div>
+          <h1>
+            A MEME
+            <br />BECOMES AN
+            <br /><mark>ECONOMY.</mark>
+          </h1>
+          <p>
+            MemeVerse turns a meme into an Arc market. People trade it in USDC. Creator and
+            treasury fees settle inside the trade.
+          </p>
+          <div className="hero-actions">
+            <NavLink className="btn primary" to="/launch">LAUNCH A MEME →</NavLink>
+            <NavLink className="btn primary" to="/markets">TRADE ONCHAIN →</NavLink>
+            <NavLink className="btn secondary" to="/nft">OPEN MARKETPLACE</NavLink>
+            <NavLink className="btn secondary" to="/vault">OPEN VAULT</NavLink>
+          </div>
         </div>
-      </div>
-      <div className="carousel" aria-roledescription="carousel" aria-label="Tokens, NFTs, and the product">
-        <div className="carousel-controls">
-          <button type="button" onClick={() => scrollCards(-1)} aria-label="Previous">←</button>
-          <button type="button" onClick={() => scrollCards(1)} aria-label="Next">→</button>
+        <aside>
+          <Mascot />
+          <p>
+            PRODUCT: MEMEVERSE
+            <br />INFRASTRUCTURE: <b className="acid">BUILT ON ARC</b>
+            <br />MONEY + GAS: USDC
+            <br />FEES: <b className="acid">INSIDE THE TRADE</b>
+            <br />ASSETS: {ARC_IS_MAINNET ? 'REAL USDC' : 'TESTNET ONLY'}
+          </p>
+        </aside>
+      </section>
+
+      <section className="economy-flow" aria-label="How the MemeVerse economy works">
+        {economySteps.map(([n, label, to, copy]) => (
+          <NavLink key={n} to={to} className="economy-step">
+            <span>{n}</span>
+            <strong>{label}</strong>
+            <p>{copy}</p>
+            <b aria-hidden="true">→</b>
+          </NavLink>
+        ))}
+      </section>
+
+      <section className="runtime-proof" aria-label="Live infrastructure status">
+        {checks.map(([label, ready, detail, pending]) => (
+          <div key={label} className={ready ? 'ready' : ''}>
+            <span><i />{ready ? 'VERIFIED' : pending ? 'CHECKING' : 'UNAVAILABLE'}</span>
+            <strong>{label}</strong>
+            <small>{detail}</small>
+          </div>
+        ))}
+      </section>
+
+      <section className="demo-surfaces">
+        <Title n="PATH" t="THE THREE-MINUTE TOUR" as="h2" />
+        <div>
+          <NavLink to="/launch"><small>STEP 01 / WALLET SIGNED</small><strong>LAUNCH A MEME</strong><span>Deploy a real Arc market →</span></NavLink>
+          <NavLink to="/markets"><small>STEP 02 / REAL USDC</small><strong>TRADE THE CURVE</strong><span>Buy, sell, and pay the creator →</span></NavLink>
+          <NavLink to="/nft"><small>STEP 03 / ONCHAIN PROVENANCE</small><strong>OWN THE MEDIA</strong><span>Mint and sell for USDC →</span></NavLink>
+          <NavLink to="/vault"><small>STEP 04 / ERC-4626</small><strong>USDC VAULT</strong><span>Deposit and redeem USDC →</span></NavLink>
         </div>
-        <div className="carousel-track" ref={track}>
-          {markets.isPending ? <article className="carousel-card"><div><small>TOKEN</small><strong>Reading markets</strong></div></article> : null}
+      </section>
+
+      <section className="home-collections" aria-label="Tokens and NFTs">
+        <AssetCarousel
+          label="Tokens"
+          detail="Every market on this factory. One card when there is one. Scroll when there are many."
+          trackRef={tokenTrack}
+          count={listed.length}
+        >
+          {markets.isPending ? (
+            <article className="carousel-card"><div><small>TOKEN</small><strong>Reading markets</strong></div></article>
+          ) : null}
+          {!markets.isPending && listed.length === 0 ? (
+            <NavLink className="carousel-card" to="/launch">
+              <div className="carousel-fallback"><Mascot small /></div>
+              <div><small>TOKEN</small><strong>No tokens yet</strong><em>Launch the first market</em></div>
+            </NavLink>
+          ) : null}
           {listed.map((market) => (
             <NavLink key={market.address} className="carousel-card" to="/markets">
               <CarouselArt src={mediaContentUrl(images.data?.[market.address]?.url)} alt="" />
@@ -471,6 +607,33 @@ function Home() {
               </div>
             </NavLink>
           ))}
+        </AssetCarousel>
+
+        <AssetCarousel
+          label="NFTs"
+          detail="Every piece in the collection. One card when there is one. Scroll when there are many."
+          trackRef={nftTrack}
+          count={nftAssets.length}
+        >
+          {!nftConfigured ? (
+            <article className="carousel-card">
+              <div className="carousel-fallback"><Mascot small /></div>
+              <div>
+                <small>NFT</small>
+                <strong>No collection on this network</strong>
+                <em>This deployment has no NFT contract</em>
+              </div>
+            </article>
+          ) : null}
+          {nftConfigured && collection.isPending ? (
+            <article className="carousel-card"><div><small>NFT</small><strong>Reading the collection</strong></div></article>
+          ) : null}
+          {nftConfigured && collection.isSuccess && nftAssets.length === 0 ? (
+            <NavLink className="carousel-card" to="/nft">
+              <div className="carousel-fallback"><Mascot small /></div>
+              <div><small>NFT</small><strong>No NFTs yet</strong><em>Mint the first piece</em></div>
+            </NavLink>
+          ) : null}
           {nftAssets.map((asset) => (
             <NavLink key={String(asset.tokenId)} className="carousel-card" to="/nft">
               <CarouselArt src={safeMediaUrl(asset.metadata?.image)} alt="" />
@@ -481,21 +644,9 @@ function Home() {
               </div>
             </NavLink>
           ))}
-          <NavLink className="carousel-card product" to="/launch">
-            <div className="carousel-fallback"><Mascot /></div>
-            <div><small>LAUNCH</small><strong>Start a meme</strong><em>A token and its market</em></div>
-          </NavLink>
-          <NavLink className="carousel-card product" to="/nft">
-            <div className="carousel-fallback"><Mascot /></div>
-            <div><small>NFT</small><strong>Creator pieces</strong><em>Mint and trade</em></div>
-          </NavLink>
-          <NavLink className="carousel-card product" to="/vault">
-            <div className="carousel-fallback"><Mascot /></div>
-            <div><small>VAULT</small><strong>USDC vault</strong><em>Deposit and redeem</em></div>
-          </NavLink>
-        </div>
-      </div>
-    </section>
+        </AssetCarousel>
+      </section>
+    </>
   );
 }
 

@@ -156,9 +156,8 @@ test('hostile or absent input is refused rather than throwing into the list', ()
 });
 
 test('the filter exists only in the presentation layer', async () => {
-  // Backend, agent, and audit code must never learn about this list. If any of them did, the
-  // factory enumeration, the autonomous discovery sweep, the media creator check, or an onchain
-  // audit would start disagreeing with the chain.
+  // Backend and audit code must never learn about this list. If any of them did, the factory
+  // enumeration, the media creator check, or an onchain audit would start disagreeing with the chain.
   const roots = ['../../server', '../../scripts', '../../contracts'];
   const { readdir } = await import('node:fs/promises');
 
@@ -177,10 +176,12 @@ test('the filter exists only in the presentation layer', async () => {
   }
 
   const files = (await Promise.all(roots.map(walk))).flat()
-    // The backend test suite legitimately uses these addresses as fixtures for agent logic.
     .filter((path) => !path.includes('/test/'));
 
-  assert.ok(files.length > 20, 'the walk should have found the server sources');
+  assert.ok(
+    files.some((path) => path.endsWith('server/app.js')) && files.some((path) => path.endsWith('scripts/demo-preflight.js')),
+    'the walk should have found the server sources',
+  );
   for (const path of files) {
     const source = await readFile(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
     for (const forbidden of ['LEGACY_HIDDEN_MARKETS', 'isLegacyHiddenMarket', 'publicMarkets']) {

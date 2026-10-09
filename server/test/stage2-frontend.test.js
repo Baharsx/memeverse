@@ -167,7 +167,7 @@ test('the agent surface exposes no account identity', async () => {
   // The Circle account email is a personal identifier and must never be rendered. The operator's
   // actual address is deliberately not written here either — asserting on the generic shapes is
   // enough, and embedding it would put a personal identifier in the repository.
-  for (const file of ['src/stage2-views.jsx', 'src/stage3-views.jsx']) {
+  for (const file of ['src/stage2-views.jsx', 'src/main.jsx']) {
     const source = await readFile(file, 'utf8');
     for (const banned of ['@gmail', '@googlemail', 'mailto:', 'email', 'apiKey', 'entitySecret']) {
       assert.equal(
