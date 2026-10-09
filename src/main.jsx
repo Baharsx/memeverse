@@ -6,13 +6,11 @@ import {
   useAccount,
   useConnect,
   useDisconnect,
-  useSignMessage,
 } from 'wagmi';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import {
   ARC_IS_MAINNET,
   arc,
-  arcCapabilities,
   arcContracts,
   arcLinks,
 } from './arc';
@@ -30,43 +28,17 @@ import {
   isRestrictedEmbeddedBrowser,
   walletButtonLabel,
 } from './wallet-connection.js';
-import {
-  transactionPhases,
-} from './transaction-lifecycle';
-
 /**
- * The Stage 2 surfaces read several contracts and are only visited deliberately, so they are
+ * NFT and the vault read several contracts and are only visited deliberately, so they are
  * split out of the initial bundle rather than loaded for every visitor on the markets page.
  */
 const MediaAssets = lazy(() => import('./stage2-views.jsx').then((module) => ({ default: module.MediaAssets })));
 const UsdcVault = lazy(() => import('./stage2-views.jsx').then((module) => ({ default: module.UsdcVault })));
-/**
- * The Stage 3 judge surfaces — Agent Command Center, Proof Center, creator economy — live in
- * their own chunk for the same reason: they are reached deliberately, and the markets page should
- * not pay for them.
- */
-const AgentCommandCenter = lazy(() => import('./stage3-views.jsx').then((module) => ({ default: module.AgentCommandCenter })));
-const ProofCenter = lazy(() => import('./stage3-views.jsx').then((module) => ({ default: module.ProofCenter })));
-const CreatorEconomy = lazy(() => import('./stage3-views.jsx').then((module) => ({ default: module.CreatorEconomy })));
 
 function LazySection() {
   return <div className="empty"><span>LOADING…</span></div>;
 }
-import {
-  authorizeSettlementExecution,
-  createIdempotencyKey,
-  createAgentDecision,
-  endOperatorSession,
-  estimateAppKitSwap,
-  executeSettlement,
-  getAgentAutonomy,
-  getAppKitCapabilities,
-  getApiHealth,
-  getOperatorSession,
-  reconcileSettlement,
-  requestOperatorChallenge,
-  verifyOperatorSignature,
-} from './api';
+import { getApiHealth } from './api';
 import {
   marketAvailability,
   marketSpotLabel,
@@ -83,7 +55,7 @@ import {
   sortTradeableMarkets,
 } from './imported-markets';
 // Read here only to state truthfully whether this build has the Stage 2 addresses configured.
-import { stage2Contracts } from './assets';
+import { readMediaAssets, safeMediaUrl, stage2Contracts } from './assets';
 import {
   factoryAbi,
   formatTokenAmount,
@@ -155,7 +127,7 @@ function Marquee() {
   // disagree about what a visitor is being shown.
   const items = publicMarkets(markets.data);
   return (
-    <div className="marquee" role="group" aria-label="Live Arc Testnet market ticker">
+    <div className="marquee" role="group" aria-label="Live market ticker">
       <div>
         {(items.length ? [...items, ...items] : [null, null]).map((market, index) => (
           <span key={market ? `${market.address}-${index}` : `empty-${index}`}>
@@ -384,11 +356,8 @@ function BackendStatus() {
 const navItems = [
   ['01', 'LAUNCH', '/launch'],
   ['02', 'MARKETS', '/markets'],
-  ['03', 'MEDIA', '/nft'],
-  ['04', 'AGENT', '/agent'],
-  ['05', 'PROOF', '/safety'],
-  ['06', 'VAULT', '/vault'],
-  ['07', 'QUOTE', '/quote'],
+  ['03', 'NFT', '/nft'],
+  ['04', 'VAULT', '/vault'],
 ];
 
 function Shell() {
@@ -421,7 +390,6 @@ function Shell() {
           <Route path="/markets" element={<Markets />} />
           <Route path="/trade" element={<Markets />} />
           <Route path="/launch" element={<Launch />} />
-          <Route path="/quote" element={<Quote />} />
           <Route
             path="/nft"
             element={<Suspense fallback={<LazySection />}><MediaAssets /></Suspense>}
@@ -430,9 +398,6 @@ function Shell() {
             path="/vault"
             element={<Suspense fallback={<LazySection />}><UsdcVault /></Suspense>}
           />
-          <Route path="/agent" element={<Agent />} />
-          <Route path="/safety" element={<Safety />} />
-          <Route path="/proof" element={<Safety />} />
         </Routes>
       </main>
       <footer className="site-footer">
@@ -445,165 +410,98 @@ function Shell() {
   );
 }
 
-/**
- * The economy flow, in the order a judge will watch it happen. Each step names the surface that
- * performs it, so the hero doubles as the table of contents for the demo.
- */
-const economySteps = [
-  ['01', 'CREATE', '/launch', 'A meme becomes a real Arc contract: a fixed-supply token and its USDC bonding market, deployed from your own wallet.'],
-  ['02', 'TRADE', '/markets', 'Anyone buys and sells it in USDC against the curve. Every quote, reserve, and receipt is live chain state.'],
-  ['03', 'OWN', '/nft', 'The creator mints media bound onchain to the market they actually created, then sells it for USDC.'],
-  ['04', 'REWARD', '/agent', 'An autonomous agent reads confirmed trading evidence, decides on its own, and pays the creator from a Circle Agent Wallet.'],
-  ['05', 'PROVE', '/safety', 'Every step above resolves to an Arc transaction you can open on ArcScan and check yourself.'],
-];
-
 function Home() {
-  const health = useQuery({
-    queryKey: ['api-health'],
-    queryFn: getApiHealth,
+  const markets = useQuery({
+    queryKey: ['onchain-markets', 'home'],
+    queryFn: () => loadMarkets(),
+    retry: 1,
+    refetchInterval: 20_000,
+  });
+  const listed = publicMarkets(markets.data);
+  const imageKey = listed.map((market) => market.address).join(',');
+  const images = useQuery({
+    queryKey: ['market-images', 'home', imageKey],
+    queryFn: () => getMarketImages(listed.map((market) => market.address)),
+    enabled: listed.length > 0,
+    staleTime: 30_000,
+  });
+  const collection = useQuery({
+    queryKey: ['home-nfts'],
+    queryFn: () => readMediaAssets({ limit: 8 }),
+    enabled: Boolean(stage2Contracts.mediaNft),
     retry: 1,
     refetchInterval: 30_000,
   });
-  const factory = useQuery({
-    queryKey: ['market-factory-config'],
-    queryFn: loadFactoryConfig,
-    retry: 1,
-    refetchInterval: 30_000,
-  });
-  const agent = useQuery({
-    queryKey: ['agent-autonomy'],
-    queryFn: getAgentAutonomy,
-    retry: 1,
-    refetchInterval: 30_000,
-  });
+  const track = useRef(null);
 
-  const executor = agent.data?.executor;
-  const stage2Configured = Boolean(
-    stage2Contracts.mediaNft && stage2Contracts.nftMarketplace && stage2Contracts.usdcVault,
-  );
-  /**
-   * Every card states something the server or this browser actually verified.
-   *
-   * The Agent Wallet card reads the autonomous executor specifically, and is deliberately not the
-   * same check as the Developer-Controlled Wallet below it: conflating the two would claim an
-   * autonomous payout route that might not exist.
-   */
-  const checks = [
-    [
-      'ARC RPC',
-      health.data?.arc?.status === 'verified',
-      health.data?.arc?.blockNumber ? `HEAD BLOCK ${health.data.arc.blockNumber}` : 'VERIFYING',
-      health.isPending,
-    ],
-    [
-      'MARKET FACTORY',
-      Boolean(factory.data),
-      factory.data ? `${factory.data.marketCount} LIVE MARKETS` : 'READING ARC',
-      factory.isPending,
-    ],
-    [
-      'POSTGRES',
-      health.data?.persistence?.ready === true,
-      'DURABLE SPEND RESERVATIONS',
-      health.isPending,
-    ],
-    [
-      ARC_IS_MAINNET ? 'AUTONOMOUS REWARDS' : 'CIRCLE AGENT WALLET',
-      ARC_IS_MAINNET ? false : executor?.configured === true && executor?.state === 'LIVE',
-      ARC_IS_MAINNET
-        ? 'NOT LIVE — FEES SETTLE IN THE TRADE'
-        : (executor?.configured
-          ? `ERC-4337 / ${executor.state ?? 'UNKNOWN'}`
-          : 'AUTONOMOUS EXECUTOR'),
-      agent.isPending,
-    ],
-    [
-      'AUTONOMOUS POLICY',
-      agent.data ? agent.data.paused === false : false,
-      agent.data ? (agent.data.paused ? 'OPERATOR EMERGENCY STOP ENGAGED' : agent.data.policyVersion) : 'UNREACHABLE',
-      agent.isPending,
-      // A paused agent is configured and healthy — it has simply been stopped. Reporting that as
-      // "unavailable" would understate a deliberate, reversible operator action.
-      agent.data?.paused === true ? 'PAUSED' : undefined,
-    ],
-    [
-      'STAGE 2 CONTRACTS',
-      stage2Configured,
-      stage2Configured ? 'MEDIA / MARKETPLACE / VAULT' : 'NOT CONFIGURED IN THIS BUILD',
-      false,
-    ],
-  ];
+  function scrollCards(direction) {
+    const node = track.current;
+    if (!node) return;
+    const card = node.querySelector('.carousel-card');
+    const width = card ? card.getBoundingClientRect().width + 16 : 296;
+    node.scrollBy({ left: direction * width, behavior: 'smooth' });
+  }
+
+  const nftAssets = collection.data?.configured ? collection.data.assets : [];
 
   return (
-    <>
-      <section className="hero">
-        <div>
-          <div className="eyebrow">
-            {arcCapabilities.phase} / CHAIN {network.chain.id}
-          </div>
-          <h1>
-            A MEME
-            <br />BECOMES AN
-            <br /><mark>ECONOMY.</mark>
-          </h1>
-          <p>
-            {ARC_IS_MAINNET
-              ? 'MemeVerse turns a meme into an Arc market. People trade it in USDC. Creator and treasury fees settle inside the trade. Autonomous rewards are not live.'
-              : 'MemeVerse turns a meme into a real Arc market. People trade it in USDC, the creator earns from every trade and keeps onchain provenance of their media — and an autonomous agent watches the real trading record and pays that creator without anyone approving it.'}
-          </p>
-          <div className="hero-actions">
-            <NavLink className="btn primary" to="/launch">LAUNCH A MEME →</NavLink>
-            <NavLink className="btn primary" to="/markets">TRADE ONCHAIN →</NavLink>
-            <NavLink className="btn secondary" to="/nft">OPEN MARKETPLACE</NavLink>
-            <NavLink className="btn secondary" to="/safety">VERIFY ON ARC</NavLink>
-          </div>
+    <section className="home-stage">
+      <div className="home-bar">
+        <h1>Trade memes in USDC.</h1>
+        <div className="hero-actions">
+          <NavLink className="btn primary" to="/markets">MARKETS</NavLink>
+          <NavLink className="btn secondary" to="/launch">LAUNCH</NavLink>
         </div>
-        <aside>
-          <Mascot />
-          <p>
-            PRODUCT: MEMEVERSE
-            <br />INFRASTRUCTURE: <b className="acid">BUILT ON ARC</b>
-            <br />MONEY + GAS: USDC
-            <br />AGENT: <b className="acid">{ARC_IS_MAINNET ? 'NOT LIVE' : 'CIRCLE AGENT WALLET'}</b>
-            <br />ASSETS: {ARC_IS_MAINNET ? 'REAL USDC' : 'TESTNET ONLY'}
-          </p>
-        </aside>
-      </section>
-
-      <section className="economy-flow" aria-label="How the MemeVerse economy works">
-        {economySteps.map(([n, label, to, copy]) => (
-          <NavLink key={n} to={to} className="economy-step">
-            <span>{n}</span>
-            <strong>{label}</strong>
-            <p>{copy}</p>
-            <b aria-hidden="true">→</b>
+      </div>
+      <div className="carousel" aria-roledescription="carousel" aria-label="Tokens, NFTs, and the product">
+        <div className="carousel-controls">
+          <button type="button" onClick={() => scrollCards(-1)} aria-label="Previous">←</button>
+          <button type="button" onClick={() => scrollCards(1)} aria-label="Next">→</button>
+        </div>
+        <div className="carousel-track" ref={track}>
+          {markets.isPending ? <article className="carousel-card"><div><small>TOKEN</small><strong>Reading markets</strong></div></article> : null}
+          {listed.map((market) => (
+            <NavLink key={market.address} className="carousel-card" to="/markets">
+              <CarouselArt src={mediaContentUrl(images.data?.[market.address]?.url)} alt="" />
+              <div>
+                <small>TOKEN</small>
+                <strong>{market.name}</strong>
+                <em>${market.symbol}</em>
+                <b>{marketSpotLabel(market, formatUsdc)}</b>
+              </div>
+            </NavLink>
+          ))}
+          {nftAssets.map((asset) => (
+            <NavLink key={String(asset.tokenId)} className="carousel-card" to="/nft">
+              <CarouselArt src={safeMediaUrl(asset.metadata?.image)} alt="" />
+              <div>
+                <small>NFT</small>
+                <strong>{asset.metadata?.name ?? `NFT #${String(asset.tokenId)}`}</strong>
+                <em>{asset.listing?.fillable ? `${asset.listing.priceUsdc} USDC` : 'IN THE COLLECTION'}</em>
+              </div>
+            </NavLink>
+          ))}
+          <NavLink className="carousel-card product" to="/launch">
+            <div className="carousel-fallback"><Mascot /></div>
+            <div><small>LAUNCH</small><strong>Start a meme</strong><em>A token and its market</em></div>
           </NavLink>
-        ))}
-      </section>
-
-      <section className="runtime-proof" aria-label="Live infrastructure status">
-        {checks.map(([label, ready, detail, pending, overrideState]) => (
-          <div key={label} className={ready ? 'ready' : ''}>
-            <span><i />{overrideState ?? (ready ? 'VERIFIED' : pending ? 'CHECKING' : 'UNAVAILABLE')}</span>
-            <strong>{label}</strong>
-            <small>{detail}</small>
-          </div>
-        ))}
-      </section>
-
-      <section className="demo-surfaces">
-        <Title n="PATH" t="THE THREE-MINUTE TOUR" as="h2" />
-        <div>
-          <NavLink to="/launch"><small>STEP 01 / WALLET SIGNED</small><strong>LAUNCH A MEME</strong><span>Deploy a real Arc market →</span></NavLink>
-          <NavLink to="/markets"><small>STEP 02 / REAL USDC</small><strong>TRADE THE CURVE</strong><span>Buy, sell, and pay the creator →</span></NavLink>
-          <NavLink to="/nft"><small>STEP 03 / ONCHAIN PROVENANCE</small><strong>OWN THE MEDIA</strong><span>Mint and sell for USDC →</span></NavLink>
-          <NavLink to="/agent"><small>{ARC_IS_MAINNET ? 'STEP 04 / NOT LIVE' : 'STEP 04 / NO HUMAN APPROVAL'}</small><strong>AUTONOMOUS REWARDS</strong><span>{ARC_IS_MAINNET ? 'Not live. Fees settle inside the trade →' : 'Watch the agent decide →'}</span></NavLink>
-          <NavLink to="/safety"><small>STEP 05 / INDEPENDENTLY CHECKABLE</small><strong>PROOF CENTER</strong><span>Contracts, modes, and limits →</span></NavLink>
-          <NavLink to="/vault"><small>SUPPORTING / ERC-4626</small><strong>TREASURY PRIMITIVE</strong><span>Deposit and redeem USDC →</span></NavLink>
+          <NavLink className="carousel-card product" to="/nft">
+            <div className="carousel-fallback"><Mascot /></div>
+            <div><small>NFT</small><strong>Creator pieces</strong><em>Mint and trade</em></div>
+          </NavLink>
+          <NavLink className="carousel-card product" to="/vault">
+            <div className="carousel-fallback"><Mascot /></div>
+            <div><small>VAULT</small><strong>USDC vault</strong><em>Deposit and redeem</em></div>
+          </NavLink>
         </div>
-      </section>
-    </>
+      </div>
+    </section>
   );
+}
+
+function CarouselArt({ src, alt }) {
+  if (!src) return <div className="carousel-fallback"><Mascot small /></div>;
+  return <img src={src} alt={alt} referrerPolicy="no-referrer" />;
 }
 
 /**
@@ -1376,541 +1274,6 @@ function Markets() {
             </section>
         </div>
       </div> : null}
-      {selected ? (
-        <Suspense fallback={<LazySection />}>
-          <CreatorEconomy market={selected} />
-        </Suspense>
-      ) : null}
-    </section>
-  );
-}
-
-function Quote() {
-  const [pair, setPair] = useState(['USDC', 'EURC']);
-  const [amount, setAmount] = useState('0.01');
-  const [quote, setQuote] = useState(null);
-  const [requestState, setRequestState] = useState({ status: 'idle', error: null });
-  const capabilities = useQuery({
-    queryKey: ['app-kit-capabilities'],
-    queryFn: getAppKitCapabilities,
-    retry: 1,
-    staleTime: 30_000,
-  });
-  const runtimeReady = capabilities.data?.data?.runtimeEnabled === true;
-
-  function reversePair() {
-    setPair(([tokenIn, tokenOut]) => [tokenOut, tokenIn]);
-    setQuote(null);
-  }
-
-  async function requestQuote(event) {
-    event.preventDefault();
-    setRequestState({ status: 'loading', error: null });
-    setQuote(null);
-    try {
-      const response = await estimateAppKitSwap({
-        tokenIn: pair[0],
-        tokenOut: pair[1],
-        amountIn: amount,
-      });
-      setQuote(response.data);
-      setRequestState({ status: 'success', error: null });
-    } catch (error) {
-      setRequestState({
-        status: 'error',
-        error: `${error.code ?? 'QUOTE_FAILED'}: ${error.message}`,
-      });
-    }
-  }
-
-  return (
-    <section className="page app-kit-page">
-      <Title n="07 QUOTE" t="CIRCLE STABLECOIN QUOTE" />
-      <p className="lede">
-        Request a live, authenticated Circle Stablecoin Kits estimate for Arc Testnet. The Kit Key
-        stays on the server, transaction data is discarded, and this screen never signs or broadcasts.
-      </p>
-      <div className="app-kit-grid">
-        <form className="quote-form" onSubmit={requestQuote}>
-          <div className={`runtime-badge ${runtimeReady ? 'ready' : ''}`}>
-            <i />{capabilities.isPending ? 'CHECKING RUNTIME' : runtimeReady ? 'CIRCLE RUNTIME READY' : 'RUNTIME UNAVAILABLE'}
-          </div>
-          <div className="pair-display" aria-label={`Swap pair ${pair[0]} to ${pair[1]}`}>
-            <span><small>FROM</small>{pair[0]}</span>
-            <button type="button" onClick={reversePair} aria-label="Reverse token pair">⇄</button>
-            <span><small>TO</small>{pair[1]}</span>
-          </div>
-          <label>
-            AMOUNT IN
-            <input
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              inputMode="decimal"
-              min="0.000001"
-              step="0.000001"
-              type="number"
-              required
-            />
-            <small>{pair[0]}</small>
-          </label>
-          <button className="btn primary full" disabled={!runtimeReady || requestState.status === 'loading'}>
-            {requestState.status === 'loading' ? 'REQUESTING CIRCLE QUOTE…' : 'GET LIVE ESTIMATE →'}
-          </button>
-          <p className="quote-boundary">ESTIMATE ONLY // NO SIGNATURE // NO BROADCAST // TESTNET ASSETS</p>
-          {requestState.error ? <p className="agent-error" role="alert">{requestState.error}</p> : null}
-        </form>
-        <section className="quote-result" aria-live="polite" aria-busy={requestState.status === 'loading'}>
-          <span>SERVER-SANITIZED RESPONSE</span>
-          {quote ? (
-            <>
-              <div className="quote-output"><small>ESTIMATED OUTPUT</small><strong>{quote.estimatedOutput.amount}</strong><b>{quote.estimatedOutput.token}</b></div>
-              <dl>
-                <dt>INPUT</dt><dd>{quote.amountIn} {quote.tokenIn}</dd>
-                <dt>STOP LIMIT</dt><dd>{quote.stopLimit.amount} {quote.stopLimit.token}</dd>
-                <dt>NETWORK</dt><dd>{quote.chain.replace('_', ' ')}</dd>
-                <dt>PROVIDER</dt><dd>CIRCLE</dd>
-                <dt>FEES</dt><dd>{quote.fees.length ? quote.fees.map((fee) => `${fee.amount} ${fee.token}`).join(' + ') : 'NONE RETURNED'}</dd>
-              </dl>
-              {quote.quoteReference ? <p>QUOTE REF // {quote.quoteReference}</p> : null}
-            </>
-          ) : (
-            <div className="quote-empty"><Mascot small /><p>Enter an amount to fetch a real Arc Testnet estimate from Circle.</p></div>
-          )}
-          <div className="quote-proof">
-            <span>KIT KEY</span><b>SERVER ONLY</b>
-            <span>TRANSACTION PAYLOAD</span><b>DISCARDED</b>
-            <span>DEPENDENCY AUDIT</span><b>0 FINDINGS</b>
-          </div>
-        </section>
-      </div>
-      <div className="stack-strip">
-        <span>BUILT ON ARC</span><span>USDC GAS</span><span>LIVE CIRCLE ESTIMATE</span>
-        <span>SERVER-SIDE AUTH</span><span>FAIL-CLOSED VALIDATION</span><span>NO BROADCAST</span>
-      </div>
-    </section>
-  );
-}
-
-/**
- * The simulated NFT archive and Vault surfaces that stood here through Stage 1 have been
- * removed. Both are now real Arc contracts, rendered by `MediaAssets` and `UsdcVault` in
- * `stage2-views.jsx`, which read deployed state instead of a hard-coded demo list.
- */
-
-function useOperatorSession() {
-  const session = useQuery({
-    queryKey: ['operator-session'],
-    queryFn: getOperatorSession,
-    retry: 1,
-    refetchInterval: 60_000,
-    refetchOnWindowFocus: true,
-  });
-  return {
-    query: session,
-    authenticated: session.data?.data?.authenticated === true,
-    operatorAddress: session.data?.data?.operatorAddress ?? null,
-    expiresAt: session.data?.data?.expiresAt ?? null,
-  };
-}
-
-/**
- * Layer 1 of the execution gate. The wallet signature proves control of the configured
- * SETTLEMENT_OPERATOR_ADDRESS; the resulting session lives in an HttpOnly cookie this script
- * can never read. Connecting an ordinary MemeVerse trading wallet grants nothing.
- */
-function OperatorSessionPanel({ session }) {
-  const { address, isConnected, isConnecting } = useAccount();
-  const modal = useWalletModal();
-  const connectInjected = useInjectedFallback();
-  const { signMessageAsync } = useSignMessage();
-  const [state, setState] = useState({ status: 'idle', error: null });
-
-  async function signIn() {
-    setState({ status: 'loading', error: null });
-    try {
-      const challenge = (await requestOperatorChallenge(address)).data;
-      const signature = await signMessageAsync({ message: challenge.message });
-      await verifyOperatorSignature(challenge.challengeId, signature);
-      await session.query.refetch();
-      setState({ status: 'idle', error: null });
-    } catch (error) {
-      setState({
-        status: 'idle',
-        error: error.code === 'OPERATOR_AUTH_FAILED'
-          ? 'THIS WALLET IS NOT THE AUTHORIZED SETTLEMENT OPERATOR'
-          : `${error.code ?? 'SIGN_IN_FAILED'}: ${error.shortMessage ?? error.message}`,
-      });
-    }
-  }
-
-  async function signOut() {
-    setState({ status: 'loading', error: null });
-    try {
-      await endOperatorSession();
-    } finally {
-      await session.query.refetch();
-      setState({ status: 'idle', error: null });
-    }
-  }
-
-  return (
-    <div className={`operator-session ${session.authenticated ? 'authenticated' : ''}`} aria-label="Operator authentication">
-      <div className="operator-steps">
-        <span className={isConnected ? 'done' : ''}><b>01</b>CONNECT WALLET</span>
-        <span className={session.authenticated ? 'done' : ''}><b>02</b>SIGN OPERATOR SESSION</span>
-        <span className={session.authenticated ? 'done' : ''}><b>03</b>AUTHENTICATED OPERATOR</span>
-      </div>
-      {session.authenticated ? (
-        <div className="operator-identity">
-          <span>OPERATOR // {shortAddress(session.operatorAddress)}</span>
-          <span>SESSION EXPIRES // {new Date(session.expiresAt).toLocaleTimeString()}</span>
-          <button className="btn" type="button" onClick={signOut} disabled={state.status === 'loading'}>END OPERATOR SESSION</button>
-        </div>
-      ) : (
-        <div className="operator-identity">
-          <span>PRIVILEGED SETTLEMENT CONTROLS REQUIRE AN AUTHENTICATED OPERATOR WALLET.</span>
-          <span>ORDINARY MARKET TRADING IS UNAFFECTED AND NEEDS NO OPERATOR SESSION.</span>
-          {isConnected ? (
-            <button className="btn primary" type="button" onClick={signIn} disabled={state.status === 'loading'}>
-              {state.status === 'loading' ? 'AWAITING WALLET SIGNATURE…' : 'SIGN OPERATOR SESSION →'}
-            </button>
-          ) : (
-            <button
-              className="btn primary"
-              type="button"
-              onClick={() => { if (!modal.open('Connect')) connectInjected.connect(); }}
-              disabled={connectInjected.isPending || isConnecting}
-            >
-              {connectInjected.isPending || isConnecting ? 'REQUESTING…' : 'CONNECT WALLET →'}
-            </button>
-          )}
-        </div>
-      )}
-      {state.error ? <p className="agent-error" role="alert">{state.error}</p> : null}
-    </div>
-  );
-}
-
-function Agent() {
-  const [record, setRecord] = useState(null);
-  const [form, setForm] = useState({
-    recipient: '0x1111111111111111111111111111111111111111',
-    requestedAmount: '1.00',
-    engagementVelocity: '94',
-    holderRetention: '92',
-    liquidityDepth: '90',
-    fraudRisk: '8',
-    confidence: '96',
-    reference: 'MEME-CREATOR-PAYOUT',
-  });
-  const [requestState, setRequestState] = useState({ status: 'idle', error: null, replayed: false });
-  const [executionReview, setExecutionReview] = useState({ open: false, authorization: null });
-  const lastAttempt = useRef(null);
-  const session = useOperatorSession();
-  const health = useQuery({
-    queryKey: ['api-health'],
-    queryFn: getApiHealth,
-    retry: 1,
-    staleTime: 15_000,
-  });
-  const circleReady = health.data?.circle?.ready === true;
-  const approved = record?.policy?.approved === true;
-  const trace = [
-    ['01', 'INGEST + WEIGHT SIGNALS', record?.agentDecision ? `SCORE ${record.agentDecision.confidenceAdjustedScore}` : 'PENDING'],
-    ['02', 'CHECK SERVER POLICY', record ? (approved ? 'PASS / CAP OK' : 'DENIED') : 'PENDING'],
-    ['03', 'CALCULATE CREATOR SHARE', record ? `${record.amount.creatorPayoutUsdc} USDC` : 'PENDING'],
-    ['04', 'PERSIST MEMO REFERENCE', record ? 'MEMO ID READY' : 'PENDING'],
-    ['05', 'CIRCLE MEMO EXECUTION', record?.circle?.state ?? (record?.executionPlan ? 'AWAITING HUMAN APPROVAL' : record ? 'NOT PREPARED' : 'PENDING')],
-    ['06', 'VERIFY ARC EVENTS', record?.reconciliation?.status ?? (record?.transactionHash ? 'INDEXING' : 'PENDING')],
-  ];
-
-  function updateForm(event) {
-    setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
-  }
-
-  function reportError(error, fallbackCode) {
-    setRequestState({
-      status: 'error',
-      error: error.status === 401
-        ? 'OPERATOR_AUTH_REQUIRED: The operator session expired. Sign in again.'
-        : `${error.code ?? fallbackCode}: ${error.message}${error.requestId ? ` // ${error.requestId}` : ''}`,
-      replayed: false,
-    });
-    if (error.status === 401) session.query.refetch();
-  }
-
-  async function runPolicy(event) {
-    event.preventDefault();
-    const requestFingerprint = JSON.stringify(form);
-    if (lastAttempt.current?.fingerprint !== requestFingerprint) {
-      lastAttempt.current = { fingerprint: requestFingerprint, key: createIdempotencyKey() };
-    }
-    // Signal values only. The backend stamps provenance and the observation timestamp itself.
-    const input = {
-      recipient: form.recipient,
-      requestedAmount: form.requestedAmount,
-      reference: form.reference,
-      signals: {
-        engagementVelocity: Number(form.engagementVelocity),
-        holderRetention: Number(form.holderRetention),
-        liquidityDepth: Number(form.liquidityDepth),
-        fraudRisk: Number(form.fraudRisk),
-        confidence: Number(form.confidence),
-        sourceReference: form.reference,
-      },
-    };
-    setRequestState({ status: 'loading', error: null, replayed: false });
-    setExecutionReview({ open: false, authorization: null });
-    setRecord(null);
-    try {
-      const quote = await createAgentDecision(input, lastAttempt.current.key);
-      setRecord(quote.data);
-      setRequestState({
-        status: quote.data.policy.approved ? 'success' : 'denied',
-        error: null,
-        replayed: quote.meta.replayed,
-      });
-    } catch (error) {
-      reportError(error, 'REQUEST_FAILED');
-    }
-  }
-
-  async function reviewExecution() {
-    setRequestState({ status: 'loading', error: null, replayed: false });
-    try {
-      const authorization = (await authorizeSettlementExecution(record.id)).data;
-      setExecutionReview({ open: true, authorization });
-      setRequestState({ status: 'idle', error: null, replayed: false });
-    } catch (error) {
-      reportError(error, 'EXECUTION_AUTHORIZATION_FAILED');
-    }
-  }
-
-  async function executeWithCircle() {
-    if (!executionReview.authorization) return;
-    setRequestState({ status: 'loading', error: null, replayed: false });
-    try {
-      const response = await executeSettlement(
-        record.id,
-        executionReview.authorization.authorizationId,
-      );
-      setRecord(response.data);
-      setExecutionReview({ open: false, authorization: null });
-      setRequestState({ status: 'submitted', error: null, replayed: false });
-    } catch (error) {
-      // The authorization is single use, so a failure always returns to a fresh review.
-      setExecutionReview({ open: false, authorization: null });
-      reportError(error, 'CIRCLE_EXECUTION_FAILED');
-    }
-  }
-
-  async function reconcileWithCircle() {
-    setRequestState({ status: 'loading', error: null, replayed: false });
-    try {
-      const response = await reconcileSettlement(record.id);
-      setRecord(response.data);
-      setRequestState({ status: 'submitted', error: null, replayed: false });
-    } catch (error) {
-      reportError(error, 'CIRCLE_RECONCILIATION_FAILED');
-    }
-  }
-
-  return (
-    <section className="page agent-page">
-      <Title n="04 REWARD" t="AUTONOMOUS AGENT" />
-      {ARC_IS_MAINNET ? (
-        <p className="lede">Autonomous rewards are not live on Arc mainnet. Creator and treasury fees settle inside each trade.</p>
-      ) : null}
-      {/*
-        The autonomous system comes first: it is the real agent, and it pays creators with no
-        human in the execution path. The operator-driven flow below it is the separate, manual
-        Developer-Controlled Wallet route and is deliberately presented as such.
-      */}
-      <Suspense fallback={<LazySection />}>
-        <AgentCommandCenter />
-      </Suspense>
-
-      {/*
-        Collapsed by default, and that is a truthfulness decision rather than a cosmetic one. The
-        surface above states that no human approves an autonomous payout; presenting a human
-        approval form immediately beneath it, at the same visual weight, invites the reader to
-        conclude the two are the same flow. They share no wallet, no settlement contract, and no
-        allowance. The route is fully preserved — every control below is unchanged — but it opens
-        only when somebody deliberately asks for it.
-      */}
-      <details className="manual-route">
-        <summary>
-          <span>ADVANCED / SUPPORTING MANUAL ROUTE</span>
-          <small>
-            Separate human-authorized settlement path — not used by autonomous creator rewards.
-          </small>
-        </summary>
-      <Title n="MANUAL" t="OPERATOR SETTLEMENT ROUTE" />
-      <p className="lede">
-        A separate, human-authorized route. The backend weights engagement, retention, liquidity,
-        fraud-risk, and confidence signals against live Arc and Circle treasury evidence. Signal
-        provenance and evidence timing are assigned by the server, never by the browser. On this
-        route the agent may quote and prepare only; every Arc Memo execution requires an
-        authenticated operator and a one-time approval bound to that exact settlement.
-      </p>
-      <OperatorSessionPanel session={session} />
-      <div className="agent-grid">
-        <form className="agent-rules" onSubmit={runPolicy}>
-          <div className="form-section-label"><span>01</span> SETTLEMENT REQUEST</div>
-          <div className="agent-fields identity-fields">
-            <label className="wide">RECIPIENT<input name="recipient" value={form.recipient} onChange={updateForm} spellCheck="false" disabled={!session.authenticated} required /></label>
-            <label>REQUESTED SPEND<input name="requestedAmount" type="number" inputMode="decimal" min="0.01" max="25" step="0.01" value={form.requestedAmount} onChange={updateForm} disabled={!session.authenticated} required /><small>{network.money}</small></label>
-            <label>REFERENCE<input name="reference" value={form.reference} onChange={updateForm} minLength="3" maxLength="120" spellCheck="false" disabled={!session.authenticated} required /></label>
-          </div>
-          <div className="form-section-label"><span>02</span> OPERATOR SIGNAL INPUT / 0—100</div>
-          <div className="agent-fields signal-fields">
-            <label>ENGAGEMENT<input name="engagementVelocity" type="number" min="0" max="100" value={form.engagementVelocity} onChange={updateForm} disabled={!session.authenticated} required /><small>45% WT.</small></label>
-            <label>RETENTION<input name="holderRetention" type="number" min="0" max="100" value={form.holderRetention} onChange={updateForm} disabled={!session.authenticated} required /><small>25% WT.</small></label>
-            <label>LIQUIDITY<input name="liquidityDepth" type="number" min="0" max="100" value={form.liquidityDepth} onChange={updateForm} disabled={!session.authenticated} required /><small>30% WT.</small></label>
-            <label>FRAUD RISK<input name="fraudRisk" type="number" min="0" max="100" value={form.fraudRisk} onChange={updateForm} disabled={!session.authenticated} required /><small>MAX 20</small></label>
-            <label>CONFIDENCE<input name="confidence" type="number" min="0" max="100" value={form.confidence} onChange={updateForm} disabled={!session.authenticated} required /><small>MIN 80</small></label>
-          </div>
-          <div className="policy-caps" aria-label="Enforced policy limits">
-            <span>MAX <b>25 USDC</b></span><span>SCORE <b>78+</b></span><span>SHARE <b>60%</b></span>
-            <span>DAILY <b>30 USDC</b></span><span>AUTH <b>OPERATOR</b></span><span>MODE <b>MANUAL</b></span>
-          </div>
-          <button className="btn primary full" type="submit" disabled={!session.authenticated || requestState.status === 'loading'}>
-            {!session.authenticated
-              ? 'OPERATOR SESSION REQUIRED'
-              : requestState.status === 'loading' ? 'ENFORCING POLICY…' : 'REQUEST SETTLEMENT QUOTE →'}
-          </button>
-          {requestState.error ? <p className="agent-error" role="alert">{requestState.error}</p> : null}
-        </form>
-        <div className="agent-log" aria-live="polite">
-          <span>BACKEND EXECUTION TRACE</span>
-          {trace.map((item) => (
-            <div className={record ? (approved ? 'done' : 'denied') : ''} key={item[0]}>
-              <b>{item[0]}</b>
-              <span>{item[1]}</span>
-              <strong>{item[2]}</strong>
-            </div>
-          ))}
-          <div className="agent-status">
-            {record
-              ? `${record.state} // ${record.reference}${requestState.replayed ? ' // IDEMPOTENT REPLAY' : ''}`
-              : session.authenticated ? 'OPERATOR AUTHENTICATED // AWAITING SIGNAL INPUT' : 'PUBLIC VIEW // PRIVILEGED CONTROLS LOCKED'}
-          </div>
-        </div>
-      </div>
-      {record ? (
-        <div className={`settlement-receipt ${approved ? '' : 'denied'}`} role="status" aria-live="polite">
-          <b>{approved ? 'PERSISTED SETTLEMENT PLAN' : 'POLICY DENIED'}</b>
-          <span>ID // {record.id}</span>
-          <span>STATE // {record.state}</span>
-          <span>CREATOR // {record.amount.creatorPayoutUsdc} USDC</span>
-          <span>TREASURY // {record.amount.treasuryRetainedUsdc} USDC</span>
-          <span>MEMO // {record.memoId}</span>
-          {record.agentDecision ? <span>AGENT SCORE // RAW {record.agentDecision.weightedScore} / ADJUSTED {record.agentDecision.confidenceAdjustedScore}</span> : null}
-          {record.agentDecision ? <span>EVIDENCE // {record.agentDecision.signals.provenance} / {record.agentDecision.evidence.suppliedBy}</span> : null}
-          {record.agentDecision ? <span>AUTONOMY // QUOTE + PREPARE ONLY / HUMAN-APPROVED EXECUTION</span> : null}
-          {record.reservation ? <span>RESERVATION // {Number(record.reservation.units) / 1e6} USDC / {record.reservation.status}</span> : null}
-          {record.executionPlan?.targetContract ? <span>SETTLEMENT CONTRACT // {record.executionPlan.targetContract}</span> : null}
-          {record.executionAuthorization ? <span>AUTHORIZED BY // {record.executionAuthorization.mode} / {shortAddress(record.executionAuthorization.operatorAddress)}</span> : null}
-          {record.expiresAt ? <span>QUOTE EXPIRY // {record.expiresAt}</span> : null}
-          {record.policy.reasons.map((reason) => <span key={reason.code}>{reason.code} // {reason.message}</span>)}
-          <span>BROADCAST // {String(record.broadcast).toUpperCase()}</span>
-          {record.circle ? <span>CIRCLE TX // {record.circle.transactionId} / {record.circle.state}</span> : null}
-          {record.reconciliation ? <span>ARC INDEX // {record.reconciliation.status}{record.reconciliation.blockNumber ? ` / BLOCK ${record.reconciliation.blockNumber}` : ''}</span> : null}
-          {record.transactionHash ? (
-            <ExternalLink href={`${arcLinks.explorer}/tx/${record.transactionHash}`}>VERIFY ON ARCSCAN ↗</ExternalLink>
-          ) : null}
-          {approved && record.state === 'AWAITING_SIGNATURE' && session.authenticated ? (
-            executionReview.open ? (
-              <div className="execution-review">
-                <strong>HUMAN EXECUTION GATE // SERVER-BOUND APPROVAL</strong>
-                <p>The server issued a single-use approval bound to the exact payload below. It expires shortly, cannot be reused, and cannot execute any other settlement.</p>
-                <dl>
-                  <dt>SETTLEMENT</dt><dd>{executionReview.authorization.binding.settlementId}</dd>
-                  <dt>RECIPIENT</dt><dd>{executionReview.authorization.binding.recipient}</dd>
-                  <dt>CREATOR PAYOUT</dt><dd>{Number(executionReview.authorization.binding.creatorPayoutUnits) / 1e6} USDC</dd>
-                  <dt>CHAIN</dt><dd>{executionReview.authorization.binding.chainId}</dd>
-                  <dt>CONTRACT</dt><dd>{executionReview.authorization.binding.settlementContract}</dd>
-                  <dt>MEMO ID</dt><dd>{executionReview.authorization.binding.memoId}</dd>
-                  <dt>APPROVAL EXPIRES</dt><dd>{new Date(executionReview.authorization.expiresAt).toLocaleTimeString()}</dd>
-                </dl>
-                <div>
-                  <button className="btn" type="button" onClick={() => setExecutionReview({ open: false, authorization: null })}>CANCEL</button>
-                  <button className="btn circle-action" type="button" disabled={requestState.status === 'loading'} onClick={executeWithCircle}>APPROVE + EXECUTE VIA CIRCLE →</button>
-                </div>
-              </div>
-            ) : (
-              <button
-                className="btn circle-action"
-                type="button"
-                disabled={!circleReady || requestState.status === 'loading'}
-                onClick={reviewExecution}
-              >
-                {circleReady ? 'REVIEW HUMAN EXECUTION →' : 'CIRCLE + SETTLEMENT CONTRACT REQUIRED'}
-              </button>
-            )
-          ) : null}
-          {record.circle && session.authenticated && !['COMPLETE', 'FAILED', 'DENIED', 'CANCELLED'].includes(record.state) ? (
-            <button
-              className="btn circle-action"
-              type="button"
-              disabled={requestState.status === 'loading'}
-              onClick={reconcileWithCircle}
-            >
-              RECONCILE CIRCLE + ARC EVENTS ↻
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      <div className="stack-strip">
-        <span>BUILT ON ARC</span>
-        <span>USDC GAS</span>
-        <span>ARC MEMO LIVE</span>
-        <span>WALLET-SIGNED OPERATOR SESSION</span>
-        <span>SERVER-STAMPED PROVENANCE</span>
-        <span>SETTLEMENT-BOUND APPROVAL</span>
-        <span>VERIFIED SETTLEMENT CONTRACT</span>
-        <span>POSTGRES TREASURY RESERVATIONS</span>
-        <span>VERSIONED STATE WRITES</span>
-        <span>NO BLIND RETRIES</span>
-        <span>CIRCLE DEV-CONTROLLED EOA</span>
-        <span>SEPARATE LEASED WORKER</span>
-      </div>
-      </details>
-    </section>
-  );
-}
-
-function Safety() {
-  return (
-    <section className="page safety-page">
-      <Title n="05 PROVE" t="PROOF CENTER" />
-      <p className="lede">
-        Everything MemeVerse claims resolves to something you can open on ArcScan and check without
-        trusting this page. What is live, what is deployed, who executes, and what is not ready.
-      </p>
-      <div className="risk-banner">
-        <strong>{ARC_IS_MAINNET ? 'REAL USDC' : 'TESTNET ONLY'}</strong>
-        <span>{ARC_IS_MAINNET
-          ? 'Arc mainnet. Gas and markets use real USDC. Autonomous rewards are not live. Creator and treasury fees settle inside the trade. No MemeVerse screen should ever ask for a seed phrase or private key — treat unsolicited support DMs as scams.'
-          : 'Arc Public Testnet. Test assets have no real-world value. No MemeVerse screen should ever ask for a seed phrase or private key — treat unsolicited support DMs as scams.'}</span>
-      </div>
-      <Suspense fallback={<LazySection />}><ProofCenter /></Suspense>
-      <div className="safety-grid">
-        <section>
-          <h3>TRANSACTION LIFECYCLE</h3>
-          <div className="state-pipeline">
-            {transactionPhases.map((phase, index) => (
-              <span key={phase}><b>0{index + 1}</b>{phase}</span>
-            ))}
-          </div>
-          <p>Every surface persists the reference, the latest hash, and the failure class. Nothing is ever rebroadcast blindly after an unknown or post-broadcast failure, and no screen shows success before its Arc receipt confirms.</p>
-        </section>
-        <section>
-          <h3>POST-QUANTUM STATUS</h3>
-          <p>Arc documents post-quantum security as a roadmap item, not a currently available Testnet feature. MemeVerse therefore makes no quantum-security claim today.</p>
-          <ExternalLink href={arcLinks.security}>READ THE OFFICIAL ROADMAP ↗</ExternalLink>
-        </section>
-      </div>
     </section>
   );
 }

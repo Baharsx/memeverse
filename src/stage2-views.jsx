@@ -30,8 +30,7 @@ import {
 } from './media-views.jsx';
 
 /**
- * The Stage 2 product surfaces: real Arc media NFTs, a real USDC marketplace, a real USDC vault,
- * and the autonomous agent's evidence trail.
+ * NFT, the marketplace, and the USDC vault.
  *
  * Every value rendered here comes from a deployed contract or the backend's sanitized status
  * endpoint. Where something is unavailable — no wallet, wrong network, unconfigured contract,
@@ -109,10 +108,10 @@ function guard({ isConnected, wrongNetwork }, contract, contractName) {
     );
   }
   if (!isConnected) {
-    return <Unavailable title="WALLET DISCONNECTED" detail="Connect an Arc Testnet wallet to continue." />;
+    return <Unavailable title="WALLET DISCONNECTED" detail="Connect a wallet on Arc to continue." />;
   }
   if (wrongNetwork) {
-    return <Unavailable title="WRONG NETWORK" detail={`Switch to Arc Public Testnet (chain ${arc.id}).`} />;
+    return <Unavailable title="WRONG NETWORK" detail={`Switch to Arc (chain ${arc.id}).`} />;
   }
   return null;
 }
@@ -592,10 +591,9 @@ export function MediaAssets() {
   return (
     <section className="page marketplace-page">
       <div className="stage2-header">
-        <h1><sup>03 OWN</sup> CREATOR MARKETPLACE</h1>
+        <h1><sup>03</sup> NFT</h1>
         <p className="surface-lede">
-          Media bound onchain to a real market, then bought and sold in USDC. Filter listed pieces,
-          jump to yours, and complete a fill in two signatures — approve, then buy.
+          Pieces tied to a market, bought and sold in USDC.
         </p>
         <div className="stage2-meta">
           <span>NFT <ArcScanLink value={stage2Contracts.mediaNft} /></span>
@@ -608,7 +606,7 @@ export function MediaAssets() {
         <div className="marketplace-tabs" role="tablist" aria-label="Marketplace filters">
           <button type="button" className={tab === 'all' ? 'active' : ''} onClick={() => setTab('all')}>ALL</button>
           <button type="button" className={tab === 'listed' ? 'active' : ''} onClick={() => setTab('listed')}>FOR SALE{listedCount ? ` · ${listedCount}` : ''}</button>
-          <button type="button" className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>YOUR MEDIA</button>
+          <button type="button" className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>YOUR NFTS</button>
         </div>
         <label>
           SEARCH
@@ -625,8 +623,8 @@ export function MediaAssets() {
 
       {!stage2Contracts.mediaNft ? (
         <Unavailable
-          title="MEDIA NFT NOT CONFIGURED"
-          detail="No collection address is configured for this deployment."
+          title="NFT NOT ON THIS NETWORK"
+          detail="This deployment has no NFT collection."
         />
       ) : null}
 

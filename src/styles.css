@@ -150,6 +150,26 @@ nav a:hover sup,nav a.active sup{color:var(--bg)}
 .surface-lede{margin:12px 0 0;max-width:760px;color:var(--mute);font:12px/1.7 var(--mono)}
 .surface-lede code{color:var(--acid)}
 
+/* Home carousel */
+.home-stage{border-bottom:1px solid var(--line)}
+.home-bar{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:48px 28px 8px}
+.home-bar h1{margin:0;font:600 clamp(40px,6vw,72px) var(--display);letter-spacing:-.04em;line-height:.95}
+.carousel{position:relative;padding:18px 0 32px}
+.carousel-controls{display:flex;justify-content:flex-end;gap:8px;padding:0 28px 12px}
+.carousel-controls button{width:44px;height:44px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);cursor:pointer}
+.carousel-controls button:hover{background:var(--acid);color:var(--bg)}
+.carousel-track{display:flex;gap:16px;overflow-x:auto;scroll-snap-type:x mandatory;padding:0 28px 8px;scrollbar-width:thin}
+.carousel-card{flex:0 0 min(280px,78vw);scroll-snap-align:start;display:flex;flex-direction:column;min-height:360px;border:1px solid var(--line);background:var(--bg-2);color:inherit}
+.carousel-card img,.carousel-fallback{width:100%;aspect-ratio:1;object-fit:cover;background:#000;display:grid;place-items:center}
+.carousel-fallback .pixel-mark{width:120px;height:120px}
+.carousel-card div{display:flex;flex-direction:column;gap:6px;padding:16px}
+.carousel-card small{font:10px var(--mono);letter-spacing:.12em;color:var(--acid)}
+.carousel-card strong{font:600 22px var(--display);line-height:1.1}
+.carousel-card em{font:12px var(--mono);font-style:normal;color:var(--mute)}
+.carousel-card b{font:12px var(--mono);font-weight:700}
+.carousel-card:hover{border-color:var(--acid)}
+@media(max-width:800px){.home-bar{flex-direction:column;align-items:stretch;padding:36px 20px 4px}.carousel-controls,.carousel-track{padding-left:20px;padding-right:20px}}
+
 /* Home: the economy in five steps */
 .economy-flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-bottom:1px solid var(--line)}
 .economy-step{position:relative;display:flex;flex-direction:column;min-height:230px;padding:26px 22px;border-right:1px solid var(--line);background:var(--bg-2);transition:100ms}

@@ -156,9 +156,10 @@ test('no simulated NFT or vault data remains in the browser bundle sources', asy
   // The real views are routed.
   assert.ok(main.includes('MediaAssets'), '/nft must render the real media view');
   assert.ok(main.includes('UsdcVault'), '/vault must render the real vault view');
-  assert.ok(
+  assert.equal(
     main.includes('AgentCommandCenter'),
-    '/agent must render the Stage 3 command center over real backend state',
+    false,
+    'the agent command center is not part of the site',
   );
 });
 

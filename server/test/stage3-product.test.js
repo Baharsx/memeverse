@@ -183,37 +183,22 @@ test('the agent explains what it does before it explains what it is not', async 
   }
 });
 
-test('the manual settlement route is preserved but secondary and collapsed by default', async () => {
+test('agent payment and the Circle route are not part of the site', async () => {
   const main = await readFile('src/main.jsx', 'utf8');
-
-  // The autonomous surface says no human approves a payout. A human approval form at equal visual
-  // weight directly beneath it reads as the same flow, which is the confusion being removed.
-  assert.ok(main.includes('<details className="manual-route">'), 'it must be collapsible');
-  assert.equal(
-    /<details className="manual-route"[^>]*\bopen\b/.test(main),
-    false,
-    'it must be closed by default',
-  );
-  assert.ok(main.includes('ADVANCED / SUPPORTING MANUAL ROUTE'), 'and labelled as supporting');
-  assert.ok(
-    main.includes('not used by autonomous creator rewards'),
-    'the summary must say the two routes are separate',
-  );
-
-  // Preserved, not deleted: every manual control still exists inside it.
-  for (const preserved of [
-    'OPERATOR SETTLEMENT ROUTE', 'OperatorSessionPanel', 'REVIEW HUMAN EXECUTION',
-    'SETTLEMENT REQUEST', 'runPolicy', 'executeWithCircle',
+  for (const gone of [
+    '<details className="manual-route">',
+    'AgentCommandCenter',
+    'ProofCenter',
+    'CreatorEconomy',
+    'OPERATOR SETTLEMENT ROUTE',
+    'executeWithCircle',
+    'path="/agent"',
+    'path="/quote"',
+    'path="/safety"',
+    'CIRCLE AGENT WALLET',
   ]) {
-    assert.ok(main.includes(preserved), `the manual route must keep ${preserved}`);
+    assert.equal(main.includes(gone), false, `${gone} must be gone from the site`);
   }
-
-  // The autonomous surface is outside the <details> and therefore visible by default.
-  const detailsAt = main.indexOf('<details className="manual-route">');
-  assert.ok(
-    main.indexOf('<AgentCommandCenter />') < detailsAt,
-    'the Agent Command Center must render before, and outside, the collapsed route',
-  );
 });
 
 test('the recorded epoch timestamp is not overstated as every evaluation', async () => {
@@ -259,12 +244,11 @@ test('the document metadata describes the shipped product, not the Stage 1 one',
   }
 
   assert.ok(html.includes('A meme becomes an economy on Arc'), 'the title tells the real story');
-  for (const required of ['Arc Testnet', 'USDC', 'Circle Agent Wallet', 'provenance']) {
-    assert.ok(html.includes(required), `metadata must mention ${required}`);
-  }
+  assert.ok(html.includes('USDC'), 'metadata must mention USDC');
+  assert.equal(html.includes('Circle'), false, 'metadata must not mention Circle');
+  assert.equal(/agent wallet/i.test(html), false, 'metadata must not mention an agent wallet');
 
-  // And it must not promise anything the repository cannot prove.
-  for (const overclaim of ['mainnet', 'audited', 'guaranteed', 'AI-powered', 'LLM']) {
+  for (const overclaim of ['audited', 'guaranteed', 'AI-powered', 'LLM']) {
     assert.equal(
       html.toLowerCase().includes(overclaim.toLowerCase()),
       false,
@@ -600,12 +584,12 @@ test('form controls do not take the outward action outline that overlapped their
   assert.ok(css.includes('select:focus-visible'), 'selects have a focus treatment too');
 });
 
-test('mobile navigation keeps all seven labels readable on one line', async () => {
+test('mobile navigation keeps every label readable on one line', async () => {
   const css = await readFile('src/styles.css', 'utf8');
   const main = await readFile('src/main.jsx', 'utf8');
 
   const navItems = [...main.matchAll(/\['(0\d)', '([A-Z]+)', '(\/[a-z]*)'\]/g)];
-  assert.equal(navItems.length, 7, 'there are seven primary navigation items');
+  assert.deepEqual(navItems.map((item) => item[2]), ['LAUNCH', 'MARKETS', 'NFT', 'VAULT']);
 
   assert.ok(
     /\.site-header nav a\{[^}]*white-space:nowrap/.test(css),
@@ -685,14 +669,16 @@ test('the preflight script performs no onchain write and no deployment', async (
 
 test('every route on the canonical demo path is routed and reachable from navigation', async () => {
   const main = await readFile('src/main.jsx', 'utf8');
-  for (const path of ['/', '/markets', '/launch', '/nft', '/vault', '/agent', '/quote', '/safety']) {
+  for (const path of ['/', '/markets', '/launch', '/nft', '/vault']) {
     assert.ok(
       main.includes(`path="${path}"`),
       `${path} must be a routed surface so a direct deep link renders it`,
     );
   }
-  // The five steps of the story are in the primary navigation, in order.
-  const navOrder = ['/launch', '/markets', '/nft', '/agent', '/safety'];
+  for (const removed of ['/agent', '/quote', '/safety', '/proof']) {
+    assert.equal(main.includes(`path="${removed}"`), false, `${removed} is no longer a surface`);
+  }
+  const navOrder = ['/launch', '/markets', '/nft', '/vault'];
   const positions = navOrder.map((path) => main.indexOf(`'${path}'`));
   assert.ok(positions.every((index) => index > 0), 'each demo step must appear in navigation');
   for (let index = 1; index < positions.length; index += 1) {
@@ -765,20 +751,15 @@ test('current-facing documentation points at the live deployment, not a local on
   assert.ok(html.includes('property="og:url" content="https://memeverse.biz/"'), 'og:url');
 });
 
-test('the homepage keeps the one guided journey a judge follows', async () => {
+test('the homepage is a carousel of tokens, NFTs, and the product', async () => {
   const main = await readFile('src/main.jsx', 'utf8');
 
-  assert.ok(main.includes('THE THREE-MINUTE TOUR'), 'the homepage tour must remain');
-  for (const step of [
-    'LAUNCH A MEME', 'TRADE THE CURVE', 'OWN THE MEDIA',
-    'AUTONOMOUS REWARDS', 'PROOF CENTER', 'TREASURY PRIMITIVE',
-  ]) {
-    assert.ok(main.includes(step), `the tour must still offer: ${step}`);
-  }
-  // And the five-step economy strip that frames the whole product.
-  for (const step of ['CREATE', 'TRADE', 'OWN', 'REWARD', 'PROVE']) {
-    assert.ok(main.includes(`'${step}'`), `the economy flow must still name ${step}`);
-  }
+  assert.ok(main.includes('aria-label="Tokens, NFTs, and the product"'), 'the homepage carousel must remain');
+  assert.ok(main.includes('>TOKEN<'), 'live markets appear as tokens');
+  assert.ok(main.includes('>NFT<'), 'NFTs have their own cards');
+  assert.ok(main.includes('to="/vault"'), 'the vault is one of the product cards');
+  assert.equal(main.includes('THE THREE-MINUTE TOUR'), false);
+  assert.equal(main.includes('AUTONOMOUS REWARDS'), false);
 });
 
 test('the Stage 3 surfaces state absence rather than inventing a value', async () => {
