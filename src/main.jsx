@@ -1066,6 +1066,8 @@ function MarketImageManager({ market, hasImage, onChanged }) {
 function Markets() {
   const { address, isConnected, onArc } = useArcNetwork();
   const [selectedAddress, setSelectedAddress] = useState(null);
+  const [tradeOpen, setTradeOpen] = useState(false);
+  const tradeDialogRef = useRef(null);
   const [side, setSide] = useState('BUY');
   const [buyAmount, setBuyAmount] = useState('0.01');
   const [sellAmount, setSellAmount] = useState('1');
@@ -1128,21 +1130,34 @@ function Markets() {
   });
   const imageFor = (market) => mediaContentUrl(marketImages.data?.[market?.address]?.url);
 
-  const selected = boardMarkets.find((market) => market.address === selectedAddress)
-    ?? boardMarkets[0]
-    ?? null;
+  const selected = boardMarkets.find((market) => market.address === selectedAddress) ?? null;
   /*
-    Keep the stored selection pointing at something this page can actually show. Selecting only
-    when nothing is selected would leave a stale address behind whenever the current market stops
-    being visible — the terminal would fall back to the first market while the list highlighted
-    none of them. Reconciling against the visible set covers the empty first render and that case
-    with one rule.
+    The board is only the cards. A market is selected when Buy or Sell opens the trade dialog,
+    and that selection is dropped if a filter removes the contract while the dialog is up.
   */
   useEffect(() => {
-    if (!boardMarkets.length) return;
+    if (!selectedAddress) return;
     const stillVisible = boardMarkets.some((market) => market.address === selectedAddress);
-    if (!stillVisible) setSelectedAddress(boardMarkets[0].address);
+    if (!stillVisible) {
+      setSelectedAddress(null);
+      setTradeOpen(false);
+    }
   }, [visibleAddresses, selectedAddress]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!tradeOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    tradeDialogRef.current?.focus();
+    function onKey(event) {
+      if (event.key === 'Escape') setTradeOpen(false);
+    }
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [tradeOpen]);
 
   let buyUnits = 0n;
   let sellUnits = 0n;
@@ -1154,14 +1169,14 @@ function Markets() {
   const buyQuote = useQuery({
     queryKey: ['market-buy-quote', selected?.address, buyUnits.toString()],
     queryFn: () => quoteBuy(selected.address, buyUnits),
-    enabled: Boolean(selected && buyUnits > 0n),
+    enabled: Boolean(tradeOpen && selected && buyUnits > 0n),
     retry: 1,
     refetchInterval: 8_000,
   });
   const sellQuote = useQuery({
     queryKey: ['market-sell-quote', selected?.address, sellUnits.toString()],
     queryFn: () => quoteSell(selected.address, sellUnits),
-    enabled: Boolean(selected && sellUnits > 0n),
+    enabled: Boolean(tradeOpen && selected && sellUnits > 0n),
     retry: 1,
     refetchInterval: 8_000,
   });
@@ -1170,6 +1185,12 @@ function Markets() {
   const sell = useOnchainAction();
   const allowanceRequired = Boolean(selected && buyUnits > selected.usdcAllowance);
   const availability = marketAvailability(selected);
+
+  function openTrade(address, nextSide) {
+    setSelectedAddress(address);
+    setSide(nextSide);
+    setTradeOpen(true);
+  }
 
   async function refreshMarketState() {
     await Promise.all([
@@ -1202,7 +1223,7 @@ function Markets() {
         return;
       }
       setImportedAddresses(persistImportedMarketAddress(probed.market.address));
-      setSelectedAddress(probed.market.address);
+      openTrade(probed.market.address, 'BUY');
       setImportValue('');
       setImportState({
         status: 'OK',
@@ -1320,10 +1341,10 @@ function Markets() {
         <div className="market-board" role="list" aria-label="Onchain markets">
           {boardMarkets.map((market) => {
             const sold = marketSoldPercent(market);
-            const active = selected?.address === market.address;
+            const active = tradeOpen && selected?.address === market.address;
             return (
               <article key={market.address} className={`market-card ${active ? 'active' : ''}`} role="listitem">
-                <button type="button" className="market-card-hit" onClick={() => setSelectedAddress(market.address)}>
+                <div className="market-card-hit">
                   <div className="market-card-art">
                     <MarketImage src={imageFor(market)} alt={`${market.symbol} artwork`} size="md" />
                     <span className={`origin-chip ${market.origin === 'IMPORTED' ? 'imported' : ''}`}>
@@ -1337,94 +1358,98 @@ function Markets() {
                     <span className="sold-meter" aria-hidden="true"><i style={{ width: `${sold}%` }} /></span>
                     <em>{market.soldTokenCount.toLocaleString()} / {market.totalSupplyTokens.toLocaleString()} sold · {formatUsdc(market.reserveUsdc)} USDC reserve</em>
                   </div>
-                </button>
+                </div>
                 <div className="market-card-actions">
-                  <button type="button" className="btn primary" onClick={() => { setSelectedAddress(market.address); setSide('BUY'); }}>BUY</button>
-                  <button type="button" className="btn" onClick={() => { setSelectedAddress(market.address); setSide('SELL'); }}>SELL</button>
+                  <button type="button" className="btn primary" onClick={() => openTrade(market.address, 'BUY')}>BUY</button>
+                  <button type="button" className="btn" onClick={() => openTrade(market.address, 'SELL')}>SELL</button>
                 </div>
               </article>
             );
           })}
         </div>
       ) : null}
-      {selected ? <div className="market-layout market-trade-dock">
-        <div className="market-list" role="group" aria-label="Selected market">
-          {visibleMarkets.map((market) => (
-            market.address === selected.address ? (
-              <button key={market.address} type="button" className="active" onClick={() => setSelectedAddress(market.address)}>
-                <MarketImage src={imageFor(market)} alt={`${market.symbol} artwork`} size="sm" />
-                <span className="market-list-facts">
-                  <span>{market.symbol}</span><strong>{market.name}</strong><small>{marketSpotPerTokenLabel(market, formatUsdc)}</small><em>{market.soldTokenCount.toLocaleString()} / {market.totalSupplyTokens.toLocaleString()} SOLD</em>
-                </span>
-              </button>
-            ) : null
-          ))}
+      {tradeOpen && selected ? (
+        <div className="trade-modal" onMouseDown={(event) => { if (event.target === event.currentTarget) setTradeOpen(false); }}>
+          <div
+            className="trade-modal-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="trade-modal-title"
+            tabIndex={-1}
+            ref={tradeDialogRef}
+          >
+            <button type="button" className="trade-modal-close" onClick={() => setTradeOpen(false)}>CLOSE</button>
+            <div className="market-terminal">
+              <section className="market-proof">
+                <div className="market-identity">
+                  <MarketImage src={imageFor(selected)} alt={`${selected.symbol} artwork`} size="md" />
+                  <div>
+                    <small>MARKET</small>
+                    <strong id="trade-modal-title">{selected.name} / ${selected.symbol}</strong>
+                    <ExternalLink href={`${arcLinks.explorer}/address/${selected.address}`}>{shortAddress(selected.address)} ↗</ExternalLink>
+                  </div>
+                </div>
+                <dl>
+                  <dt>SPOT QUOTE</dt><dd>{marketSpotLabel(selected, formatUsdc)}</dd>
+                  <dt>CURVE RESERVE</dt><dd>{formatUsdc(selected.reserveUsdc)} USDC</dd>
+                  <dt>SUPPLY SOLD</dt><dd>{selected.soldTokenCount.toLocaleString()} / {selected.totalSupplyTokens.toLocaleString()}</dd>
+                  <dt>CREATOR</dt><dd>{shortAddress(selected.creator)}</dd>
+                  <dt>CREATOR FEES PAID</dt><dd>{formatUsdc(selected.creatorFeesPaidUsdc)} USDC</dd>
+                  <dt>TREASURY FEES PAID</dt><dd>{formatUsdc(selected.treasuryFeesPaidUsdc)} USDC</dd>
+                  <dt>YOUR POSITION</dt><dd>{formatTokenAmount(selected.userBalance)} {selected.symbol}</dd>
+                </dl>
+                {selected.description ? <p>{selected.description}</p> : null}
+              </section>
+              <section className="market-order">
+                <div className="tabs"><button type="button" className={side === 'BUY' ? 'active' : ''} onClick={() => setSide('BUY')}>BUY</button><button type="button" className={side === 'SELL' ? 'active sell' : ''} onClick={() => setSide('SELL')}>SELL</button></div>
+                {side === 'BUY' && availability.soldOut ? (
+                  <div className="trade-review sold-out" role="status">
+                    <span>BUY AVAILABILITY <b>SOLD OUT</b></span>
+                    <span>SUPPLY <b>{selected.soldTokenCount.toLocaleString()} / {selected.totalSupplyTokens.toLocaleString()} SOLD</b></span>
+                    <span>CURVE RESERVE <b>{formatUsdc(selected.reserveUsdc)} USDC</b></span>
+                    <span>The complete fixed supply is circulating, so this market has no next token to price. Selling back to the curve reserve remains available.</span>
+                  </div>
+                ) : side === 'BUY' ? <form onSubmit={buyTokens}>
+                  <label>MAXIMUM USDC INPUT<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="number" inputMode="decimal" min="0.000001" step="0.000001" required /><small>USDC</small></label>
+                  <div className="trade-review">
+                    <span>WALLET BALANCE <b>{onArc && usdcBalance.data !== undefined ? `${formatUsdc(usdcBalance.data)} USDC` : 'CONNECT ON ARC'}</b></span>
+                    <span>MAX INPUT <b>{buyAmount || '0'} USDC</b></span>
+                    <span>ACTUAL ESTIMATED SPEND <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[4])} USDC` : '—'}</b></span>
+                    <span>ESTIMATED OUT <b>{buyQuote.data ? `${formatTokenAmount(buyQuote.data[0], 0)} ${selected.symbol}` : '—'}</b></span>
+                    <span>CURVE COST <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[1])} USDC` : '—'}</b></span>
+                    <span>CREATOR ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[2])} USDC` : '—'}</b></span>
+                    <span>TREASURY ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[3])} USDC` : '—'}</b></span>
+                    <span>MINIMUM OUT / SLIPPAGE <b>{buyQuote.data ? `${formatTokenAmount(minimumAfterSlippage(buyQuote.data[0], slippageBps), 2)} / 1%` : '—'}</b></span>
+                  </div>
+                  {buyInputError ? <p className="agent-error">{buyInputError}</p> : null}
+                  {allowanceRequired ? <button className="btn secondary full" type="button" disabled={!onArc || approval.state.status === 'WALLET_SIGNATURE' || approval.state.status === 'SUBMITTED'} onClick={approveUsdc}>APPROVE MAX {buyAmount || '0'} USDC →</button> : null}
+                  <button className="btn primary full" disabled={!onArc || !buyQuote.data || buyQuote.data[0] === 0n || allowanceRequired || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(buy.state.status)}>SIGN BUY ON ARC →</button>
+                  <TransactionStatus state={approval.state} />
+                  <TransactionStatus state={buy.state} />
+                </form> : <form onSubmit={sellTokens}>
+                  <label>TOKEN AMOUNT<input value={sellAmount} onChange={(event) => setSellAmount(event.target.value)} type="number" inputMode="numeric" min="1" step="1" required /><small>{selected.symbol}</small></label>
+                  <div className="trade-review">
+                    <span>YOUR POSITION <b>{formatTokenAmount(selected.userBalance)} {selected.symbol}</b></span>
+                    <span>GROSS CURVE RETURN <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[1])} USDC` : '—'}</b></span>
+                    <span>CREATOR ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[2])} USDC` : '—'}</b></span>
+                    <span>TREASURY ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[3])} USDC` : '—'}</b></span>
+                    <span>ESTIMATED USDC OUT <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[0])} USDC` : '—'}</b></span>
+                    <span>MINIMUM OUT / SLIPPAGE <b>{sellQuote.data ? `${formatUsdc(minimumAfterSlippage(sellQuote.data[0], slippageBps))} / 1%` : '—'}</b></span>
+                  </div>
+                  {sellInputError ? <p className="agent-error">{sellInputError}</p> : null}
+                  <button className="btn primary full" disabled={!onArc || !sellQuote.data || sellQuote.data[0] === 0n || sellUnits > selected.userBalance || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(sell.state.status)}>SIGN SELL ON ARC →</button>
+                  <TransactionStatus state={sell.state} />
+                </form>}
+                <MarketImageManager
+                  market={selected}
+                  hasImage={Boolean(marketImages.data?.[selected.address])}
+                  onChanged={() => marketImages.refetch()}
+                />
+              </section>
+            </div>
+          </div>
         </div>
-        <div className="market-terminal">
-            <section className="market-proof">
-              <div className="market-identity">
-                <MarketImage src={imageFor(selected)} alt={`${selected.symbol} artwork`} size="md" />
-                <div><small>MARKET</small><strong>{selected.name} / ${selected.symbol}</strong><ExternalLink href={`${arcLinks.explorer}/address/${selected.address}`}>{shortAddress(selected.address)} ↗</ExternalLink></div>
-              </div>
-              <dl>
-                <dt>SPOT QUOTE</dt><dd>{marketSpotLabel(selected, formatUsdc)}</dd>
-                <dt>CURVE RESERVE</dt><dd>{formatUsdc(selected.reserveUsdc)} USDC</dd>
-                <dt>SUPPLY SOLD</dt><dd>{selected.soldTokenCount.toLocaleString()} / {selected.totalSupplyTokens.toLocaleString()}</dd>
-                <dt>CREATOR</dt><dd>{shortAddress(selected.creator)}</dd>
-                <dt>CREATOR FEES PAID</dt><dd>{formatUsdc(selected.creatorFeesPaidUsdc)} USDC</dd>
-                <dt>TREASURY FEES PAID</dt><dd>{formatUsdc(selected.treasuryFeesPaidUsdc)} USDC</dd>
-                <dt>YOUR POSITION</dt><dd>{formatTokenAmount(selected.userBalance)} {selected.symbol}</dd>
-              </dl>
-              {selected.description ? <p>{selected.description}</p> : null}
-            </section>
-            <section className="market-order">
-              <div className="tabs"><button type="button" className={side === 'BUY' ? 'active' : ''} onClick={() => setSide('BUY')}>BUY</button><button type="button" className={side === 'SELL' ? 'active sell' : ''} onClick={() => setSide('SELL')}>SELL</button></div>
-              {side === 'BUY' && availability.soldOut ? (
-                <div className="trade-review sold-out" role="status">
-                  <span>BUY AVAILABILITY <b>SOLD OUT</b></span>
-                  <span>SUPPLY <b>{selected.soldTokenCount.toLocaleString()} / {selected.totalSupplyTokens.toLocaleString()} SOLD</b></span>
-                  <span>CURVE RESERVE <b>{formatUsdc(selected.reserveUsdc)} USDC</b></span>
-                  <span>The complete fixed supply is circulating, so this market has no next token to price. Selling back to the curve reserve remains available.</span>
-                </div>
-              ) : side === 'BUY' ? <form onSubmit={buyTokens}>
-                <label>MAXIMUM USDC INPUT<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="number" inputMode="decimal" min="0.000001" step="0.000001" required /><small>USDC</small></label>
-                <div className="trade-review">
-                  <span>WALLET BALANCE <b>{onArc && usdcBalance.data !== undefined ? `${formatUsdc(usdcBalance.data)} USDC` : 'CONNECT ON ARC'}</b></span>
-                  <span>MAX INPUT <b>{buyAmount || '0'} USDC</b></span>
-                  <span>ACTUAL ESTIMATED SPEND <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[4])} USDC` : '—'}</b></span>
-                  <span>ESTIMATED OUT <b>{buyQuote.data ? `${formatTokenAmount(buyQuote.data[0], 0)} ${selected.symbol}` : '—'}</b></span>
-                  <span>CURVE COST <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[1])} USDC` : '—'}</b></span>
-                  <span>CREATOR ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[2])} USDC` : '—'}</b></span>
-                  <span>TREASURY ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[3])} USDC` : '—'}</b></span>
-                  <span>MINIMUM OUT / SLIPPAGE <b>{buyQuote.data ? `${formatTokenAmount(minimumAfterSlippage(buyQuote.data[0], slippageBps), 2)} / 1%` : '—'}</b></span>
-                </div>
-                {buyInputError ? <p className="agent-error">{buyInputError}</p> : null}
-                {allowanceRequired ? <button className="btn secondary full" type="button" disabled={!onArc || approval.state.status === 'WALLET_SIGNATURE' || approval.state.status === 'SUBMITTED'} onClick={approveUsdc}>APPROVE MAX {buyAmount || '0'} USDC →</button> : null}
-                <button className="btn primary full" disabled={!onArc || !buyQuote.data || buyQuote.data[0] === 0n || allowanceRequired || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(buy.state.status)}>SIGN BUY ON ARC →</button>
-                <TransactionStatus state={approval.state} />
-                <TransactionStatus state={buy.state} />
-              </form> : <form onSubmit={sellTokens}>
-                <label>TOKEN AMOUNT<input value={sellAmount} onChange={(event) => setSellAmount(event.target.value)} type="number" inputMode="numeric" min="1" step="1" required /><small>{selected.symbol}</small></label>
-                <div className="trade-review">
-                  <span>YOUR POSITION <b>{formatTokenAmount(selected.userBalance)} {selected.symbol}</b></span>
-                  <span>GROSS CURVE RETURN <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[1])} USDC` : '—'}</b></span>
-                  <span>CREATOR ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[2])} USDC` : '—'}</b></span>
-                  <span>TREASURY ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[3])} USDC` : '—'}</b></span>
-                  <span>ESTIMATED USDC OUT <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[0])} USDC` : '—'}</b></span>
-                  <span>MINIMUM OUT / SLIPPAGE <b>{sellQuote.data ? `${formatUsdc(minimumAfterSlippage(sellQuote.data[0], slippageBps))} / 1%` : '—'}</b></span>
-                </div>
-                {sellInputError ? <p className="agent-error">{sellInputError}</p> : null}
-                <button className="btn primary full" disabled={!onArc || !sellQuote.data || sellQuote.data[0] === 0n || sellUnits > selected.userBalance || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(sell.state.status)}>SIGN SELL ON ARC →</button>
-                <TransactionStatus state={sell.state} />
-              </form>}
-              <MarketImageManager
-                market={selected}
-                hasImage={Boolean(marketImages.data?.[selected.address])}
-                onChanged={() => marketImages.refetch()}
-              />
-            </section>
-        </div>
-      </div> : null}
+      ) : null}
     </section>
   );
 }
