@@ -397,19 +397,6 @@ function Shell() {
     <>
       <a className="skip-link" href="#main-content">SKIP TO PRODUCT</a>
       <Marquee />
-      <div className="network-bar">
-        <span>{ARC_IS_MAINNET ? 'ARC MAINNET // REAL USDC' : 'ARC PUBLIC TESTNET // TEST ASSETS ONLY'}</span>
-        <div className="network-center">
-          <BackendStatus />
-          <NetworkStatus />
-        </div>
-        <ExternalLink href={arcLinks.status}>NETWORK STATUS ↗</ExternalLink>
-      </div>
-      <div className="testnet-banner">
-        {ARC_IS_MAINNET
-          ? 'ARC MAINNET — REAL USDC — AUTONOMOUS REWARDS ARE NOT LIVE'
-          : 'ARC PUBLIC TESTNET — REAL USDC MARKET TRANSACTIONS — TEST ASSETS HAVE NO REAL-WORLD VALUE'}
-      </div>
       <header className="site-header">
         <NavLink className="brand" to="/">
           <img
