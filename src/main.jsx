@@ -11,7 +11,6 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import {
   ARC_IS_MAINNET,
   arc,
-  arcCapabilities,
   arcContracts,
   arcLinks,
 } from './arc';
@@ -467,9 +466,6 @@ function Home() {
     <>
       <section className="hero">
         <div>
-          <div className="eyebrow">
-            {arcCapabilities.phase} / CHAIN {network.chain.id}
-          </div>
           <h1>
             A MEME
             <br />BECOMES AN
