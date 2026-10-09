@@ -49,9 +49,7 @@ jobs:
           NODE_ENV: production
         run: npm run build
 
-      # Production graph only. hardhat still pulls adm-zip, which as of 2026-09 has
-      # an unpatched moderate (GHSA-vwc7-r8mq-g2x9, no fixed release). npm's
-      # suggested "fix" downgrades hardhat and is a regression. That toolchain is
-      # not shipped to memeverse.biz.
+      # Production graph only. The dev toolchain (hardhat, vite, concurrently) is
+      # pinned in package.json overrides and is not shipped to memeverse.biz.
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=low

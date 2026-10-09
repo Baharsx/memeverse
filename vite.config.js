@@ -43,7 +43,24 @@ export default defineConfig({
   base: process.env.VITE_BASE_PATH?.trim() || '/memeverse/',
   plugins: [react(), contentSecurityPolicyMeta(process.env.VITE_API_BASE_URL)],
   build: {
+    // AppKit stays one chunk on purpose (see manualChunks). That chunk is about 1.8 MB,
+    // so the default 500 kB warning would fire on every production build.
+    chunkSizeWarningLimit: 2000,
     rollupOptions: {
+      onwarn(warning, warn) {
+        // Nested copies of ox annotate a regex with /*#__PURE__*/ where Rollup cannot
+        // read it, then drop the comment and continue. The annotation is not ours.
+        const id = warning.id ?? '';
+        if (
+          warning.code === 'INVALID_ANNOTATION'
+          && id.includes('/node_modules/')
+          && id.includes('/ox/')
+          && String(warning.message).includes('#__PURE__')
+        ) {
+          return;
+        }
+        warn(warning);
+      },
       output: {
         /**
          * Chunking is left to Rollup, with one exception below.
