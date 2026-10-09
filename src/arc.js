@@ -1,5 +1,5 @@
 import { arc as viemArcMainnet, arcTestnet as viemArcTestnet } from 'viem/chains';
-import { ARC_NETWORKS, resolveArcNetwork } from './arc-networks.js';
+import { ARC_MULTICALL3_ADDRESS, ARC_NETWORKS, resolveArcNetwork } from './arc-networks.js';
 
 // `import.meta.env` only exists under Vite. Defaulting it keeps this module importable from plain
 // Node, so the Arc constants and the helpers built on them can be unit tested without a bundler.
@@ -72,6 +72,16 @@ export const ARC_IS_MAINNET = ARC_NETWORK.name === 'mainnet';
 function chainDefinition(catalog, viemChain, { readRpc, readFallback, websocket, fallbackWebsocket, explorerUrl, explorerName, explorerApiUrl }) {
   return {
     ...viemChain,
+    // viem's Arc mainnet definition ships with no Multicall3 entry, so every
+    // marketPublicClient.multicall throws before a factory read. The canonical
+    // contract is on both Arc networks (docs.arc.io contract addresses).
+    contracts: {
+      ...viemChain.contracts,
+      multicall3: viemChain.contracts?.multicall3 ?? {
+        address: ARC_MULTICALL3_ADDRESS,
+        blockCreated: 0,
+      },
+    },
     name: catalog.label,
     rpcUrls: {
       default: {

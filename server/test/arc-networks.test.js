@@ -50,6 +50,8 @@ test('Arc mainnet catalog is official 5042 / 0x13b2 and never Archie 1243', () =
   assert.notEqual(ARCHIE_CHAIN_ID, 5042002);
   assert.equal(arcMainnet.id, 5042);
   assert.equal(arcTestnet.id, 5042002);
+  assert.equal(arcMainnet.contracts.multicall3.address, '0xcA11bde05977b3631167028862bE2a173976CA11');
+  assert.equal(arcTestnet.contracts.multicall3.address, '0xcA11bde05977b3631167028862bE2a173976CA11');
 });
 
 test('wagmi/Reown always know both Arc networks', () => {

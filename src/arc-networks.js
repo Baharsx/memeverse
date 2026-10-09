@@ -29,6 +29,8 @@ export const ARC_TESTNET_CHAIN_ID_HEX = '0x4cef52';
 
 export const ARC_USDC_ADDRESS = '0x3600000000000000000000000000000000000000';
 export const ARC_MEMO_ADDRESS = '0x5294E9927c3306DcBaDb03fe70b92e01cCede505';
+/** Canonical Multicall3. Read batching. Not Multicall3From, which preserves msg.sender for writes. */
+export const ARC_MULTICALL3_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11';
 export const ARC_MULTICALL3_FROM_ADDRESS = '0x522fAf9A91c41c443c66765030741e4AaCe147D0';
 
 /**
