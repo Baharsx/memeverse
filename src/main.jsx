@@ -437,18 +437,6 @@ function AssetCarousel({ label, detail, trackRef, count, children }) {
 }
 
 function Home() {
-  const health = useQuery({
-    queryKey: ['api-health'],
-    queryFn: getApiHealth,
-    retry: 1,
-    refetchInterval: 30_000,
-  });
-  const factory = useQuery({
-    queryKey: ['market-factory-config'],
-    queryFn: loadFactoryConfig,
-    retry: 1,
-    refetchInterval: 30_000,
-  });
   const markets = useQuery({
     queryKey: ['onchain-markets', 'home'],
     queryFn: () => loadMarkets(),
@@ -473,29 +461,6 @@ function Home() {
   });
   const tokenTrack = useRef(null);
   const nftTrack = useRef(null);
-  const stage2Configured = Boolean(
-    stage2Contracts.mediaNft && stage2Contracts.nftMarketplace && stage2Contracts.usdcVault,
-  );
-  const checks = [
-    [
-      'ARC RPC',
-      health.data?.arc?.status === 'verified',
-      health.data?.arc?.blockNumber ? `HEAD BLOCK ${health.data.arc.blockNumber}` : 'VERIFYING',
-      health.isPending,
-    ],
-    [
-      'MARKET FACTORY',
-      Boolean(factory.data),
-      factory.data ? `${factory.data.marketCount} LIVE MARKETS` : 'READING ARC',
-      factory.isPending,
-    ],
-    [
-      'NFT / VAULT',
-      stage2Configured,
-      stage2Configured ? 'COLLECTION / MARKETPLACE / VAULT' : 'NOT ON THIS NETWORK',
-      false,
-    ],
-  ];
   const nftAssets = collection.data?.configured ? publicMediaAssets(collection.data.assets) : [];
 
   return (
@@ -541,16 +506,6 @@ function Home() {
             <p>{copy}</p>
             <b aria-hidden="true">→</b>
           </NavLink>
-        ))}
-      </section>
-
-      <section className="runtime-proof" aria-label="Live infrastructure status">
-        {checks.map(([label, ready, detail, pending]) => (
-          <div key={label} className={ready ? 'ready' : ''}>
-            <span><i />{ready ? 'VERIFIED' : pending ? 'CHECKING' : 'UNAVAILABLE'}</span>
-            <strong>{label}</strong>
-            <small>{detail}</small>
-          </div>
         ))}
       </section>
 
