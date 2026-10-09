@@ -1,7 +1,6 @@
 # Arc mainnet cutover
 
-Status: **MemeVerseFactory and one seed market are deployed on Arc mainnet (chain 5042). Production (https://memeverse.biz) is still Arc Testnet until the server env and updater gates.**
-Do not say "MemeVerse is live on Arc" until a buy and a sell on chain 5042 are appended to this file.
+Status: **MemeVerse is live on Arc mainnet (chain 5042).** Production (https://memeverse.biz) serves that chain. A buy and a sell of the seed market are recorded below. No independent audit. Not an official partner. Autonomous rewards are not live.
 
 This cutover deploys with an EOA. **Circle is not used on mainnet.** Do not call the Circle Contracts API, `circle:setup`, `circle:fund`, or `circle:deploy:*` against chain 5042. Do not create a Circle agent wallet. `AGENT_AUTONOMOUS_ENABLED` stays `false`. Autonomous rewards are not live. Creator and treasury fees still settle inside the trade.
 
@@ -82,19 +81,19 @@ Filled after the EOA deploy. Empty until then. Never copy a testnet address into
 
 Deployed 2026-10-08 from `0x5A119569569907B5D8bb94efA84375682240A85c`. `eth_chainId` was 5042 on `https://rpc.mainnet.arc.io` and on `https://rpc.drpc.mainnet.arc.io`. Factory constructor: USDC `0x3600000000000000000000000000000000000000`, treasury = deployer, creator fee 100 bps, treasury fee 100 bps. Seed market MEMEVERSE GENESIS / MMV is the only `markets(0)` entry, and `isMarket` is true. Explorer source is verified for `MemeVerseFactory` and `MemeMarket` (`MemeVerseMarket.sol`, solc `v0.8.30+commit.73712a01`, optimizer 200 runs, EVM cancun): [factory](https://explorer.arc.io/address/0x177492EFFbe5F7847994696ef4C9B24b8C9C13BE) and [seed](https://explorer.arc.io/address/0xDCa07Bd83bc7A4220C79afB60F8C2Bb7DC746932). Native balance after both receipts: 1.006293 USDC.
 
-Proof trade (filled only after both receipts are on chain 5042):
+Proof trade. Both receipts are on chain 5042 (`eth_chainId` 5042, status success). Wallet `0x76B74337D93dBcB811FcF2DAb4a57Db2b7058389` bought 97 MMV of MEMEVERSE GENESIS for 0.009940 USDC, then sold that 97 MMV back for 0.009552 USDC. `soldTokenCount` returned to 0. Creator and treasury fees of 0.000097 USDC each settled inside each trade, to the deployer treasury.
 
 | Side | Transaction |
 | --- | --- |
-| Buy | _pending_ |
-| Sell | _pending_ |
+| Buy | [`0xc0244186…`](https://explorer.arc.io/tx/0xc0244186032724f00b77fc21a16c6f9c78c44782a3673536358d2b98ed208e5a) block 25028579 |
+| Sell | [`0x88135e0d…`](https://explorer.arc.io/tx/0x88135e0d7709cd677309be7936db12653315cf60849a46c73948787f60e82616) block 25028626 |
 
 ## Language
 
 - No independent audit. Do not write "audited".
 - Do not say official partner, founding validator, or Circle's chain.
 - Do not say autonomous rewards are live on mainnet.
-- "MemeVerse is live on Arc." only after the proof-trade receipts are in this file.
+- The proof-trade receipts above are the basis for "MemeVerse is live on Arc."
 - Built on Arc. USDC markets.
 
 ## Rollback
