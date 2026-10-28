@@ -788,21 +788,43 @@ input,textarea,select{border-radius:var(--radius-sm)}
 
 .market-card-hit{cursor:default}
 .trade-modal{
-  position:fixed;inset:0;z-index:40;
-  display:grid;place-items:end center;
-  padding:18px 14px;
+  position:fixed;inset:0;z-index:60;
+  display:flex;align-items:flex-end;justify-content:center;
+  box-sizing:border-box;
+  width:100%;
+  height:100vh;
+  height:100dvh;
+  max-height:100vh;
+  max-height:100dvh;
+  padding:
+    max(12px, env(safe-area-inset-top))
+    max(14px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom))
+    max(14px, env(safe-area-inset-left));
+  overflow:hidden;
   background:rgba(11,11,13,.78);
 }
 .trade-modal-panel{
   position:relative;
+  display:flex;flex-direction:column;
   width:min(760px,100%);
-  max-height:min(920px,calc(100vh - 28px));
-  overflow:auto;
+  min-height:0;
+  max-height:calc(100vh - 24px);
+  max-height:calc(100dvh - 24px);
+  max-height:100%;
+  overflow:hidden;
   background:var(--bg);
   border:1px solid var(--line);
   border-radius:18px 18px 0 0;
   box-shadow:0 -24px 80px rgba(0,0,0,.55);
   outline:none;
+}
+.trade-modal-scroll{
+  flex:1 1 auto;
+  min-height:0;
+  overflow:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
 }
 .trade-modal-close{
   position:absolute;top:14px;left:14px;z-index:2;
@@ -812,7 +834,7 @@ input,textarea,select{border-radius:var(--radius-sm)}
   font:11px var(--mono);letter-spacing:.08em;cursor:pointer;
 }
 .trade-modal-close:hover{border-color:var(--acid);color:var(--acid)}
-.trade-modal .market-terminal{border:0;border-radius:0}
+.trade-modal .market-terminal{border:0;border-radius:0;overflow:visible}
 .trade-modal .market-proof{
   grid-template-columns:minmax(0,1fr);
   gap:14px;
@@ -824,8 +846,8 @@ input,textarea,select{border-radius:var(--radius-sm)}
 .trade-modal .market-order{padding:18px 22px 24px}
 .trade-modal .tabs{margin-bottom:18px}
 @media(min-width:801px){
-  .trade-modal{place-items:center;padding:28px 16px}
-  .trade-modal-panel{border-radius:18px;max-height:min(860px,calc(100vh - 48px))}
+  .trade-modal{align-items:center;padding:24px 16px}
+  .trade-modal-panel{border-radius:18px;max-height:min(860px,calc(100dvh - 48px));max-height:min(860px,100%)}
 }
 
 .under-build{
@@ -1108,7 +1130,7 @@ label>input:focus-visible,label>textarea:focus-visible,label>select:focus-visibl
   box-shadow:0 30px 90px rgba(0,0,0,.55);
   animation:mv-sheet .48s var(--ease) both;
 }
-@keyframes mv-sheet{from{opacity:0;transform:translateY(22px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes mv-sheet{from{opacity:0}to{opacity:1}}
 .trade-modal-close{font-family:var(--ui);font-weight:600;letter-spacing:-.01em;background:rgba(255,255,255,.08)}
 .trade-modal .market-proof{padding:58px 22px 8px}
 .trade-modal .market-identity .market-image,.trade-modal .market-identity img{border-radius:18px}

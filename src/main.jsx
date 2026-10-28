@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { parseEventLogs } from 'viem';
 import {
@@ -1314,7 +1315,7 @@ function Markets() {
           })}
         </div>
       ) : null}
-      {tradeOpen && selected ? (
+      {tradeOpen && selected ? createPortal(
         <div className="trade-modal" onMouseDown={(event) => { if (event.target === event.currentTarget) setTradeOpen(false); }}>
           <div
             className="trade-modal-panel"
@@ -1325,6 +1326,7 @@ function Markets() {
             ref={tradeDialogRef}
           >
             <button type="button" className="trade-modal-close" onClick={() => setTradeOpen(false)}>CLOSE</button>
+            <div className="trade-modal-scroll">
             <div className="market-terminal">
               <section className="market-proof">
                 <div className="market-identity">
@@ -1393,8 +1395,10 @@ function Markets() {
                 />
               </section>
             </div>
+            </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </section>
   );
