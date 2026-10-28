@@ -31,7 +31,8 @@ export function BrowserRouter({ basename = '', children }) {
     const href = `${basename}${to === '/' ? '/' : to}`;
     window.history.pushState({}, '', href);
     setPathname(to);
-    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, left: 0, behavior: reduceMotion ? 'instant' : 'smooth' });
   }
 
   return <RouterContext.Provider value={{ basename, pathname, navigate }}>{children}</RouterContext.Provider>;

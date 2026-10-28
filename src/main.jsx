@@ -77,7 +77,7 @@ import {
 import { getMarketImages } from './api';
 import { MEDIA_ACTIONS } from './media-authorization';
 import { canRetryLaunchArtwork, launchArtworkStage } from './media-upload';
-import { BrowserRouter, NavLink, Route, Routes } from './router.jsx';
+import { BrowserRouter, NavLink, Route, RouterContext, Routes } from './router.jsx';
 import './styles.css';
 
 const queryClient = new QueryClient();
@@ -352,6 +352,7 @@ const navItems = [
 ];
 
 function Shell() {
+  const { pathname } = React.useContext(RouterContext);
 
   return (
     <>
@@ -376,14 +377,16 @@ function Shell() {
         <Wallet />
       </header>
       <main id="main-content">
-        <Routes notFound={<NotFound />}>
-          <Route path="/" element={<Home />} />
-          <Route path="/markets" element={<Markets />} />
-          <Route path="/trade" element={<Markets />} />
-          <Route path="/launch" element={<Launch />} />
-          <Route path="/nft" element={<UnderBuild n="03" title="NFT" body="Creator pieces, minted and sold in USDC, land here later. Launch and trade are already live." />} />
-          <Route path="/vault" element={<UnderBuild n="04" title="VAULT" body="Deposits and redemptions land here later. Markets already settle in real USDC." />} />
-        </Routes>
+        <div key={pathname} className="surface-enter">
+          <Routes notFound={<NotFound />}>
+            <Route path="/" element={<Home />} />
+            <Route path="/markets" element={<Markets />} />
+            <Route path="/trade" element={<Markets />} />
+            <Route path="/launch" element={<Launch />} />
+            <Route path="/nft" element={<UnderBuild n="03" title="NFT" body="Creator pieces, minted and sold in USDC, land here later. Launch and trade are already live." />} />
+            <Route path="/vault" element={<UnderBuild n="04" title="VAULT" body="Deposits and redemptions land here later. Markets already settle in real USDC." />} />
+          </Routes>
+        </div>
       </main>
       <footer className="site-footer">
         <span>MEMEVERSE © 2026</span>
