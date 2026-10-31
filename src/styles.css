@@ -120,7 +120,7 @@ nav a:hover sup,nav a.active sup{color:var(--bg)}
 @media(max-width:800px){.carousel-head,.carousel-track{padding-left:20px;padding-right:20px}.carousel-head{align-items:stretch;flex-direction:column}}
 
 /* Home: the economy in four steps */
-.economy-flow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr)));border-bottom:1px solid var(--line)}
+.economy-flow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-bottom:1px solid var(--line)}
 .economy-step{position:relative;display:flex;flex-direction:column;min-height:230px;padding:26px 22px;border-right:1px solid var(--line);background:var(--bg-2);transition:100ms}
 .economy-step:last-child{border-right:0}
 .economy-step:hover{background:var(--acid);color:var(--bg)}
@@ -942,7 +942,7 @@ main{
 .page{padding-top:42px}
 
 .economy-flow{
-  grid-template-columns:repeat(2,minmax(0,1fr)));
+  grid-template-columns:repeat(2,minmax(0,1fr));
   gap:12px;padding:8px 0 36px;border:0;background:transparent;
 }
 .economy-step{
@@ -1113,3 +1113,82 @@ label>input:focus-visible,label>textarea:focus-visible,label>select:focus-visibl
 @media (prefers-reduced-motion:reduce){
   .surface-enter,.trade-modal-panel{animation:none}
 }
+
+/* Product polish: compact journey, accessible form labels and trade details. */
+.hero h1{font-size:clamp(54px,7vw,102px);line-height:.98;letter-spacing:-.055em}
+.hero-mainnet-risk{display:flex;gap:10px;max-width:550px;margin:18px 0 0!important;padding:12px 14px;border:1px solid rgba(255,255,255,.16);border-radius:13px;background:rgba(255,255,255,.04);color:#c3c5c8!important;font:12px/1.5 var(--ui)!important}
+.hero-mainnet-risk:before{content:"ⓘ";color:var(--acid);font-weight:700}
+.economy-flow{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding-bottom:24px}
+.economy-step,.economy-step:nth-child(2n),.economy-step:last-child{min-height:160px;padding:20px 22px;border:1px solid rgba(255,255,255,.1);border-radius:20px}
+.economy-step strong{margin:10px 0 8px;font-size:25px}
+.economy-step p{font:13px/1.55 var(--ui);max-width:42ch}
+.economy-step b{padding-top:7px}
+.title{flex-wrap:wrap;align-items:baseline;gap:10px 16px}
+.title span{color:var(--acid);font-size:11px;flex:0 0 auto}
+.title h1,.title h2{min-width:0;font-size:clamp(30px,4vw,44px);line-height:1.14;overflow-wrap:anywhere}
+.title i{flex:1 1 40px}
+.page>.lede{max-width:73ch;margin:0 0 30px;line-height:1.6}
+.form-grid form{padding:12px 0 24px}
+.form-grid form>label{display:block;position:static;margin-bottom:22px;line-height:1.5}
+.form-grid form>label>input,.form-grid form>label>textarea{display:block;margin-top:9px;padding:14px 16px;min-height:52px;border:1px solid rgba(255,255,255,.17);border-radius:14px;background:#111214;color:var(--ink);font:500 15px/1.5 var(--ui)}
+.form-grid form>label>textarea{min-height:116px;resize:vertical}
+.form-grid form>label>input:focus-visible,.form-grid form>label>textarea:focus-visible{border-color:var(--acid)}
+.form-grid .btn.full{min-height:55px}
+.market-toolbar label,.market-toolbar input,.market-toolbar select{min-width:0}
+.market-toolbar .market-import span{display:flex;gap:8px}
+.market-toolbar .market-import input{flex:1 1 auto;width:100%;min-width:0}
+.market-toolbar .market-import button{flex:0 0 auto;min-width:106px}
+.market-card-body strong{overflow-wrap:anywhere;line-height:1.2}
+.market-card-actions .btn{min-height:44px}
+.trade-modal-panel{width:min(760px,100%)}
+.trade-modal .market-proof{padding:60px 24px 16px}
+.trade-modal .market-identity{align-items:center;gap:16px;min-width:0}
+.trade-modal .market-identity>div{display:flex;flex-direction:column;gap:6px;align-items:flex-start;min-width:0}
+.trade-modal .market-identity strong{display:block;max-width:100%;overflow-wrap:anywhere;font:600 clamp(20px,3vw,28px)/1.17 var(--ui);letter-spacing:-.02em;margin:0}
+.trade-modal .market-identity strong span{font-size:.78em;color:#babcbe}
+.trade-modal .market-identity small{font:10px/1.3 var(--mono)}
+.trade-modal .market-identity a{font:11px/1.4 var(--mono)}
+.trade-modal-close{display:inline-flex;gap:7px;align-items:center;min-height:40px;z-index:2}
+.trade-modal .market-proof dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.trade-modal .market-proof dt,.trade-modal .market-proof dd{min-width:0;overflow-wrap:anywhere}
+.trade-modal .market-proof dd{text-align:right}
+.trade-modal .market-order label input{margin-top:9px;min-height:52px;border-radius:12px}
+
+/* Referral + campaigns. Status is factual; there are no fictitious balances. */
+.rewards-page{min-height:calc(100dvh - 220px)}
+.rewards-intro{max-width:850px;margin-bottom:30px}
+.eyebrow{font:700 11px/1.6 var(--mono);letter-spacing:.08em;color:var(--acid)}
+.rewards-intro h1{font:700 clamp(40px,7vw,72px)/1 var(--display);letter-spacing:-.055em;margin:14px 0 18px;overflow-wrap:anywhere}
+.rewards-intro mark{background:none;color:var(--acid)}
+.rewards-intro p{max-width:65ch;color:#b2b3b9;font:16px/1.6 var(--ui)}
+.rewards-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(290px,.85fr);gap:18px}
+.rewards-panel,.campaign-card,.campaign-disclaimer{min-width:0;border:1px solid rgba(255,255,255,.12);border-radius:22px;background:rgba(255,255,255,.04);padding:30px}
+.rewards-panel h2,.campaign-card h2{margin:12px 0;font:650 clamp(23px,3vw,29px)/1.22 var(--ui);letter-spacing:-.03em}
+.rewards-panel>p,.campaign-card p{color:#b4b6bb;font:14px/1.65 var(--ui)}
+.referral-label{display:block;margin:25px 0 9px;color:#ddd;font:600 11px var(--mono)}
+.referral-copy{display:flex;gap:10px}
+.referral-copy input{flex:1 1 auto;min-width:0;width:100%;padding:13px 14px;border:1px solid #494b4f;border-radius:12px;background:#0e0f10;color:#eee;font:12px var(--mono)}
+.referral-copy button{flex:0 0 auto;white-space:nowrap}
+.rewards-note{padding:12px 0 0;color:#adb0b5;font:12px/1.65 var(--ui)}
+.referral-invite{margin-top:22px;padding:18px;border:1px solid rgba(198,244,50,.3);border-radius:16px;background:rgba(198,244,50,.03)}
+.referral-invite strong{display:block;margin:8px 0;overflow-wrap:anywhere;font:12px var(--mono)}
+.referral-invite p{color:#b9bbc0;font:13px/1.6 var(--ui)}
+.referral-feedback{margin-top:12px;padding:12px;border-radius:10px;background:rgba(255,255,255,.08);font:13px/1.5 var(--ui);overflow-wrap:anywhere}
+.rewards-explainer ol{list-style:none;padding:0;margin:22px 0}
+.rewards-explainer li{display:flex;gap:15px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,.1);font:14px/1.5 var(--ui)}
+.rewards-explainer li b{color:var(--acid);font:600 13px var(--mono)}
+.inline-cta{display:inline-flex;margin-top:20px;color:var(--acid);font:700 12px var(--mono)}
+.campaign-status{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:22px;color:var(--acid);font:700 11px var(--mono)}
+.campaign-status>span:last-child{color:#aeb0b5;font-weight:400;margin-left:auto}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--acid)}
+.campaign-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.campaign-card{display:flex;flex-direction:column;min-height:230px}
+.campaign-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--acid);font:700 11px var(--mono)}
+.campaign-card-top small{border:1px solid #65676b;padding:5px 9px;border-radius:999px;color:#afb1b6;font:10px var(--mono)}
+.campaign-card p{flex:1}
+.campaign-card-bottom{margin-top:22px;border-top:1px solid rgba(255,255,255,.1);padding-top:14px;color:#adb0b5;font:11px var(--mono)}
+.campaign-disclaimer{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:20px}
+.campaign-disclaimer strong{color:var(--acid);font:700 14px var(--ui)}
+.campaign-disclaimer p{flex:1 1 380px;margin:0;color:#adb0b5;font:13px/1.6 var(--ui)}
+@media(max-width:1000px){.site-header nav a{padding:8px 9px;font-size:11px}.rewards-grid{grid-template-columns:1fr}.campaign-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.economy-flow{grid-template-columns:1fr;gap:10px}.economy-step,.economy-step:nth-child(2n),.economy-step:last-child{min-height:130px}.hero h1{font-size:clamp(42px,11vw,68px)}.trade-modal .market-proof{padding:58px 16px 12px}.trade-modal .market-identity strong{font-size:21px}.campaign-grid{grid-template-columns:1fr}.rewards-panel,.campaign-card,.campaign-disclaimer{padding:22px}.referral-copy{flex-direction:column}.referral-copy button{width:100%}.campaign-status>span:last-child{margin-left:0;flex-basis:100%}}
