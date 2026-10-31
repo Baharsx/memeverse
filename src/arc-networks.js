@@ -1,17 +1,15 @@
 /**
  * Official Arc network catalog.
  *
- * One module, no Vite env, so the browser bundle, the API, and the Circle deploy scripts all
- * name the same chain ids, RPCs, and Circle wallet codes. Selection happens in `resolveArcNetwork`.
+ * One module, no Vite env, so the browser and API always
+ * name the same chain ids and RPCs. Selection happens in `resolveArcNetwork`.
  *
  * Facts re-verified 2026-10-08 against docs.arc.io and eth_chainId on
- * https://rpc.mainnet.arc.io (0x13b2 = 5042). Circle is not a mainnet deploy path.
+ * https://rpc.mainnet.arc.io (0x13b2 = 5042). Use the mainnet factory for trading.
  *   https://docs.arc.io/arc/references/rpc-endpoints
  *   https://docs.arc.io/integrate/connect-to-arc
  *   https://docs.arc.io/arc/references/contract-addresses
  *   https://docs.arc.io/arc/concepts/stablecoin-native-model
- *   https://developers.circle.com/stablecoins/usdc-contract-addresses
- *   https://developers.circle.com/wallets/supported-blockchains
  *
  * NEVER 1243 — that is Archie Chain, not Arc.
  */
@@ -48,9 +46,7 @@ export const BANNED_CONTRACTS = Object.freeze([
  */
 export const TESTNET_PRODUCT_CONTRACTS = Object.freeze({
   factory: '0x363124490E953EEbB414eB4c3e2f03a40eef8F2C',
-  settlement: '0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7',
   seedMarket: '0xBe6E56a8B5ec8861aE1284dF3f60E27953f2d39D',
-  agentSettlement: '0x2176107C2562Ed30ca1d490C43cD53C3369946e2',
 });
 
 function lower(address) {
@@ -60,6 +56,8 @@ function lower(address) {
 const BANNED_SET = new Set(BANNED_CONTRACTS.map(lower));
 // Retired testnet deployments remain in the cross-network safety denylist only.
 const RETIRED_TESTNET_ADDRESSES = Object.freeze([
+  '0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7',
+  '0x2176107C2562Ed30ca1d490C43cD53C3369946e2',
   '0x56A6f87e4d026E6D9d3E3c791A3A30e023bf1CFD',
   '0xfc3e869bA4Dd808A0942bc9C034f6f8427a08666',
   '0xe26EeA49973226b406fd92Bd178484a29D7F7C05',
@@ -85,8 +83,7 @@ export function parseContractAddress(value) {
 }
 
 /**
- * Catalog defaults. RPC/explorer/factory may be overridden by env; chain id and Circle chain
- * code may not — those are identity, not configuration.
+ * Catalog defaults. RPC/explorer/factory may be overridden by env; chain id is fixed.
  *
  * Testnet keeps the endpoints that already survive a Markets-page burst, and the explorer the
  * product has been linking to. Mainnet uses the published docs.arc.io endpoints. The read
@@ -99,8 +96,6 @@ export const ARC_NETWORKS = Object.freeze({
     label: 'Arc Testnet',
     chainId: ARC_TESTNET_CHAIN_ID,
     chainIdHex: ARC_TESTNET_CHAIN_ID_HEX,
-    circleChainCode: 'ARC-TESTNET',
-    circleApiKeyPrefix: 'TEST_API_KEY',
     kitChainName: 'Arc_Testnet',
     readRpcUrl: 'https://rpc.testnet.arc.io',
     readFallbackRpcUrl: 'https://rpc.drpc.testnet.arc.io',
@@ -115,7 +110,6 @@ export const ARC_NETWORKS = Object.freeze({
     memo: ARC_MEMO_ADDRESS,
     multicall3From: ARC_MULTICALL3_FROM_ADDRESS,
     factory: TESTNET_PRODUCT_CONTRACTS.factory,
-    settlement: TESTNET_PRODUCT_CONTRACTS.settlement,
     seedMarket: TESTNET_PRODUCT_CONTRACTS.seedMarket,
     isTestnet: true,
   }),
@@ -124,9 +118,6 @@ export const ARC_NETWORKS = Object.freeze({
     label: 'Arc',
     chainId: ARC_MAINNET_CHAIN_ID,
     chainIdHex: ARC_MAINNET_CHAIN_ID_HEX,
-    // Circle is not used on mainnet. A null chain code cannot be sent as blockchain "ARC".
-    circleChainCode: null,
-    circleApiKeyPrefix: null,
     kitChainName: null,
     readRpcUrl: 'https://rpc.mainnet.arc.io',
     readFallbackRpcUrl: 'https://rpc.drpc.mainnet.arc.io',
@@ -141,7 +132,6 @@ export const ARC_NETWORKS = Object.freeze({
     memo: ARC_MEMO_ADDRESS,
     multicall3From: ARC_MULTICALL3_FROM_ADDRESS,
     factory: null,
-    settlement: null,
     seedMarket: null,
     isTestnet: false,
   }),
@@ -226,28 +216,6 @@ export function isStaleTestnetEndpoint(value) {
   }
 }
 
-export function circleApiKeyMatchesNetwork(apiKey, networkName) {
-  if (!apiKey) return true;
-  if (networkName === 'mainnet') return false;
-  const prefix = ARC_NETWORKS[networkName].circleApiKeyPrefix;
-  return Boolean(prefix) && apiKey.startsWith(prefix);
-}
-
-export function assertCircleApiKeyPrefix(apiKey, networkName) {
-  if (!apiKey) return;
-  if (networkName === 'mainnet') {
-    throw new Error(
-      'Circle is not used on Arc mainnet. Do not call circle:setup, circle:fund, or circle:deploy against chain 5042.',
-    );
-  }
-  if (circleApiKeyMatchesNetwork(apiKey, networkName)) return;
-  const expected = ARC_NETWORKS[networkName].circleApiKeyPrefix;
-  throw new Error(
-    `CIRCLE_API_KEY for Arc ${networkName} must start with ${expected}. `
-    + 'A LIVE_API_KEY cannot sign this network.',
-  );
-}
-
 function pickEndpoint(networkName, label, catalogUrl, candidates) {
   for (const value of candidates) {
     if (!value) continue;
@@ -317,10 +285,6 @@ export function resolveArcNetwork(env = {}) {
     { value: firstNonEmpty(env, ['VITE_MARKET_FACTORY_ADDRESS']), stale: false },
     { value: firstNonEmpty(env, ['MARKET_FACTORY_ADDRESS']), stale: true },
   ]);
-  const settlement = pickProductAddress(name, 'SETTLEMENT_ADDRESS', [
-    { value: firstNonEmpty(env, ['VITE_SETTLEMENT_ADDRESS']), stale: true },
-    { value: firstNonEmpty(env, ['CIRCLE_SETTLEMENT_CONTRACT_ADDRESS']), stale: true },
-  ]);
   const usdc = optionalAddress(firstNonEmpty(env, ['VITE_USDC_ADDRESS', 'ARC_USDC_ADDRESS']), 'USDC_ADDRESS')
     ?? catalog.usdc;
 
@@ -348,7 +312,6 @@ export function resolveArcNetwork(env = {}) {
     ),
     usdc,
     factory: factory ?? catalog.factory,
-    settlement: settlement ?? catalog.settlement,
   });
 }
 

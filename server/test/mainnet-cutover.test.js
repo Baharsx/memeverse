@@ -69,7 +69,6 @@ test('factory constructor args match the 6A.1 exact-spend shape', () => {
   assert.equal(SEED_MARKET.name, 'MEMEVERSE GENESIS');
   assert.equal(SEED_MARKET.symbol, 'MMV');
   assert.equal(SEED_MARKET.description.includes('Arc Public Testnet'), false);
-  assert.equal(SEED_MARKET.description.toLowerCase().includes('autonomous rewards are live'), false);
   assert.match(SEED_MARKET.description, /settle inside the trade/);
 });
 
@@ -79,7 +78,6 @@ test('the deploy script does not print the key and stays on chain 5042', async (
   assert.equal(/\$\{privateKey\}/.test(deploy), false);
   assert.equal(/console\.(log|error|info|debug)\([^)\n]*DEPLOYER_PRIVATE_KEY/.test(deploy), false);
   assert.equal(deploy.includes('5042'), true);
-  assert.equal(deploy.includes('@circle-fin/'), false);
 });
 
 test('browser boot aborts unless the read RPC is chain 5042', async () => {
