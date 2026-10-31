@@ -33,6 +33,7 @@ import { getApiHealth } from './api';
 import { Referral, Campaigns } from './rewards-views.jsx';
 import {
   marketAvailability,
+  marketDescriptionForDisplay,
   marketSpotLabel,
   marketSpotPerTokenLabel,
   publicMarkets,
@@ -1291,7 +1292,7 @@ function Markets() {
                   <dt>TREASURY FEES</dt><dd>{formatUsdc(selected.treasuryFeesPaidUsdc)} USDC</dd>
                   <dt>YOUR POSITION</dt><dd>{formatTokenAmount(selected.userBalance)} {selected.symbol}</dd>
                 </dl>
-                {selected.description ? <p>{selected.description}</p> : null}
+                {marketDescriptionForDisplay(selected) ? <p>{marketDescriptionForDisplay(selected)}</p> : null}
               </section>
               <section className="market-order">
                 <div className="tabs"><button type="button" className={side === 'BUY' ? 'active' : ''} onClick={() => setSide('BUY')}>BUY</button><button type="button" className={side === 'SELL' ? 'active sell' : ''} onClick={() => setSide('SELL')}>SELL</button></div>

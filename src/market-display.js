@@ -10,29 +10,13 @@
 export const SOLD_OUT_LABEL = 'SOLD OUT';
 
 /**
- * Markets that are hidden from public browsing.
- *
- * These two are the project's own earlier test markets, created while the factory, the trading
- * economics, and the autonomous agent were being proven. They are real, they still hold real USDC
- * reserves, and they remain registered in the factory — the historical autonomous payout, the
- * Proof Center references, the onchain audits, and the transaction hashes in the docs all still
- * point at them and all still resolve. Nothing about them is being deleted or changed.
- *
- * What they are not is something a visitor should have to scroll past to find the markets people
- * actually launched. So this is presentation only, applied at the two judge-facing surfaces and
- * nowhere else: the factory still enumerates them, the agent still discovers and scores them,
- * media authorization still resolves their creators, and every audit script still reads them
- * directly from chain. Hiding a market from a list is not the same as removing it, and this
- * codebase deliberately keeps those two ideas in different places.
- *
- * Identity is the address and only the address. Filtering on a name or a symbol would mean any
- * future market that happened to pick similar text would silently vanish from the product.
+ * Retired demonstration markets are hidden from browsing by address only.
+ * The contracts and any funds remain onchain; this filter does not modify them.
  */
 export const LEGACY_HIDDEN_MARKETS = Object.freeze([
-  // MEMEVERSE GENESIS 6A1 / MMV6A1 — the first market ever deployed by the factory.
+  // Retired test market A.
   '0xBe6E56a8B5ec8861aE1284dF3f60E27953f2d39D',
-  // MEMEVERSE AGENT SIGNAL / MVAGENT — created to give the autonomous agent trade evidence to
-  // score. The historical agent payout proof references this market.
+  // Retired test market B.
   '0xE8ec1307fd500dF01CE0265167C05d8FfE4394DE',
 ]);
 
@@ -54,7 +38,7 @@ export function isLegacyHiddenMarket(address) {
  */
 export function publicMarkets(markets) {
   // Callers pass factory enumeration that already dropped addresses where factory.isMarket is
-  // false. This filter only hides the historical testnet markets by address. It stays synchronous.
+  // false. This filter only hides retired demonstration markets by address. It stays synchronous.
   if (!Array.isArray(markets)) return [];
   return markets.filter((market) => !isLegacyHiddenMarket(market?.address));
 }
@@ -79,4 +63,18 @@ export function marketSpotLabel(market, formatUsdc) {
 export function marketSpotPerTokenLabel(market, formatUsdc) {
   if (isMarketSoldOut(market)) return SOLD_OUT_LABEL;
   return `${formatUsdc(market.spotPriceUsdc)} USDC / TOKEN`;
+}
+
+/**
+ * The mainnet seed market has an old, immutable contract description.
+ * Present the current factual product scope instead of obsolete phase notes.
+ * Creator-written descriptions for every other market are shown unchanged.
+ */
+export function marketDescriptionForDisplay(market) {
+  if (!market || typeof market.description !== 'string') return '';
+  if (typeof market.address === 'string'
+    && market.address.toLowerCase() === '0xdca07bd83bc7a4220c79afb60f8c2bb7dc746932') {
+    return 'Fixed-supply meme market. Creator and treasury fees settle within each trade.';
+  }
+  return market.description.trim();
 }

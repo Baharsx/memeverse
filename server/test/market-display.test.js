@@ -8,6 +8,7 @@ import {
   isLegacyHiddenMarket,
   isMarketSoldOut,
   marketAvailability,
+  marketDescriptionForDisplay,
   marketSpotLabel,
   marketSpotPerTokenLabel,
   publicMarkets,
@@ -74,13 +75,12 @@ test('every surface prices a market through the shared sold-out helper', async (
  *
  * The rule these tests defend is narrow and easy to break in the wrong direction: two specific
  * markets are absent from public browsing, and *nothing else changes anywhere*. They stay in the
- * factory, the agent keeps scoring them, the audits keep reading them, and the docs keep citing
- * their transactions. A filter that leaked out of the presentation layer would quietly rewrite
+ * factory and remain discoverable by direct address; only the browsing presentation hides them. A filter that leaked out of the presentation layer would quietly rewrite
  * history; a filter that matched on text would quietly delete somebody's market.
  */
 
 const GENESIS = '0xBe6E56a8B5ec8861aE1284dF3f60E27953f2d39D';
-const AGENT_SIGNAL = '0xE8ec1307fd500dF01CE0265167C05d8FfE4394DE';
+const LEGACY_B = '0xE8ec1307fd500dF01CE0265167C05d8FfE4394DE';
 const NCIE_CAT = '0x56Faae610A08b379d4D503fE0Aa7419460BF7377';
 
 function listedMarket(address, symbol, name) {
@@ -89,12 +89,12 @@ function listedMarket(address, symbol, name) {
 
 test('both legacy demo markets are excluded from public browsing', () => {
   assert.equal(isLegacyHiddenMarket(GENESIS), true);
-  assert.equal(isLegacyHiddenMarket(AGENT_SIGNAL), true);
-  assert.deepEqual([...LEGACY_HIDDEN_MARKETS].sort(), [GENESIS, AGENT_SIGNAL].sort());
+  assert.equal(isLegacyHiddenMarket(LEGACY_B), true);
+  assert.deepEqual([...LEGACY_HIDDEN_MARKETS].sort(), [GENESIS, LEGACY_B].sort());
 
   const all = [
     listedMarket(GENESIS, 'MMV6A1', 'MEMEVERSE GENESIS 6A1'),
-    listedMarket(AGENT_SIGNAL, 'MVAGENT', 'MEMEVERSE AGENT SIGNAL'),
+    listedMarket(LEGACY_B, 'MVAGENT', 'DEMO MARKET B'),
     listedMarket(NCIE_CAT, 'NCAT', 'NCIE CAT'),
   ];
   assert.deepEqual(publicMarkets(all).map((m) => m.symbol), ['NCAT']);
@@ -136,8 +136,8 @@ test('case and checksum spelling cannot bypass the exclusion', () => {
     GENESIS.toLowerCase(),
     GENESIS.toUpperCase().replace('0X', '0x'),
     `  ${GENESIS}  `,
-    AGENT_SIGNAL.toLowerCase(),
-    AGENT_SIGNAL.toUpperCase().replace('0X', '0x'),
+    LEGACY_B.toLowerCase(),
+    LEGACY_B.toUpperCase().replace('0X', '0x'),
   ]) {
     assert.equal(isLegacyHiddenMarket(spelling), true, spelling);
     assert.deepEqual(publicMarkets([listedMarket(spelling, 'X', 'X')]), [], spelling);
@@ -216,4 +216,11 @@ test('both judge-facing surfaces filter through the one shared helper', async ()
     false,
     'no surface may render straight from the unfiltered factory result',
   );
+});
+
+test('mainnet genesis shows up-to-date copy without changing other onchain descriptions', () => {
+  const genesis = { address: '0xDCa07Bd83bc7A4220C79afB60F8C2Bb7DC746932', description: 'Old phase notes.' };
+  assert.match(marketDescriptionForDisplay(genesis), /Creator and treasury fees settle/);
+  assert.equal(marketDescriptionForDisplay({ address: '0x1111111111111111111111111111111111111111', description: 'Original creator text.' }), 'Original creator text.');
+  assert.equal(marketDescriptionForDisplay({}), '');
 });
