@@ -6,6 +6,8 @@ import test from 'node:test';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { createReferralService } from '../domain/referral-service.js';
 import { referralAddress, referralMessage, referralShareUrl } from '../../src/referral.js';
+import { startTestApp } from './helpers/app.js';
+import { testAppOrigin } from './helpers/operator.js';
 
 test('wallet referral links are normalized and never trust arbitrary URL input', () => {
   const a = privateKeyToAccount(generatePrivateKey()).address;
@@ -45,4 +47,34 @@ test('referral attribution needs fresh consent from the referred wallet and cann
     service.register({ ...base, signature: await other.signMessage({ message: referralMessage(base) }) }),
     (error) => error.code === 'REFERRAL_NOT_WALLET',
   );
+});
+
+test('referral API requires same-site consent and validates a signed registration', async (t) => {
+  const folder = await mkdtemp(join(tmpdir(), 'memeverse-referral-http-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const member = privateKeyToAccount(generatePrivateKey());
+  const inviter = privateKeyToAccount(generatePrivateKey());
+  const referralService = createReferralService({ storageDir: folder, chainId: 5042 });
+  const app = await startTestApp({ referralService, configOverrides: { arcChainId: 5042 } });
+  t.after(() => app.close());
+  const form = { wallet: member.address, referrer: inviter.address, issuedAt: new Date().toISOString() };
+  const signature = await member.signMessage({ message: referralMessage({ ...form, chainId: 5042 }) });
+  async function send(origin, payload) {
+    return fetch(app.baseUrl + '/api/v1/referrals/register', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(origin ? { origin } : {}) },
+      body: JSON.stringify(payload),
+    });
+  }
+  assert.equal((await send(null, { ...form, signature })).status, 403);
+  assert.equal((await send('https://unrelated.invalid', { ...form, signature })).status, 403);
+  assert.equal((await send(testAppOrigin, { ...form, signature: '0xdead' })).status, 400);
+  const ok = await send(testAppOrigin, { ...form, signature });
+  assert.equal(ok.status, 201);
+  const record = (await ok.json()).data;
+  assert.equal(record.referrer, inviter.address);
+  assert.equal(JSON.stringify(record).includes(signature), false);
+  const retry = await send(testAppOrigin, { ...form, signature });
+  assert.equal(retry.status, 200);
+  assert.equal((await retry.json()).data.existing, true);
 });
