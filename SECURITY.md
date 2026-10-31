@@ -2,7 +2,7 @@
 
 MemeVerse markets are live on Arc mainnet, chain `5042`. A trade is signed by the visitor's own wallet and settled by the market contract. USDC on that chain is real money, and USDC is also the gas. Creator and treasury fees move inside the same trade. The server does not hold the market, does not sign trades, and does not pay creators.
 
-There is no Circle settlement and no agent wallet. Those routes were removed. Nothing in this repository spends from a platform wallet when someone buys or sells.
+The application does not custody user wallets, sign market trades, or offer an automatic reward payout service.
 
 There is no independent audit. MemeVerse is not an official partner of Arc. This application offers only market launches and USDC market trades. MemeVerse does not provide financial advice or support through unsolicited direct messages.
 
@@ -27,7 +27,7 @@ This repository is released under the MIT License in [`LICENSE`](./LICENSE). Cop
 
 ## The server
 
-- The API serves health and media. It does not settle trades, and it does not open a settlement database.
+- The API serves health, market artwork, and signed referral attribution. It does not settle trades or issue reward payouts.
 - A media upload requires the application origin, a short-lived creator signature, and a rate limit. A foreign origin is rejected.
 - `X-Forwarded-For` is ignored unless a trusted proxy hop count is configured.
 - The API sends a Content Security Policy with no wildcard source and no `'unsafe-eval'`. The static site sends `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and `Content-Security-Policy: frame-ancestors 'none'`.
@@ -36,7 +36,11 @@ This repository is released under the MIT License in [`LICENSE`](./LICENSE). Cop
 ## Secrets
 
 - No private key may be committed, logged, or placed in a `VITE_*` variable. Only public browser configuration belongs in `VITE_*`.
-- Leftover Circle credentials in a server environment are unused. They must not be pointed at mainnet, and they must not be copied into the browser bundle.
+- Referral attribution requires a fresh wallet signature, a valid Arc chain id, a different referrer, and one registration per wallet. It stores wallet addresses only; no signing keys or wallet signatures are saved.
+
+## Referrals and campaigns
+
+A referral wallet signs an explicit attribution consent message. This signature cannot approve USDC transfers or market trading. Wallet addresses and their referral relationship are persisted in server storage; do not publish or enumerate those records. A visit, trade, post or referral is not an entitlement to rewards, and no reward claims are open.
 
 ## Reporting a vulnerability
 

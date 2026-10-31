@@ -1,7 +1,7 @@
 /**
  * Pure decisions for the Arc mainnet EOA cutover.
  *
- * Deploy only MemeVerseFactory and one seed market. No Circle client, no private key material,
+ * Deploy only MemeVerseFactory and one seed market. No external signing client or private key material,
  * and no network calls live in this module so the budget rules can be unit tested.
  */
 
@@ -21,7 +21,7 @@ export const BOOKKEEPING_GAS = 150_000n;
 export const SEED_MARKET = Object.freeze({
   name: 'MEMEVERSE GENESIS',
   symbol: 'MMV',
-  description: 'Phase 6A.1 exact-spend market. Creator and treasury fees settle inside the trade. Autonomous rewards are not live.',
+  description: 'Fixed-supply market. Creator and treasury fees settle inside the trade.',
   totalSupplyTokens: 100_000n,
   basePriceUsdc: 100n,
   slopePriceUsdc: 1_000n,

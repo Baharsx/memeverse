@@ -2,8 +2,7 @@
  * Reown AppKit — the WalletConnect-ecosystem wallet modal — wired to MemeVerse's existing Wagmi
  * architecture.
  *
- * NOT Circle App Kit. MemeVerse's Circle App Kit / Stablecoin Kits integration is server-side and
- * is untouched by this file; the `reown` prefixes exist so the two are never confused.
+ * Reown handles wallet connection only. Market trades are signed by the connected wallet.
  *
  * Everything below runs at module scope, on purpose. AppKit registers its web components and its
  * connectors as a side effect of construction, and Wagmi needs the resulting config before the
