@@ -365,3 +365,17 @@ test('contract compilation and production config contain no retired feature entr
   assert.ok(api.includes('setMarketImage'), 'creator market images must stay supported');
   assert.equal(api.includes("NFT_MEDIA"), false, 'removed action must not be supported');
 });
+
+test('both Create and Trade get a green hover / keyboard-focus outline', async () => {
+  const css = await readFile('src/styles.css', 'utf8');
+  const reset = css.lastIndexOf('.economy-step:nth-child(2n)');
+  const sharedHover = css.lastIndexOf('.economy-flow > .economy-step:is(:hover, :focus-visible){');
+  assert.ok(sharedHover > reset, 'hover styling must override the nth-child border resets');
+  assert.match(css.slice(sharedHover), /border-color:rgba\(198,244,50,\.65\)/);
+  assert.match(css.slice(sharedHover), /box-shadow:0 0 0 1px/);
+
+  const styles = [...css.matchAll(/\.hero-mainnet-risk\{([^}]+)\}/g)];
+  const risk = styles.at(-1)?.[1] ?? '';
+  assert.match(risk, /border:0/);
+  assert.match(risk, /background:transparent/);
+});
