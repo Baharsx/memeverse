@@ -12,16 +12,6 @@ const builds = [
     contractNames: ['MemeMarket', 'MemeVerseFactory'],
     viaIR: true,
   },
-  {
-    sourceName: 'MemeVerseMedia.sol',
-    contractNames: ['MemeVerseMediaNFT', 'MemeVerseNFTMarketplace'],
-    viaIR: true,
-  },
-  {
-    sourceName: 'MemeVerseVault.sol',
-    contractNames: ['MemeVerseVault'],
-    viaIR: true,
-  },
 ];
 
 /**
@@ -30,7 +20,7 @@ const builds = [
  *
  * Every resolved file is recorded in the standard JSON input, so the emitted artifact still
  * carries the complete, byte-exact source set the bytecode was produced from — which is what
- * source verification and the onchain audit scripts compare against.
+ * source verification and onchain factory verification can compare against.
  */
 function importResolver(sources) {
   return (importPath) => {
