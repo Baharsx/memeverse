@@ -69,6 +69,7 @@ export function loadServerConfig(environment = process.env) {
     arcFallbackRpcUrl: network.readFallbackRpcUrl,
     arcWalletRpcUrl: network.walletRpcUrl,
     arcExplorerUrl: network.explorerUrl,
+    mediaStorageDir: resolve(process.cwd(), parsed.MEDIA_STORAGE_DIR),
     marketFactoryAddress: network.factory,
     arcUsdcAddress: network.usdc,
     trustedProxyHopCount: parsed.TRUSTED_PROXY_HOP_COUNT,

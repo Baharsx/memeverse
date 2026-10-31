@@ -23,7 +23,7 @@ test('the document metadata describes the shipped product, not the Stage 1 one',
     assert.equal(html.includes(stale), false, `stale framing must be gone: "${stale}"`);
   }
 
-  assert.ok(html.includes('A meme becomes an economy on Arc'), 'the title tells the real story');
+  assert.ok(html.includes('A meme becomes a market on Arc'), 'the title tells the real story');
   assert.ok(html.includes('USDC'), 'metadata must mention USDC');
   assert.equal(html.includes('Circle'), false, 'metadata must not mention Circle');
   assert.equal(/agent wallet/i.test(html), false, 'metadata must not mention an agent wallet');
@@ -276,11 +276,11 @@ test('an unmatched deep link renders a real surface rather than an empty page', 
   assert.ok(router.includes('notFound = null'), 'Routes must accept a not-found element');
   assert.ok(router.includes('return route?.props.element ?? notFound'), 'it must be rendered');
   assert.ok(main.includes('notFound={<NotFound />}'), 'the shell must supply one');
-  assert.ok(main.includes('NO SUCH SURFACE'), 'and it must say what happened');
+  assert.ok(main.includes('PAGE NOT FOUND'), 'and it must say what happened');
 });
 
 
-test('product navigation exposes only launch and markets', async () => {
+test('product navigation exposes live markets and planned community program routes', async () => {
   const main = await readFile('src/main.jsx', 'utf8');
   const nav = [...main.matchAll(/\['0\d', '([A-Z]+)', '(\/[a-z]+)'\]/g)]
     .map((match) => [match[1], match[2]]);
@@ -306,7 +306,7 @@ test('mainnet homepage foregrounds live launch, trade and token markets only', a
   assert.ok(home.includes('TRADE ONCHAIN'));
   assert.ok(home.includes('label="Explore markets"'));
   assert.ok(home.includes('getMarketImages('));
-  assert.ok(home.includes('REAL USDC IS AT RISK'));
+  assert.ok(home.includes('Real USDC is at risk.'));
   assert.equal(home.includes('label="NFTs"'), false);
   assert.equal(home.includes('IN DEVELOPMENT'), false);
   assert.equal(home.includes('THE THREE-MINUTE TOUR'), false);

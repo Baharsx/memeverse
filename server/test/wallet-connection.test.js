@@ -347,10 +347,10 @@ test('the dashboard settings the code cannot enforce are written down', async ()
   for (const setting of ['Email login', 'Social login', 'Swaps', 'On-ramp']) {
     assert.match(section, new RegExp(`\\| ${setting} \\| Disabled \\|`), `${setting} must be documented as disabled`);
   }
-  assert.match(section, /Reown AppKit is not Circle App Kit/);
+  assert.match(section, /Reown AppKit provides wallet connection/);
 });
 
-test('the wallet modal never becomes the Circle App Kit integration by accident', async () => {
+test('the wallet modal contains no retired payment integration', async () => {
   for (const file of ['../../src/wallet-connection.js', '../../src/reown-appkit.js']) {
     const source = await readFile(new URL(file, import.meta.url), 'utf8');
     assert.equal(/circle/i.test(source.replace(/Circle App Kit|Circle wallets|Circle:|Circle\b/g, '')), false,
