@@ -79,7 +79,7 @@ export function contentSecurityPolicyDirectives({ connectSources = [] } = {}) {
     // Injected-provider and animation libraries write style attributes at runtime; no inline
     // <script> is permitted, so this does not enable script execution.
     'style-src': ["'self'", "'unsafe-inline'", ...FONT_STYLESHEET_ORIGINS],
-    // Media NFT artwork is minted by users and lives on hosts MemeVerse does not control, so an
+    // Wallet connection UI may load remote wallet icons. Creator market artwork is stored
     // origin allowlist cannot express the gallery. `https:` is the narrowest expression that still
     // renders a real collection: it is scheme-restricted rather than a wildcard, images cannot
     // execute script, and `referrerPolicy: no-referrer` keeps the visited URL from leaking to the

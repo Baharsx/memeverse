@@ -10,7 +10,6 @@
     "markets:audit:onchain": "node scripts/audit-market-factory-onchain.js",
     "markets:verify": "npm run contracts:compile && node scripts/verify-market-factory.js",
     "deploy:mainnet:eoa": "npm run contracts:compile && node scripts/deploy-arc-mainnet-eoa.js",
-    "assets:audit:onchain": "node scripts/audit-assets-onchain.js",
     "demo:preflight": "node scripts/demo-preflight.js",
     "rpc:burst:check": "node scripts/rpc-burst-check.js",
     "dev": "concurrently -k -n api,web -c magenta,cyan \"npm:dev:api\" \"npm:dev:web\"",

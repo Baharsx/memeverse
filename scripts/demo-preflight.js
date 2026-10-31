@@ -145,17 +145,6 @@ export async function runPreflight(environment = process.env) {
   for (const [label, address] of Object.entries(PINNED)) {
     checks.push(await checkBytecode(client, label, address));
   }
-  checks.push(await checkBytecode(client, 'MEDIA NFT', environment.MEDIA_NFT_ADDRESS));
-  checks.push(await checkBytecode(client, 'NFT MARKETPLACE', environment.NFT_MARKETPLACE_ADDRESS));
-  checks.push(await checkBytecode(client, 'USDC VAULT', environment.USDC_VAULT_ADDRESS));
-
-  const viteMissing = ['VITE_MEDIA_NFT_ADDRESS', 'VITE_NFT_MARKETPLACE_ADDRESS', 'VITE_USDC_VAULT_ADDRESS']
-    .filter((name) => !environment[name]);
-  checks.push(check(
-    'FRONTEND ENV',
-    viteMissing.length === 0 ? CHECK_STATES.PASS : CHECK_STATES.WARN,
-    viteMissing.length === 0 ? 'all VITE_ contract addresses present' : `missing ${viteMissing.join(', ')}`,
-  ));
 
   checks.push(await checkDatabase(environment.DATABASE_URL));
   checks.push(await checkBackend(

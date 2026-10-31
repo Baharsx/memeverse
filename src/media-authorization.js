@@ -19,13 +19,11 @@ export const MEDIA_AUTHORIZATION_VERSION = 1;
 export const MEDIA_AUTHORIZATION_DOMAIN = 'memeverse.biz';
 
 /**
- * Actions are deliberately separate strings inside the signed payload, so a signature collected
- * for one purpose cannot be replayed as the other. Attaching a market's public artwork and
- * committing the bytes behind an NFT are different acts with different consequences.
+ * A signature authorizes only the creator's market artwork. Retired NFT uploads
+ * are no longer a supported action and are rejected by the API.
  */
 export const MEDIA_ACTIONS = Object.freeze({
   MARKET_AVATAR: 'MARKET_AVATAR',
-  NFT_MEDIA: 'NFT_MEDIA',
 });
 
 /** Short-lived on purpose: a leaked authorization should stop being useful in minutes. */

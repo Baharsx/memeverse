@@ -36,7 +36,6 @@ import {
   marketSpotPerTokenLabel,
   publicMarkets,
 } from './market-display';
-import { publicMediaAssets } from './media-display';
 import {
   filterTradeableMarkets,
   marketSoldPercent,
@@ -46,8 +45,6 @@ import {
   readImportedMarketAddresses,
   sortTradeableMarkets,
 } from './imported-markets';
-// Read here only to state truthfully whether this build has the Stage 2 addresses configured.
-import { readMediaAssets, safeMediaUrl, stage2Contracts } from './assets';
 import {
   factoryAbi,
   formatTokenAmount,
@@ -348,8 +345,6 @@ function BackendStatus() {
 const navItems = [
   ['01', 'LAUNCH', '/launch'],
   ['02', 'MARKETS', '/markets'],
-  ['03', 'NFT', '/nft'],
-  ['04', 'VAULT', '/vault'],
 ];
 
 function Shell() {
@@ -384,8 +379,6 @@ function Shell() {
             <Route path="/markets" element={<Markets />} />
             <Route path="/trade" element={<Markets />} />
             <Route path="/launch" element={<Launch />} />
-            <Route path="/nft" element={<UnderBuild n="03" title="NFT" body="Creator pieces, minted and sold in USDC, land here later. Launch and trade are already live." />} />
-            <Route path="/vault" element={<UnderBuild n="04" title="VAULT" body="Deposits and redemptions land here later. Markets already settle in real USDC." />} />
           </Routes>
         </div>
       </main>
@@ -405,8 +398,6 @@ function Shell() {
 const economySteps = [
   ['01', 'CREATE', '/launch', 'A meme becomes an Arc market: a token and its USDC curve, deployed from your own wallet.'],
   ['02', 'TRADE', '/markets', 'Anyone buys and sells it in USDC. The price, the reserve, and the receipt are the chain.'],
-  ['03', 'OWN', '/nft', 'Creator media, minted and sold in USDC, is next. This surface is under build.'],
-  ['04', 'VAULT', '/vault', 'A USDC vault for deposits and redemptions is next. This surface is under build.'],
 ];
 
 function AssetCarousel({ label, detail, trackRef, count, children }) {
@@ -454,17 +445,7 @@ function Home() {
     enabled: listed.length > 0,
     staleTime: 30_000,
   });
-  const nftConfigured = Boolean(stage2Contracts.mediaNft);
-  const collection = useQuery({
-    queryKey: ['home-nfts'],
-    queryFn: () => readMediaAssets({ limit: 240 }),
-    enabled: nftConfigured,
-    retry: 1,
-    refetchInterval: 30_000,
-  });
   const tokenTrack = useRef(null);
-  const nftTrack = useRef(null);
-  const nftAssets = collection.data?.configured ? publicMediaAssets(collection.data.assets) : [];
 
   return (
     <>
@@ -483,11 +464,6 @@ function Home() {
             <NavLink className="btn primary" to="/launch">LAUNCH A MEME →</NavLink>
             <NavLink className="btn secondary" to="/markets">TRADE ONCHAIN →</NavLink>
           </div>
-          <p className="hero-upcoming">
-            <span>IN DEVELOPMENT</span>
-            <NavLink to="/nft">NFT MARKETPLACE ↗</NavLink>
-            <NavLink to="/vault">USDC VAULT ↗</NavLink>
-          </p>
           {ARC_IS_MAINNET ? <p className="hero-mainnet-risk">REAL USDC IS AT RISK · CONTRACTS HAVE NOT BEEN INDEPENDENTLY AUDITED</p> : null}
         </div>
         <aside>
@@ -513,7 +489,7 @@ function Home() {
         ))}
       </section>
 
-      <section className="home-collections" aria-label="Tokens and NFTs">
+      <section className="home-collections" aria-label="Live token markets">
         <AssetCarousel
           label="Tokens"
           detail="Every market on this factory. One card when there is one. Scroll when there are many."
@@ -542,42 +518,7 @@ function Home() {
           ))}
         </AssetCarousel>
 
-        <AssetCarousel
-          label="NFTs"
-          detail="Every piece in the collection. One card when there is one. Scroll when there are many."
-          trackRef={nftTrack}
-          count={nftAssets.length}
-        >
-          {!nftConfigured ? (
-            <article className="carousel-card">
-              <div className="carousel-fallback"><Mascot small /></div>
-              <div>
-                <small>NFT</small>
-                <strong>No collection on this network</strong>
-                <em>This deployment has no NFT contract</em>
-              </div>
-            </article>
-          ) : null}
-          {nftConfigured && collection.isPending ? (
-            <article className="carousel-card"><div><small>NFT</small><strong>Reading the collection</strong></div></article>
-          ) : null}
-          {nftConfigured && collection.isSuccess && nftAssets.length === 0 ? (
-            <NavLink className="carousel-card" to="/nft">
-              <div className="carousel-fallback"><Mascot small /></div>
-              <div><small>NFT</small><strong>No NFTs yet</strong><em>Mint the first piece</em></div>
-            </NavLink>
-          ) : null}
-          {nftAssets.map((asset) => (
-            <NavLink key={String(asset.tokenId)} className="carousel-card" to="/nft">
-              <CarouselArt src={safeMediaUrl(asset.metadata?.image)} alt="" />
-              <div>
-                <small>NFT</small>
-                <strong>{asset.metadata?.name ?? `NFT #${String(asset.tokenId)}`}</strong>
-                <em>{asset.listing?.fillable ? `${asset.listing.priceUsdc} USDC` : 'IN THE COLLECTION'}</em>
-              </div>
-            </NavLink>
-          ))}
-        </AssetCarousel>
+
       </section>
     </>
   );
@@ -606,24 +547,6 @@ function NotFound() {
         ))}
       </div>
       <NavLink className="btn primary" to="/">BACK TO MEMEVERSE →</NavLink>
-    </section>
-  );
-}
-
-function UnderBuild({ n, title, body }) {
-  return (
-    <section className="page under-build">
-      <div className="under-build-card">
-        <Mascot />
-        <span className="under-build-chip"><i />UNDER BUILD</span>
-        <p className="under-build-index">{n}</p>
-        <h1>{title}</h1>
-        <p className="lede">{body}</p>
-        <div className="under-build-actions">
-          <NavLink className="btn primary" to="/markets">TRADE LIVE MARKETS →</NavLink>
-          <NavLink className="btn" to="/launch">LAUNCH A MEME</NavLink>
-        </div>
-      </div>
     </section>
   );
 }

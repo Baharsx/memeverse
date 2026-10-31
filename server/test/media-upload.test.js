@@ -348,22 +348,12 @@ test('a signature bound to another market does not authorize this one', async (t
   assert.equal((await response.json()).error.code, 'MEDIA_NOT_CREATOR');
 });
 
-test('the two media actions are domain separated in both directions', async (t) => {
+test('removed NFT_MEDIA uploads fail closed as an unknown action', async (t) => {
   const app = await withMediaApp(t);
-
-  // A MARKET_AVATAR signature replayed as an NFT_MEDIA upload.
-  const avatarSignature = await signedUpload({ signMessageAs: { action: 'MARKET_AVATAR' } });
-  const asNft = await uploadRequest(app.baseUrl, { ...avatarSignature, action: 'NFT_MEDIA' });
-  assert.equal(asNft.status, 403);
-  assert.equal((await asNft.json()).error.code, 'MEDIA_NOT_CREATOR');
-
-  // And an NFT_MEDIA signature replayed as a market avatar.
-  const nftSignature = await signedUpload({
-    action: 'NFT_MEDIA', signMessageAs: { action: 'NFT_MEDIA' },
-  });
-  const asAvatar = await uploadRequest(app.baseUrl, { ...nftSignature, action: 'MARKET_AVATAR' });
-  assert.equal(asAvatar.status, 403);
-  assert.equal((await asAvatar.json()).error.code, 'MEDIA_NOT_CREATOR');
+  const upload = await signedUpload();
+  const response = await uploadRequest(app.baseUrl, { ...upload, action: 'NFT_MEDIA' });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error.code, 'MEDIA_ACTION_INVALID');
 });
 
 test('an unknown action is rejected outright', async (t) => {
@@ -372,17 +362,6 @@ test('an unknown action is rejected outright', async (t) => {
   const response = await uploadRequest(app.baseUrl, { ...upload, action: 'DRAIN_TREASURY' });
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error.code, 'MEDIA_ACTION_INVALID');
-});
-
-test('an NFT_MEDIA upload stores content without touching the market avatar pointer', async (t) => {
-  const app = await withMediaApp(t);
-  const upload = await signedUpload({
-    action: 'NFT_MEDIA', signMessageAs: { action: 'NFT_MEDIA' },
-  });
-  const response = await uploadRequest(app.baseUrl, upload);
-  assert.equal(response.status, 201);
-  // The bytes are hosted, but the market's public artwork is untouched: these are different acts.
-  assert.equal(await app.store.getMarketImage(testMarket), null);
 });
 
 test('uploading identical bytes twice is idempotent', async (t) => {
@@ -619,7 +598,6 @@ test('the canonical message binds every security-relevant field', () => {
 
   // Changing any bound field changes the text a wallet signs.
   for (const change of [
-    { action: 'NFT_MEDIA' },
     { chainId: 1 },
     { market: getAddress('0x4444444444444444444444444444444444444444') },
     { contentHash: `0x${'cd'.repeat(32)}` },
