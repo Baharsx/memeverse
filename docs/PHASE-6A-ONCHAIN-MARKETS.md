@@ -30,4 +30,4 @@ The cumulative curve is `C(q) = bq + floor(mq(q-1)/(2(T-1)))` in six-decimal USD
 
 This legacy MVP trades whole tokens only, has no external liquidity or price oracle, can retain a non-withdrawable unused buy budget, and is not independently audited. The contracts have no upgrade, admin mutation, arbitrary call, or withdrawal path. Mainnet use is prohibited.
 
-NFT and legacy Vault surfaces remain simulations for Phase 6B.
+Historical plan: non-market surfaces were never part of the current mainnet product.
