@@ -108,3 +108,12 @@ export function mediaContentUrl(path) {
   if (typeof path !== 'string' || !path.startsWith('/api/v1/media/content/')) return null;
   return `${API_BASE_URL}${path}`;
 }
+
+/** An explicitly signed, idempotent wallet referral registration. */
+export async function registerReferral({ wallet, referrer, issuedAt, signature }) {
+  const result = await request('/api/v1/referrals/register', {
+    method: 'POST',
+    body: JSON.stringify({ wallet, referrer, issuedAt, signature }),
+  });
+  return result.data;
+}

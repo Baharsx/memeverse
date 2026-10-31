@@ -16,6 +16,7 @@ export function createApp({
   config,
   arcRpc,
   mediaService,
+  referralService,
   logger = console,
 }) {
   const app = express();
@@ -30,6 +31,7 @@ export function createApp({
   const limiter = {
     global: createLimiter(limits.global ?? 240),
     mediaUpload: createLimiter(limits.mediaUpload ?? 20),
+    referral: createLimiter(12),
   };
 
   app.disable('x-powered-by');
@@ -160,6 +162,15 @@ export function createApp({
     response.set('x-content-type-options', 'nosniff');
     response.send(content.bytes);
   });
+
+  app.post('/api/v1/referrals/register', limiter.referral, requireOrigin,
+    async (request, response) => {
+      if (!referralService) {
+        throw new DomainError('REFERRALS_UNAVAILABLE', 'Referral registration is not available.', { status: 503 });
+      }
+      const result = await referralService.register(request.body ?? {});
+      response.status(result.existing ? 200 : 201).json(responseData(result));
+    });
 
   app.get('/api/v1/media/markets', async (request, response) => {
     const requested = String(request.query.markets ?? '')
