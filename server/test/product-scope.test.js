@@ -284,8 +284,8 @@ test('product navigation exposes only launch and markets', async () => {
   const main = await readFile('src/main.jsx', 'utf8');
   const nav = [...main.matchAll(/\['0\d', '([A-Z]+)', '(\/[a-z]+)'\]/g)]
     .map((match) => [match[1], match[2]]);
-  assert.deepEqual(nav, [['LAUNCH', '/launch'], ['MARKETS', '/markets']]);
-  for (const path of ['/', '/launch', '/markets']) {
+  assert.deepEqual(nav, [['LAUNCH', '/launch'], ['MARKETS', '/markets'], ['REFERRAL', '/referral'], ['CAMPAIGNS', '/campaigns']]);
+  for (const path of ['/', '/launch', '/markets', '/referral', '/campaigns']) {
     assert.ok(main.includes('path="' + path + '"'), 'live route ' + path);
   }
   for (const removed of ['/nft', '/vault']) {
@@ -293,6 +293,7 @@ test('product navigation exposes only launch and markets', async () => {
   }
   assert.ok(main.includes('notFound={<NotFound />}'), 'old deep links get a 404 surface');
   assert.ok(main.includes('market-images'), 'market artwork still loads independently');
+  assert.ok(main.includes('<Referral />') && main.includes('<Campaigns />'), 'community routes are wired');
   assert.ok(main.includes('MARKET IMAGE (OPTIONAL)'), 'image upload remains part of launch');
 });
 
@@ -300,10 +301,10 @@ test('mainnet homepage foregrounds live launch, trade and token markets only', a
   const main = await readFile('src/main.jsx', 'utf8');
   const home = main.slice(main.indexOf('function Home()'), main.indexOf('function CarouselArt('));
   assert.ok(home.includes('A MEME'));
-  assert.ok(home.includes('<mark>ECONOMY.</mark>'));
+  assert.ok(home.includes('<mark>MARKET.</mark>'));
   assert.ok(home.includes('LAUNCH A MEME'));
   assert.ok(home.includes('TRADE ONCHAIN'));
-  assert.ok(home.includes('label="Tokens"'));
+  assert.ok(home.includes('label="Explore markets"'));
   assert.ok(home.includes('getMarketImages('));
   assert.ok(home.includes('REAL USDC IS AT RISK'));
   assert.equal(home.includes('label="NFTs"'), false);

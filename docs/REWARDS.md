@@ -8,14 +8,14 @@ are separate from any future community reward initiative.
 
 ## Referral attribution (operational, no payouts)
 
-A connected wallet can create a shareable link: \`/referral?ref=0x...\`.
+A connected wallet can create a shareable link: `/referral?ref=0x...`.
 An invitee visiting that link must connect their **own** wallet and confirm
 the referrer with a free EIP-191 message signature. The message binds the domain,
 network chain id, both wallet addresses, and a five-minute timestamp.
 
 The backend checks origin, rate limits, signature age, signer identity, and
 referrer != invitee. One address may register once; it cannot switch referrers.
-The resulting wallet-to-wallet record is stored in \`MEDIA_STORAGE_DIR/referrals/\`.
+The resulting wallet-to-wallet record is stored in `MEDIA_STORAGE_DIR/referrals/`.
 Only wallet address, referrer, chain id and timestamp are stored. No signature
 or private key is retained. Backup this directory with media storage. The
 registration endpoint does not disclose referral lists or aggregated metrics.
@@ -26,7 +26,7 @@ been defined. Do not promise financial returns or invite wash trading.
 
 ## Campaigns (planning only)
 
-The \`/campaigns\` page explains planned categories:
+The `/campaigns` page explains planned categories:
 - Trading activity, subject to independently defined anti-abuse criteria.
 - Original educational, social, or creator content.
 - Useful community participation.
