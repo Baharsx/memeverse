@@ -1,6 +1,6 @@
 # Arc mainnet cutover
 
-Status: **MemeVerse is live on Arc mainnet (chain 5042).** Production (https://memeverse.biz) serves that chain. A buy and a sell of the seed market are recorded below. No independent audit. Not an official partner. Autonomous rewards are not live.
+Status: **MemeVerse Launch and Markets are live on Arc mainnet (chain 5042).** Production (https://memeverse.biz) serves that chain. A buy and a sell of the seed market are recorded below. No independent audit. Not an official partner. Autonomous rewards are not live.
 
 This cutover deploys with an EOA. **Circle is not used on mainnet.** Do not call the Circle Contracts API, `circle:setup`, `circle:fund`, or `circle:deploy:*` against chain 5042. Do not create a Circle agent wallet. `AGENT_AUTONOMOUS_ENABLED` stays `false`. Autonomous rewards are not live. Creator and treasury fees still settle inside the trade.
 
@@ -29,9 +29,6 @@ Read RPC and wallet EIP-3085 RPC stay separate env fields even when the host is 
 | Factory | `0x363124490E953EEbB414eB4c3e2f03a40eef8F2C` |
 | Settlement (manual) | `0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7` |
 | Seed market | `0xBe6E56a8B5ec8861aE1284dF3f60E27953f2d39D` |
-| MediaNFT | `0x56A6f87e4d026E6D9d3E3c791A3A30e023bf1CFD` |
-| NFTMarketplace | `0xfc3e869bA4Dd808A0942bc9C034f6f8427a08666` |
-| Vault | `0xe26EeA49973226b406fd92Bd178484a29D7F7C05` |
 | Agent settlement | `0x2176107C2562Ed30ca1d490C43cD53C3369946e2` |
 
 Banned on every chain (legacy Phase 6A buy path):
@@ -43,7 +40,7 @@ Banned on every chain (legacy Phase 6A buy path):
 
 `npm run deploy:mainnet:eoa` deploys **MemeVerseFactory** and **one seed market** only. Constructor arguments match the testnet Phase 6A.1 exact-spend factory: USDC `0x3600…0000`, treasury = deployer, creator fee 100 bps, treasury fee 100 bps. The seed market is MEMEVERSE GENESIS / MMV, supply 100000, base price 100, slope 1000 (6-decimal USDC units).
 
-MediaNFT, the NFT marketplace, and the vault are skipped. Leave those env values empty or unchanged. Do not point them at the testnet addresses while `VITE_ARC_NETWORK=mainnet`.
+Only the factory and seed market were deployed in this cutover. The application now focuses on launching and trading USDC markets.
 
 The script reads `DEPLOYER_PRIVATE_KEY` from the environment or from `/etc/memeverse/memeverse.env`. It never prints the key. It refuses to broadcast unless `eth_chainId` is 5042, the balance is at least 0.8 native USDC, and the estimated deploy cost leaves at least 0.15 native USDC.
 
@@ -59,7 +56,6 @@ Default env still selects testnet, so memeverse.biz does not flip until the serv
 | Explorer `testnet.arcscan.app` | testnet catalog and the testnet verify script |
 | Circle | not used. The Circle and agent settlement programs were removed from this repository |
 | Factory `0x3631…` | testnet catalog default. On mainnet a stale `MARKET_FACTORY_ADDRESS` is ignored. A new `VITE_MEMEVERSE_FACTORY_ADDRESS` or `VITE_MARKET_FACTORY_ADDRESS` that is a testnet product contract is rejected |
-| VITE media / marketplace / vault | testnet addresses in `.env.example`. A mainnet build nulls them when they are testnet product contracts |
 | Imported-markets localStorage | `memeverse.imported-markets.v1.<chainId>` |
 | `publicMarkets()` | still a synchronous presentation filter. `loadMarkets` drops addresses where `factory.isMarket` is false |
 
@@ -73,9 +69,6 @@ Filled after the EOA deploy. Empty until then. Never copy a testnet address into
 | --- | --- | --- |
 | Factory | `0x177492EFFbe5F7847994696ef4C9B24b8C9C13BE` | [`0xf22d7f45…`](https://explorer.arc.io/tx/0xf22d7f45a8bd53a19fed27b2bdde68a092cd98cf862f9bccdb5a962445df66e2) |
 | Seed market | `0xDCa07Bd83bc7A4220C79afB60F8C2Bb7DC746932` | [`0x17943aeb…`](https://explorer.arc.io/tx/0x17943aebd1437c85dde62b5375b1a24e54a5ca1f682313ba033e2c37b9a31fca) |
-| MediaNFT | not in this cutover | |
-| NFTMarketplace | not in this cutover | |
-| Vault | not in this cutover | |
 | Settlement | not in this cutover. Circle settlement stays testnet-only | |
 
 Deployed 2026-10-08 from `0x5A119569569907B5D8bb94efA84375682240A85c`. `eth_chainId` was 5042 on `https://rpc.mainnet.arc.io` and on `https://rpc.drpc.mainnet.arc.io`. Factory constructor: USDC `0x3600000000000000000000000000000000000000`, treasury = deployer, creator fee 100 bps, treasury fee 100 bps. Seed market MEMEVERSE GENESIS / MMV is the only `markets(0)` entry, and `isMarket` is true. Explorer source is verified for `MemeVerseFactory` and `MemeMarket` (`MemeVerseMarket.sol`, solc `v0.8.30+commit.73712a01`, optimizer 200 runs, EVM cancun): [factory](https://explorer.arc.io/address/0x177492EFFbe5F7847994696ef4C9B24b8C9C13BE) and [seed](https://explorer.arc.io/address/0xDCa07Bd83bc7A4220C79afB60F8C2Bb7DC746932). Native balance after both receipts: 1.006293 USDC.

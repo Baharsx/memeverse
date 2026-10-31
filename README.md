@@ -5,10 +5,10 @@ A meme becomes a market. People trade it in USDC on Arc. Creator and treasury fe
 Live at **<https://memeverse.biz>**.
 
 ```
-LAUNCH → MARKETS → NFT → VAULT
+LAUNCH → MARKETS
 ```
 
-Launch and markets are on Arc mainnet, chain `5042`. NFT and the vault are in the app. They are not deployed on this mainnet yet, so the wider product is not mainnet-ready. There is no independent audit. MemeVerse does not use Circle.
+Launch and markets are on Arc mainnet, chain `5042`, using real USDC. Contract code has not been independently audited. MemeVerse does not use Circle. The active product is market launch and trading only.
 
 Proof and addresses: [`docs/MAINNET.md`](./docs/MAINNET.md).
 
@@ -34,7 +34,7 @@ Turn those four off in the Reown dashboard. The dashboard overrides the code.
 
 ## Production
 
-The site is a single-page app. `/`, `/markets`, `/launch`, `/nft`, and `/vault` must still open on refresh. nginx serves the files and these headers:
+The site is a single-page app. `/`, `/markets`, and `/launch` must still open on refresh. nginx serves the files and these headers:
 
 ```nginx
 location /memeverse/ {

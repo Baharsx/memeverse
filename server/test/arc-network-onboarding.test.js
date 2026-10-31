@@ -437,11 +437,10 @@ test('J: every write path still gates on the wallet real chain', async () => {
     'being on Arc is not enough: the session must be able to carry an Arc request');
   assert.match(hook, /const \{ address, chainId, isConnected, connector \} = useAccount\(\)/,
     'the guard must read the connection chain, not the config default');
-  // The four surfaces that can move money still read the same single answer.
+  // Launch, Markets and wallet UI all share the same chain guard.
   assert.equal((main.match(/useArcNetwork\(\)/g) ?? []).length >= 4, true);
   assert.equal(main.includes('useChainId'), false, 'useChainId cannot see an unsupported chain');
-  const stage2 = await readFile(new URL('../../src/stage2-views.jsx', import.meta.url), 'utf8');
-  assert.match(stage2, /return useArcNetwork\(\)/);
+  assert.equal(main.includes('stage2-views'), false, 'retired write surfaces must not be imported');
 });
 
 test('J2: the control reports a failure instead of silently discarding it', async () => {

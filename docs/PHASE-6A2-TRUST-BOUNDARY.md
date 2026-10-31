@@ -1,4 +1,4 @@
-# Phase 6A.2 — Trust boundary and concurrency hardening
+# Phase 6.2 — Trust boundary and concurrency hardening
 
 Phase 6A.1 made MemeVerse markets a real Arc Public Testnet product. Phase 6A.2 closes the
 trust-boundary gaps in the Agent/Settlement backend that stood between that product and any

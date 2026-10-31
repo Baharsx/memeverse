@@ -1,4 +1,4 @@
-# Phase 6A.2.1 — Atomic execution claim
+# Phase 6.2.1 — Atomic execution claim
 
 A final review of Phase 6A.2 found one remaining concurrency gap. This patch closes it and
 tightens two smaller configuration and housekeeping issues. It changes no contract, deploys

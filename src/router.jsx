@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 
 /**
- * The application's tiny history router, extracted from `main.jsx` so the lazily loaded Stage 2
- * and Stage 3 surfaces can link into the guided demo path without importing the entry module and
- * pulling it back into their chunk.
+ * The application's tiny history router for the Launch and Markets surfaces.
+ * It keeps navigation independent of the larger app entry module.
  *
  * It is deliberately small: `pushState` plus a `popstate` listener. There is no route matching
  * beyond exact equality, because MemeVerse has a fixed set of top-level surfaces and a parameter

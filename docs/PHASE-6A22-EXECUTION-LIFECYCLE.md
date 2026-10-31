@@ -1,4 +1,4 @@
-# Phase 6A.2.2 — Execution lifecycle finalization
+# Phase 6.2.2 — Execution lifecycle finalization
 
 Phase 6A.2.1 made submission pass through one durable, atomic execution claim. A final
 end-to-end review found that the claim was correct but the *lifecycle around it* was not: a quote

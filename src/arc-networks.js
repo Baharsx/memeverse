@@ -50,9 +50,6 @@ export const TESTNET_PRODUCT_CONTRACTS = Object.freeze({
   factory: '0x363124490E953EEbB414eB4c3e2f03a40eef8F2C',
   settlement: '0x8E09979fdb97A3F2d2c797F3274Eff6B67c5c9e7',
   seedMarket: '0xBe6E56a8B5ec8861aE1284dF3f60E27953f2d39D',
-  mediaNft: '0x56A6f87e4d026E6D9d3E3c791A3A30e023bf1CFD',
-  nftMarketplace: '0xfc3e869bA4Dd808A0942bc9C034f6f8427a08666',
-  vault: '0xe26EeA49973226b406fd92Bd178484a29D7F7C05',
   agentSettlement: '0x2176107C2562Ed30ca1d490C43cD53C3369946e2',
 });
 
@@ -61,7 +58,16 @@ function lower(address) {
 }
 
 const BANNED_SET = new Set(BANNED_CONTRACTS.map(lower));
-const TESTNET_PRODUCT_SET = new Set(Object.values(TESTNET_PRODUCT_CONTRACTS).map(lower));
+// Retired testnet deployments remain in the cross-network safety denylist only.
+const RETIRED_TESTNET_ADDRESSES = Object.freeze([
+  '0x56A6f87e4d026E6D9d3E3c791A3A30e023bf1CFD',
+  '0xfc3e869bA4Dd808A0942bc9C034f6f8427a08666',
+  '0xe26EeA49973226b406fd92Bd178484a29D7F7C05',
+]);
+const TESTNET_PRODUCT_SET = new Set([
+  ...Object.values(TESTNET_PRODUCT_CONTRACTS),
+  ...RETIRED_TESTNET_ADDRESSES,
+].map(lower));
 
 export function isBannedContract(address) {
   return BANNED_SET.has(lower(address));
@@ -111,9 +117,6 @@ export const ARC_NETWORKS = Object.freeze({
     factory: TESTNET_PRODUCT_CONTRACTS.factory,
     settlement: TESTNET_PRODUCT_CONTRACTS.settlement,
     seedMarket: TESTNET_PRODUCT_CONTRACTS.seedMarket,
-    mediaNft: TESTNET_PRODUCT_CONTRACTS.mediaNft,
-    nftMarketplace: TESTNET_PRODUCT_CONTRACTS.nftMarketplace,
-    vault: TESTNET_PRODUCT_CONTRACTS.vault,
     isTestnet: true,
   }),
   mainnet: Object.freeze({
@@ -140,9 +143,6 @@ export const ARC_NETWORKS = Object.freeze({
     factory: null,
     settlement: null,
     seedMarket: null,
-    mediaNft: null,
-    nftMarketplace: null,
-    vault: null,
     isTestnet: false,
   }),
 });
@@ -321,18 +321,6 @@ export function resolveArcNetwork(env = {}) {
     { value: firstNonEmpty(env, ['VITE_SETTLEMENT_ADDRESS']), stale: true },
     { value: firstNonEmpty(env, ['CIRCLE_SETTLEMENT_CONTRACT_ADDRESS']), stale: true },
   ]);
-  const mediaNft = pickProductAddress(name, 'MEDIA_NFT_ADDRESS', [
-    { value: firstNonEmpty(env, ['VITE_MEDIA_NFT_ADDRESS']), stale: true },
-    { value: firstNonEmpty(env, ['MEDIA_NFT_ADDRESS']), stale: true },
-  ]);
-  const nftMarketplace = pickProductAddress(name, 'NFT_MARKETPLACE_ADDRESS', [
-    { value: firstNonEmpty(env, ['VITE_NFT_MARKETPLACE_ADDRESS']), stale: true },
-    { value: firstNonEmpty(env, ['NFT_MARKETPLACE_ADDRESS']), stale: true },
-  ]);
-  const vault = pickProductAddress(name, 'USDC_VAULT_ADDRESS', [
-    { value: firstNonEmpty(env, ['VITE_USDC_VAULT_ADDRESS']), stale: true },
-    { value: firstNonEmpty(env, ['USDC_VAULT_ADDRESS']), stale: true },
-  ]);
   const usdc = optionalAddress(firstNonEmpty(env, ['VITE_USDC_ADDRESS', 'ARC_USDC_ADDRESS']), 'USDC_ADDRESS')
     ?? catalog.usdc;
 
@@ -361,9 +349,6 @@ export function resolveArcNetwork(env = {}) {
     usdc,
     factory: factory ?? catalog.factory,
     settlement: settlement ?? catalog.settlement,
-    mediaNft: mediaNft ?? catalog.mediaNft,
-    nftMarketplace: nftMarketplace ?? catalog.nftMarketplace,
-    vault: vault ?? catalog.vault,
   });
 }
 
