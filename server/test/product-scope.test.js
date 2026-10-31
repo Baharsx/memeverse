@@ -304,7 +304,8 @@ test('mainnet homepage foregrounds live launch, trade and token markets only', a
   assert.ok(home.includes('TRADE ONCHAIN'));
   assert.ok(home.includes('label="Explore markets"'));
   assert.ok(home.includes('getMarketImages('));
-  assert.ok(home.includes('Real USDC is at risk.'));
+  assert.equal(home.includes('Real USDC is at risk.'), false);
+  assert.equal(home.includes('hero-mainnet-risk'), false);
   assert.equal(home.includes('label="NFTs"'), false);
   assert.equal(home.includes('IN DEVELOPMENT'), false);
   assert.equal(home.includes('THE THREE-MINUTE TOUR'), false);
@@ -364,4 +365,15 @@ test('contract compilation and production config contain no retired feature entr
   }
   assert.ok(api.includes('setMarketImage'), 'creator market images must stay supported');
   assert.equal(api.includes("NFT_MEDIA"), false, 'removed action must not be supported');
+});
+
+test('both Create and Trade get a green hover / keyboard-focus outline', async () => {
+  const css = await readFile('src/styles.css', 'utf8');
+  const reset = css.lastIndexOf('.economy-step:nth-child(2n)');
+  const sharedHover = css.lastIndexOf('.economy-flow > .economy-step:is(:hover, :focus-visible){');
+  assert.ok(sharedHover > reset, 'hover styling must override the nth-child border resets');
+  assert.match(css.slice(sharedHover), /border-color:rgba\(198,244,50,\.65\)/);
+  assert.match(css.slice(sharedHover), /box-shadow:0 0 0 1px/);
+
+  assert.equal(css.includes('.hero-mainnet-risk'), false, 'removed homepage warning must have no leftover styles');
 });

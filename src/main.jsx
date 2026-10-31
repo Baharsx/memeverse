@@ -470,7 +470,6 @@ function Home() {
             <NavLink className="btn primary" to="/launch">LAUNCH A MEME →</NavLink>
             <NavLink className="btn secondary" to="/markets">TRADE ONCHAIN →</NavLink>
           </div>
-          {ARC_IS_MAINNET ? <p className="hero-mainnet-risk">Real USDC is at risk. Contracts have not been independently audited.</p> : null}
         </div>
         <aside>
           <Mascot />
