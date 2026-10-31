@@ -1010,8 +1010,14 @@ label>input:focus-visible,label>textarea:focus-visible,label>select:focus-visibl
 
 
 .hero h1{font-size:clamp(54px,7vw,102px);line-height:.98;letter-spacing:-.055em}
-.hero-mainnet-risk{display:flex;gap:10px;max-width:550px;margin:18px 0 0!important;padding:12px 14px;border:1px solid rgba(255,255,255,.16);border-radius:13px;background:rgba(255,255,255,.04);color:#c3c5c8!important;font:12px/1.5 var(--ui)!important}
-.hero-mainnet-risk:before{content:"ⓘ";color:var(--acid);font-weight:700}
+/* Keep the real-money risk disclosure visible but visually subordinate to the actions. */
+.hero-mainnet-risk{
+  display:flex;align-items:baseline;gap:9px;max-width:620px;
+  margin:12px 0 0;padding:0;
+  border:0;background:transparent;border-radius:0;box-shadow:none;
+  color:#989ba2;font:500 12px/1.5 var(--ui);
+}
+.hero-mainnet-risk::before{content:"ⓘ";color:#a7c64a;font-weight:700;flex:none}
 .economy-flow{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding-bottom:24px}
 .economy-step,.economy-step:nth-child(2n),.economy-step:last-child{min-height:160px;padding:20px 22px;border:1px solid rgba(255,255,255,.1);border-radius:20px}
 .economy-step strong{margin:10px 0 8px;font-size:25px}
@@ -1097,3 +1103,16 @@ label>input:focus-visible,label>textarea:focus-visible,label>select:focus-visibl
 .home-community-card p{margin:0;max-width:47ch;color:#abaeb4;font:13px/1.5 var(--ui)}
 .home-community-card b{position:absolute;top:20px;right:22px;color:var(--acid)}
 @media(max-width:650px){.home-community{grid-template-columns:1fr}.home-community-card{padding:18px}}
+
+/* The later :nth-child(2n) and :last-child border resets were overriding the
+   equally specific :hover rule on the second (TRADE) card. This selector has
+   greater specificity and also supports keyboard focus. */
+.economy-flow > .economy-step:is(:hover, :focus-visible){
+  border-color:rgba(198,244,50,.65);
+  background:rgba(255,255,255,.07);
+  color:var(--ink);
+  box-shadow:0 0 0 1px rgba(198,244,50,.12),0 18px 40px rgba(0,0,0,.28);
+}
+.economy-flow > .economy-step:is(:hover, :focus-visible) span,
+.economy-flow > .economy-step:is(:hover, :focus-visible) b{color:var(--acid)}
+.economy-flow > .economy-step:is(:hover, :focus-visible) p{color:var(--mute)}
