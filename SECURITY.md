@@ -4,7 +4,7 @@ MemeVerse markets are live on Arc mainnet, chain `5042`. A trade is signed by th
 
 There is no Circle settlement and no agent wallet. Those routes were removed. Nothing in this repository spends from a platform wallet when someone buys or sells.
 
-There is no independent audit. MemeVerse is not an official partner of Arc. This application offers only market launches and USDC market trades; historical NFT and vault features have been removed. MemeVerse does not provide financial advice or support through unsolicited direct messages.
+There is no independent audit. MemeVerse is not an official partner of Arc. This application offers only market launches and USDC market trades. MemeVerse does not provide financial advice or support through unsolicited direct messages.
 
 This repository is released under the MIT License in [`LICENSE`](./LICENSE). Copyright (c) 2026 Soheil SL. The file is the full MIT text, including the warranty disclaimer and the liability limit. A market that moves real USDC does not add a warranty the license does not give.
 

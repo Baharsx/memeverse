@@ -190,15 +190,13 @@ export class MediaService {
       mimeType: detected,
     });
 
-    if (normalizedAction === MEDIA_ACTIONS.MARKET_AVATAR) {
-      await this.store.setMarketImage({
-        market: normalizedMarket,
-        contentId: stored.contentId,
-        contentHash: actualHash,
-        mimeType: detected,
-        creator: resolved.creatorAddress,
-      });
-    }
+    await this.store.setMarketImage({
+      market: normalizedMarket,
+      contentId: stored.contentId,
+      contentHash: actualHash,
+      mimeType: detected,
+      creator: resolved.creatorAddress,
+    });
 
     return {
       action: normalizedAction,

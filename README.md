@@ -8,7 +8,7 @@ Live at **<https://memeverse.biz>**.
 LAUNCH → MARKETS
 ```
 
-Launch and markets are on Arc mainnet, chain `5042`, using real USDC. Contract code has not been independently audited. MemeVerse does not use Circle. Historical NFT and vault experiments have been retired from this application; the active product is market launch and trading only.
+Launch and markets are on Arc mainnet, chain `5042`, using real USDC. Contract code has not been independently audited. MemeVerse does not use Circle. The active product is market launch and trading only.
 
 Proof and addresses: [`docs/MAINNET.md`](./docs/MAINNET.md).
 
