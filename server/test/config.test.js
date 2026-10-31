@@ -4,19 +4,21 @@ import { loadServerConfig } from '../config.js';
 
 const productionDatabase = 'postgresql://memeverse:secret@db.example.test:5432/memeverse';
 
-test('production requires managed PostgreSQL and does not run migrations', () => {
-  assert.throws(
-    () => loadServerConfig({ NODE_ENV: 'production' }),
-    /DATABASE_URL is required/,
-  );
-  const config = loadServerConfig({
+test('production API no longer requires an unused settlement database', () => {
+  const withoutDb = loadServerConfig({ NODE_ENV: 'production' });
+  assert.equal(withoutDb.runDatabaseMigrations, false);
+  assert.equal(withoutDb.databaseUrl, undefined);
+  assert.equal(withoutDb.secureCookies, true);
+  assert.equal(withoutDb.settlementOperatorAddress, undefined);
+
+  // A legacy deployment may still provide DATABASE_URL. It remains optional,
+  // but it must not reactivate removed settlement code.
+  const withLegacyDb = loadServerConfig({
     NODE_ENV: 'production',
     DATABASE_URL: productionDatabase,
   });
-  assert.equal(config.runDatabaseMigrations, false);
-  assert.equal(config.databaseUrl.startsWith('postgresql://'), true);
-  assert.equal(config.secureCookies, true);
-  assert.equal(config.settlementOperatorAddress, undefined);
+  assert.equal(withLegacyDb.databaseUrl, productionDatabase);
+  assert.equal(withLegacyDb.runDatabaseMigrations, false);
 });
 
 test('leftover Circle credentials do not configure a settlement route', () => {
