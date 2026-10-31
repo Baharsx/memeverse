@@ -19,8 +19,8 @@ export const MEDIA_AUTHORIZATION_VERSION = 1;
 export const MEDIA_AUTHORIZATION_DOMAIN = 'memeverse.biz';
 
 /**
- * A signature authorizes only the creator's market artwork. Retired NFT uploads
- * are no longer a supported action and are rejected by the API.
+ * A signature authorizes only the creator's market artwork. Unsupported media
+ * actions are rejected by the API.
  */
 export const MEDIA_ACTIONS = Object.freeze({
   MARKET_AVATAR: 'MARKET_AVATAR',

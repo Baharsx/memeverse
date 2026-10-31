@@ -345,3 +345,24 @@ test('mobile navigation remains keyboard accessible after scope reduction', asyn
   assert.ok(/\.site-header nav\{[^}]*overflow-x:auto/.test(css));
   assert.ok(css.includes('prefers-reduced-motion'));
 });
+
+test('contract compilation and production config contain no retired feature entry points', async () => {
+  const compile = await readFile('scripts/compile-contracts.js', 'utf8');
+  const project = JSON.parse(await readFile('package.json', 'utf8'));
+  const network = await readFile('src/arc-networks.js', 'utf8');
+  const api = await readFile('server/domain/media-service.js', 'utf8');
+  const env = await readFile('.env.example', 'utf8');
+  const opsEnv = await readFile('ops/systemd/memeverse.env.example', 'utf8');
+  assert.ok(compile.includes("sourceName: 'MemeVerseMarket.sol'"));
+  for (const retired of ['MemeVerseMedia.sol', 'MemeVerseVault.sol']) {
+    assert.equal(compile.includes(retired), false, retired + ' must not be compiled');
+  }
+  for (const retired of ['assets:audit:onchain']) {
+    assert.equal(Object.hasOwn(project.scripts, retired), false);
+  }
+  for (const source of [network, env, opsEnv]) {
+    assert.equal(/VITE_MEDIA_NFT_ADDRESS|VITE_NFT_MARKETPLACE_ADDRESS|VITE_USDC_VAULT_ADDRESS/.test(source), false);
+  }
+  assert.ok(api.includes('setMarketImage'), 'creator market images must stay supported');
+  assert.equal(api.includes("NFT_MEDIA"), false, 'removed action must not be supported');
+});
