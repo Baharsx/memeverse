@@ -33,12 +33,14 @@ export const verifiedArcRpc = {
 export async function startTestApp({
   configOverrides = {},
   mediaService,
+  referralService,
 } = {}) {
   const config = baseTestConfig(configOverrides);
   const app = createApp({
     config,
     arcRpc: verifiedArcRpc,
     mediaService,
+    referralService,
     logger: { info() {}, error() {} },
   });
   const server = app.listen(0, '127.0.0.1');
