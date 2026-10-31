@@ -71,9 +71,6 @@ export function loadServerConfig(environment = process.env) {
       'AGENT_AUTONOMOUS_ENABLED must be false on Arc mainnet. Autonomous rewards are not live.',
     );
   }
-  if (parsed.NODE_ENV === 'production' && !parsed.DATABASE_URL) {
-    throw new Error('DATABASE_URL is required when NODE_ENV=production.');
-  }
 
   return Object.freeze({
     port: parsed.API_PORT,

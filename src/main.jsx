@@ -481,10 +481,14 @@ function Home() {
           </p>
           <div className="hero-actions">
             <NavLink className="btn primary" to="/launch">LAUNCH A MEME →</NavLink>
-            <NavLink className="btn primary" to="/markets">TRADE ONCHAIN →</NavLink>
-            <NavLink className="btn secondary" to="/nft">OPEN MARKETPLACE</NavLink>
-            <NavLink className="btn secondary" to="/vault">OPEN VAULT</NavLink>
+            <NavLink className="btn secondary" to="/markets">TRADE ONCHAIN →</NavLink>
           </div>
+          <p className="hero-upcoming">
+            <span>IN DEVELOPMENT</span>
+            <NavLink to="/nft">NFT MARKETPLACE ↗</NavLink>
+            <NavLink to="/vault">USDC VAULT ↗</NavLink>
+          </p>
+          {ARC_IS_MAINNET ? <p className="hero-mainnet-risk">REAL USDC IS AT RISK · CONTRACTS HAVE NOT BEEN INDEPENDENTLY AUDITED</p> : null}
         </div>
         <aside>
           <Mascot />

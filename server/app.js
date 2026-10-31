@@ -45,6 +45,9 @@ export function createApp({
   }));
   app.use(express.json({
     limit: '32kb',
+    // MemeVerse receives plain JSON only. Reject compressed bodies so a decompression
+    // parser bug cannot affect the API even before the dependency lock is updated.
+    inflate: false,
     verify(request, _response, buffer) {
       request.rawBody = Buffer.from(buffer);
     },
@@ -122,6 +125,7 @@ export function createApp({
   const rawImageBody = express.raw({
     type: Object.keys(ALLOWED_IMAGE_TYPES),
     limit: '6mb',
+    inflate: false,
   });
 
   app.post('/api/v1/media/uploads', limiter.mediaUpload, requireOrigin, rawImageBody,
