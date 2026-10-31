@@ -494,6 +494,21 @@ function Home() {
         ))}
       </section>
 
+      <section className="home-community" aria-label="Community programs">
+        <NavLink to="/referral" className="home-community-card">
+          <span>03 / REFERRAL</span>
+          <strong>Invite your crew</strong>
+          <p>Share your link. Invited wallets confirm with a free signature.</p>
+          <b aria-hidden="true">↗</b>
+        </NavLink>
+        <NavLink to="/campaigns" className="home-community-card">
+          <span>04 / CAMPAIGNS</span>
+          <strong>Coming up next</strong>
+          <p>Future trading, content and community programs. No rewards are live yet.</p>
+          <b aria-hidden="true">↗</b>
+        </NavLink>
+      </section>
+
       <section className="home-collections" aria-label="Live token markets">
         <AssetCarousel
           label="Explore markets"
