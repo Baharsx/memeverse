@@ -1200,7 +1200,7 @@ label>input:focus-visible,label>textarea:focus-visible,label>select:focus-visibl
 }
 
 /* Mainnet-first homepage: two live actions; unfinished surfaces remain discoverable. */
-.hero-upcoming { display:flex; align-items:center; flex-wrap:wrap; gap:9px 18px; max-width:600px; margin:18px 0 0; color:var(--mute); font:10px/1.5 var(--mono); }
+.hero > div > .hero-upcoming { display:flex; align-items:center; flex-wrap:wrap; gap:9px 18px; max-width:600px; margin:18px 0 0; color:var(--mute); font:10px/1.5 var(--mono); }
 .hero-upcoming span { color:var(--mute); font-weight:600; letter-spacing:.08em; }
 .hero-upcoming a { color:var(--ink); text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:4px; }
 .hero-upcoming a:hover,.hero-upcoming a:focus-visible { color:var(--acid); text-decoration-color:var(--acid); }
