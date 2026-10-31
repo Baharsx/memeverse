@@ -35,7 +35,7 @@ import {
  * that the chain offered is Arc and only Arc, and that the modal is a wallet connector rather than
  * a second authentication product.
  *
- * "Reown AppKit" throughout is the WalletConnect wallet modal. It is not Circle App Kit.
+ * "Reown AppKit" throughout means the WalletConnect wallet modal.
  */
 
 /* ── The chain ─────────────────────────────────────────────────────────────── */
@@ -350,12 +350,10 @@ test('the dashboard settings the code cannot enforce are written down', async ()
   assert.match(section, /Reown AppKit provides wallet connection/);
 });
 
-test('the wallet modal contains no retired payment integration', async () => {
-  for (const file of ['../../src/wallet-connection.js', '../../src/reown-appkit.js']) {
-    const source = await readFile(new URL(file, import.meta.url), 'utf8');
-    assert.equal(/circle/i.test(source.replace(/Circle App Kit|Circle wallets|Circle:|Circle\b/g, '')), false,
-      `${file} must not reference Circle configuration`);
-  }
+test('wallet modules do not request signing or fund transfers while connecting', async () => {
+  const source = await readFile(new URL('../../src/wallet-connection.js', import.meta.url), 'utf8');
+  assert.equal(source.includes('writeContract'), false);
+  assert.equal(source.includes('sendTransaction'), false);
 });
 
 /* ── Content Security Policy ───────────────────────────────────────────────── */

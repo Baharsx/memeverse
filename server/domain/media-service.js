@@ -26,7 +26,7 @@ import { DomainError } from './errors.js';
  *   4. that recovered address is the `creator()` the market contract reports, read live from Arc,
  *      for a market the trusted factory confirms it registered.
  *
- * No server key, operator session, Circle wallet, or API credential participates in that decision.
+ * No private key, API credential, or operator-controlled wallet participates in that decision.
  * The only authority is the creator's own wallet, and the only thing it authorizes is presentation
  * media.
  */

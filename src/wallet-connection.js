@@ -9,10 +9,7 @@
  * `src/reown-appkit.js` is the module that actually constructs the AppKit instance from these
  * values, and it is the only file that may import `@reown/appkit`.
  *
- * NOTE ON NAMING: "Reown AppKit" here is the WalletConnect-ecosystem wallet modal. It is not
- * Circle App Kit / Stablecoin Kits, which MemeVerse uses server-side and which this file does not
- * touch. Every identifier below is prefixed `reown` so the two can never be misread for each
- * other.
+ * Reown AppKit here is a wallet-connection modal. No financial services are handled by this module.
  */
 import { mainnet } from 'viem/chains';
 import {

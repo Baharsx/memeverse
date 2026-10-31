@@ -37,8 +37,7 @@ const FONT_FILE_ORIGINS = Object.freeze([
 ]);
 
 /**
- * Reown AppKit — the wallet modal — reaches exactly these hosts. Nothing here is Circle: Circle
- * App Kit and the Circle wallets are server-side and never contacted from the browser.
+ * Reown AppKit's wallet modal needs only these explicitly listed network hosts.
  *
  * - api.web3modal.org: the project configuration and the WalletConnect wallet catalogue.
  * - relay.walletconnect.org: the WalletConnect v2 relay. This is the socket a mobile wallet pairs

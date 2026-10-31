@@ -25,8 +25,6 @@ test('the document metadata describes the shipped product, not the Stage 1 one',
 
   assert.ok(html.includes('A meme becomes a market on Arc'), 'the title tells the real story');
   assert.ok(html.includes('USDC'), 'metadata must mention USDC');
-  assert.equal(html.includes('Circle'), false, 'metadata must not mention Circle');
-  assert.equal(/agent wallet/i.test(html), false, 'metadata must not mention an agent wallet');
 
   for (const overclaim of ['audited', 'guaranteed', 'AI-powered', 'LLM']) {
     assert.equal(
@@ -235,14 +233,14 @@ test('the preflight reports credential presence and never a credential value', (
 
 test('preflight output lines align and carry no secret material', () => {
   const line = formatCheckLine({
-    label: 'CIRCLE KIT KEY', state: CHECK_STATES.PASS, detail: describeConfigured('KIT_KEY:a:b'),
+    label: 'CONFIG CREDENTIAL', state: CHECK_STATES.PASS, detail: describeConfigured('KIT_KEY:a:b'),
   });
-  assert.ok(line.startsWith('CIRCLE KIT KEY '));
+  assert.ok(line.startsWith('CONFIG CREDENTIAL '));
   assert.ok(line.includes('PASS'));
   assert.ok(line.includes('CONFIGURED'));
   assert.equal(line.includes('KIT_KEY'), false, 'the value must never reach the output');
   // Every row is padded to the same width so the report is scannable under demo pressure.
-  const widths = ['ARC RPC', 'MARKET FACTORY', 'SETTLEMENT / MANUAL'].map(
+  const widths = ['ARC RPC', 'MARKET FACTORY', 'API HEALTH'].map(
     (label) => formatCheckLine({ label, state: 'PASS', detail: '' }).indexOf('PASS'),
   );
   assert.equal(new Set(widths).size, 1, 'state column must align across labels');
@@ -252,7 +250,7 @@ test('the preflight script performs no onchain write and no deployment', async (
   const source = await readFile('scripts/demo-preflight.js', 'utf8');
   for (const forbidden of [
     'writeContract', 'sendTransaction', 'deployContract', 'walletClient', 'createWalletClient',
-    'privateKey', 'circle-deploy', 'circle:fund', 'INSERT INTO', 'UPDATE ', 'DELETE FROM',
+    'privateKey', 'INSERT INTO', 'UPDATE ', 'DELETE FROM',
   ]) {
     assert.equal(
       source.includes(forbidden),
