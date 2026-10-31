@@ -14,7 +14,6 @@ export const ARC_NETWORK = resolveArcNetwork({
   VITE_ARC_EXPLORER_URL: viteEnv.VITE_ARC_EXPLORER_URL,
   VITE_MEMEVERSE_FACTORY_ADDRESS: viteEnv.VITE_MEMEVERSE_FACTORY_ADDRESS,
   VITE_MARKET_FACTORY_ADDRESS: viteEnv.VITE_MARKET_FACTORY_ADDRESS,
-  VITE_SETTLEMENT_ADDRESS: viteEnv.VITE_SETTLEMENT_ADDRESS,
   VITE_USDC_ADDRESS: viteEnv.VITE_USDC_ADDRESS,
 });
 
@@ -135,7 +134,6 @@ export const arc = ARC_IS_MAINNET ? arcMainnet : arcTestnet;
 export const arcLinks = Object.freeze({
   docs: 'https://docs.arc.io/',
   status: 'https://status.arc.io/',
-  faucet: 'https://faucet.circle.com/',
   explorer: arc.blockExplorers.default.url,
   contracts: 'https://docs.arc.io/arc/references/contract-addresses',
   memos: 'https://docs.arc.io/arc/concepts/transaction-memos',
@@ -165,22 +163,3 @@ export const memoAbi = [
     outputs: [],
   },
 ];
-
-export const arcCapabilities = Object.freeze({
-  phase: ARC_IS_MAINNET ? 'ARC MAINNET / AUTONOMY PAUSED' : 'FINAL MVP / PUBLIC TESTNET',
-  realAssets: ARC_IS_MAINNET ? 'ARC USDC + MEME TOKENS' : 'ARC TESTNET USDC + MEME TOKENS',
-  confirmationsRequired: 1,
-  // Memo CallFrom preserves only a directly signing EOA as msg.sender, so it routes the manual
-  // Developer-Controlled Wallet path alone. The Agent Wallet is an ERC-4337 smart account and
-  // calls its own settlement contract directly instead.
-  transactionMemos: 'MANUAL SETTLEMENT ROUTE / EOA ONLY',
-  batchedTransactions: ARC_IS_MAINNET ? 'FACTORY + ONE SEED MARKET' : 'TESTNET READY / EOA ONLY',
-  postQuantum: 'ROADMAP / NOT YET AVAILABLE',
-  appKit: ARC_IS_MAINNET ? 'NOT USED ON MAINNET' : 'SWAP ESTIMATE LIVE / SERVER-ONLY',
-  // Two isolated routes on testnet: the Agent Wallet executes with no per-payout human approval,
-  // and the manual operator route still requires a wallet-signed session. Mainnet does not run
-  // either Circle route. Creator and treasury fees still settle inside the trade.
-  agentExecution: ARC_IS_MAINNET
-    ? 'NOT LIVE — FEES SETTLE INSIDE THE TRADE'
-    : 'AUTONOMOUS AGENT WALLET + MANUAL OPERATOR ROUTES',
-});

@@ -23,10 +23,8 @@ test('the document metadata describes the shipped product, not the Stage 1 one',
     assert.equal(html.includes(stale), false, `stale framing must be gone: "${stale}"`);
   }
 
-  assert.ok(html.includes('A meme becomes an economy on Arc'), 'the title tells the real story');
+  assert.ok(html.includes('A meme becomes a market on Arc'), 'the title tells the real story');
   assert.ok(html.includes('USDC'), 'metadata must mention USDC');
-  assert.equal(html.includes('Circle'), false, 'metadata must not mention Circle');
-  assert.equal(/agent wallet/i.test(html), false, 'metadata must not mention an agent wallet');
 
   for (const overclaim of ['audited', 'guaranteed', 'AI-powered', 'LLM']) {
     assert.equal(
@@ -235,14 +233,14 @@ test('the preflight reports credential presence and never a credential value', (
 
 test('preflight output lines align and carry no secret material', () => {
   const line = formatCheckLine({
-    label: 'CIRCLE KIT KEY', state: CHECK_STATES.PASS, detail: describeConfigured('KIT_KEY:a:b'),
+    label: 'CONFIG CREDENTIAL', state: CHECK_STATES.PASS, detail: describeConfigured('KIT_KEY:a:b'),
   });
-  assert.ok(line.startsWith('CIRCLE KIT KEY '));
+  assert.ok(line.startsWith('CONFIG CREDENTIAL '));
   assert.ok(line.includes('PASS'));
   assert.ok(line.includes('CONFIGURED'));
   assert.equal(line.includes('KIT_KEY'), false, 'the value must never reach the output');
   // Every row is padded to the same width so the report is scannable under demo pressure.
-  const widths = ['ARC RPC', 'MARKET FACTORY', 'SETTLEMENT / MANUAL'].map(
+  const widths = ['ARC RPC', 'MARKET FACTORY', 'API HEALTH'].map(
     (label) => formatCheckLine({ label, state: 'PASS', detail: '' }).indexOf('PASS'),
   );
   assert.equal(new Set(widths).size, 1, 'state column must align across labels');
@@ -252,7 +250,7 @@ test('the preflight script performs no onchain write and no deployment', async (
   const source = await readFile('scripts/demo-preflight.js', 'utf8');
   for (const forbidden of [
     'writeContract', 'sendTransaction', 'deployContract', 'walletClient', 'createWalletClient',
-    'privateKey', 'circle-deploy', 'circle:fund', 'INSERT INTO', 'UPDATE ', 'DELETE FROM',
+    'privateKey', 'INSERT INTO', 'UPDATE ', 'DELETE FROM',
   ]) {
     assert.equal(
       source.includes(forbidden),
@@ -276,16 +274,16 @@ test('an unmatched deep link renders a real surface rather than an empty page', 
   assert.ok(router.includes('notFound = null'), 'Routes must accept a not-found element');
   assert.ok(router.includes('return route?.props.element ?? notFound'), 'it must be rendered');
   assert.ok(main.includes('notFound={<NotFound />}'), 'the shell must supply one');
-  assert.ok(main.includes('NO SUCH SURFACE'), 'and it must say what happened');
+  assert.ok(main.includes('PAGE NOT FOUND'), 'and it must say what happened');
 });
 
 
-test('product navigation exposes only launch and markets', async () => {
+test('product navigation exposes live markets and planned community program routes', async () => {
   const main = await readFile('src/main.jsx', 'utf8');
   const nav = [...main.matchAll(/\['0\d', '([A-Z]+)', '(\/[a-z]+)'\]/g)]
     .map((match) => [match[1], match[2]]);
-  assert.deepEqual(nav, [['LAUNCH', '/launch'], ['MARKETS', '/markets']]);
-  for (const path of ['/', '/launch', '/markets']) {
+  assert.deepEqual(nav, [['LAUNCH', '/launch'], ['MARKETS', '/markets'], ['REFERRAL', '/referral'], ['CAMPAIGNS', '/campaigns']]);
+  for (const path of ['/', '/launch', '/markets', '/referral', '/campaigns']) {
     assert.ok(main.includes('path="' + path + '"'), 'live route ' + path);
   }
   for (const removed of ['/nft', '/vault']) {
@@ -293,6 +291,7 @@ test('product navigation exposes only launch and markets', async () => {
   }
   assert.ok(main.includes('notFound={<NotFound />}'), 'old deep links get a 404 surface');
   assert.ok(main.includes('market-images'), 'market artwork still loads independently');
+  assert.ok(main.includes('<Referral />') && main.includes('<Campaigns />'), 'community routes are wired');
   assert.ok(main.includes('MARKET IMAGE (OPTIONAL)'), 'image upload remains part of launch');
 });
 
@@ -300,12 +299,12 @@ test('mainnet homepage foregrounds live launch, trade and token markets only', a
   const main = await readFile('src/main.jsx', 'utf8');
   const home = main.slice(main.indexOf('function Home()'), main.indexOf('function CarouselArt('));
   assert.ok(home.includes('A MEME'));
-  assert.ok(home.includes('<mark>ECONOMY.</mark>'));
+  assert.ok(home.includes('<mark>MARKET.</mark>'));
   assert.ok(home.includes('LAUNCH A MEME'));
   assert.ok(home.includes('TRADE ONCHAIN'));
-  assert.ok(home.includes('label="Tokens"'));
+  assert.ok(home.includes('label="Explore markets"'));
   assert.ok(home.includes('getMarketImages('));
-  assert.ok(home.includes('REAL USDC IS AT RISK'));
+  assert.ok(home.includes('Real USDC is at risk.'));
   assert.equal(home.includes('label="NFTs"'), false);
   assert.equal(home.includes('IN DEVELOPMENT'), false);
   assert.equal(home.includes('THE THREE-MINUTE TOUR'), false);

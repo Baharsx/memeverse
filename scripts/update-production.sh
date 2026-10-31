@@ -10,7 +10,7 @@
 #   sudo bash /opt/memeverse/scripts/update-production.sh
 #
 # Pulls origin/main, installs deps, rebuilds the frontend with production VITE_*
-# values, and restarts the API. The agent worker is not part of this deployment.
+# values, and restarts the API. Referrals use the existing media storage directory.
 # Secrets are never printed. Git is always run as the memeverse user.
 
 set -euo pipefail
@@ -19,15 +19,9 @@ REPO="${MEMEVERSE_REPO:-/opt/memeverse}"
 ENV_FILE="${MEMEVERSE_ENV:-/etc/memeverse/memeverse.env}"
 NODE_BIN="${MEMEVERSE_NODE_BIN:-/opt/nodejs22/bin}"
 APP_USER="${MEMEVERSE_USER:-memeverse}"
-RESTART_WORKER=0
-
 for arg in "$@"; do
   case "$arg" in
-    --restart-worker) RESTART_WORKER=1 ;;
-    -h|--help)
-      sed -n '2,18p' "$0"
-      exit 0
-      ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
   esac
 done
 
@@ -147,12 +141,6 @@ wait_for_unit() {
 echo "==> restart API"
 systemctl restart memeverse-api.service
 wait_for_api
-
-if [[ "$RESTART_WORKER" -eq 1 ]]; then
-  echo "==> agent worker was removed; not starting it"
-else
-  echo "==> agent worker is not part of this deployment"
-fi
 
 echo "==> live SHA"
 sudo -u "$APP_USER" git -C "$REPO" rev-parse --short HEAD

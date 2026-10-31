@@ -41,11 +41,7 @@ const environmentSchema = z.object({
   ARC_FALLBACK_RPC_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
   ARC_WALLET_RPC_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
   ARC_EXPLORER_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
-  DATABASE_URL: z.string().url().optional(),
   MEDIA_STORAGE_DIR: z.string().min(1).default('.data/media'),
-  // Read only so a mainnet process refuses to boot if someone turns the removed agent back on.
-  // The value never enables a payout path. There is no payout path.
-  AGENT_AUTONOMOUS_ENABLED: z.enum(['true', 'false']).default('false'),
   TRUSTED_PROXY_HOP_COUNT: z.coerce.number().int().min(0).max(5).default(0),
   MARKET_FACTORY_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -65,13 +61,6 @@ function createRateLimits(nodeEnv) {
 export function loadServerConfig(environment = process.env) {
   const parsed = environmentSchema.parse(environment);
   const network = resolveArcNetwork(environment);
-  const mainnet = network.name === 'mainnet';
-  if (mainnet && parsed.AGENT_AUTONOMOUS_ENABLED === 'true') {
-    throw new Error(
-      'AGENT_AUTONOMOUS_ENABLED must be false on Arc mainnet. Autonomous rewards are not live.',
-    );
-  }
-
   return Object.freeze({
     port: parsed.API_PORT,
     appOrigin: canonicalizeAppOrigin(parsed.APP_ORIGIN),
@@ -80,19 +69,7 @@ export function loadServerConfig(environment = process.env) {
     arcFallbackRpcUrl: network.readFallbackRpcUrl,
     arcWalletRpcUrl: network.walletRpcUrl,
     arcExplorerUrl: network.explorerUrl,
-    databaseUrl: parsed.DATABASE_URL,
-    // Migrations belonged to the removed settlement tables. The API does not run them.
-    runDatabaseMigrations: false,
     mediaStorageDir: resolve(process.cwd(), parsed.MEDIA_STORAGE_DIR),
-    // Circle settlement and the agent wallet are gone. These stay false so a leftover env file
-    // cannot be read as a configured payout route.
-    settlementExecutionConfigured: false,
-    settlementOperatorAddress: undefined,
-    agentAutonomousEnabled: false,
-    circleChainCode: network.circleChainCode,
-    circleSettlementContractAddress: undefined,
-    agentSettlementContractAddress: undefined,
-    agentWalletAddress: undefined,
     marketFactoryAddress: network.factory,
     arcUsdcAddress: network.usdc,
     trustedProxyHopCount: parsed.TRUSTED_PROXY_HOP_COUNT,

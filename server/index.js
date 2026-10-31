@@ -5,6 +5,7 @@ import { ArcRpcClient, assertRpcChainId } from './infrastructure/arc-rpc.js';
 import { createMediaStore } from './infrastructure/media-store.js';
 import { createMarketResolver } from './infrastructure/market-resolver.js';
 import { MediaService } from './domain/media-service.js';
+import { createReferralService } from './domain/referral-service.js';
 
 loadLocalEnvironment();
 
@@ -26,7 +27,8 @@ const mediaService = new MediaService({
   collector: createMarketResolver(config),
   chainId: config.arcChainId,
 });
-const app = createApp({ config, arcRpc, mediaService });
+const referralService = createReferralService({ storageDir: config.mediaStorageDir, chainId: config.arcChainId });
+const app = createApp({ config, arcRpc, mediaService, referralService });
 
 const server = app.listen(config.port, '127.0.0.1', () => {
   console.info(JSON.stringify({

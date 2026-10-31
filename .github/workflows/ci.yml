@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 
-# CI runs deterministic, offline checks only. It holds no Circle credentials, never signs or
+# CI runs deterministic, offline checks only. It holds no wallet credentials, never signs or
 # broadcasts an Arc transaction, never deploys a contract, never funds a wallet, and never runs
 # a privileged settlement execution. Every Arc write script is invoked manually.
 jobs:

@@ -30,6 +30,7 @@ import {
   walletButtonLabel,
 } from './wallet-connection.js';
 import { getApiHealth } from './api';
+import { Referral, Campaigns } from './rewards-views.jsx';
 import {
   marketAvailability,
   marketSpotLabel,
@@ -345,6 +346,8 @@ function BackendStatus() {
 const navItems = [
   ['01', 'LAUNCH', '/launch'],
   ['02', 'MARKETS', '/markets'],
+  ['03', 'REFERRAL', '/referral'],
+  ['04', 'CAMPAIGNS', '/campaigns'],
 ];
 
 function Shell() {
@@ -379,6 +382,8 @@ function Shell() {
             <Route path="/markets" element={<Markets />} />
             <Route path="/trade" element={<Markets />} />
             <Route path="/launch" element={<Launch />} />
+            <Route path="/referral" element={<Referral />} />
+            <Route path="/campaigns" element={<Campaigns />} />
           </Routes>
         </div>
       </main>
@@ -453,8 +458,8 @@ function Home() {
         <div>
           <h1>
             A MEME
-            <br />BECOMES AN
-            <br /><mark>ECONOMY.</mark>
+            <br />BECOMES A
+            <br /><mark>MARKET.</mark>
           </h1>
           <p>
             MemeVerse turns a meme into an Arc market. People trade it in USDC. Creator and
@@ -464,7 +469,7 @@ function Home() {
             <NavLink className="btn primary" to="/launch">LAUNCH A MEME →</NavLink>
             <NavLink className="btn secondary" to="/markets">TRADE ONCHAIN →</NavLink>
           </div>
-          {ARC_IS_MAINNET ? <p className="hero-mainnet-risk">REAL USDC IS AT RISK · CONTRACTS HAVE NOT BEEN INDEPENDENTLY AUDITED</p> : null}
+          {ARC_IS_MAINNET ? <p className="hero-mainnet-risk">Real USDC is at risk. Contracts have not been independently audited.</p> : null}
         </div>
         <aside>
           <Mascot />
@@ -489,15 +494,30 @@ function Home() {
         ))}
       </section>
 
+      <section className="home-community" aria-label="Community programs">
+        <NavLink to="/referral" className="home-community-card">
+          <span>03 / REFERRAL</span>
+          <strong>Invite your crew</strong>
+          <p>Share your link. Invited wallets confirm with a free signature.</p>
+          <b aria-hidden="true">↗</b>
+        </NavLink>
+        <NavLink to="/campaigns" className="home-community-card">
+          <span>04 / CAMPAIGNS</span>
+          <strong>Coming up next</strong>
+          <p>Future trading, content and community programs. No rewards are live yet.</p>
+          <b aria-hidden="true">↗</b>
+        </NavLink>
+      </section>
+
       <section className="home-collections" aria-label="Live token markets">
         <AssetCarousel
-          label="Tokens"
-          detail="Every market on this factory. One card when there is one. Scroll when there are many."
+          label="Explore markets"
+          detail="Live meme markets on Arc. Explore a token before you trade."
           trackRef={tokenTrack}
           count={listed.length}
         >
           {markets.isPending ? (
-            <article className="carousel-card"><div><small>TOKEN</small><strong>Reading markets</strong></div></article>
+            <article className="carousel-card"><div><small>TOKEN</small><strong>Loading markets…</strong></div></article>
           ) : null}
           {!markets.isPending && listed.length === 0 ? (
             <NavLink className="carousel-card" to="/launch">
@@ -536,10 +556,9 @@ function CarouselArt({ src, alt }) {
 function NotFound() {
   return (
     <section className="page not-found">
-      <Title n="404" t="NO SUCH SURFACE" />
+      <Title n="404" t="PAGE NOT FOUND" />
       <p className="lede">
-        That address is not a MemeVerse surface. Nothing failed and nothing is missing — the page
-        simply does not exist. Every real surface is one click away.
+        We couldn’t find that page. Choose a section below to continue.
       </p>
       <div className="not-found-links">
         {navItems.map(([number, label, path]) => (
@@ -716,8 +735,8 @@ function Launch() {
 
   return (
     <section className="page">
-      <Title n="01 CREATE" t="LAUNCH ON ARC" />
-      <p className="lede">Deploy a fixed-supply meme token and its USDC-native bonding market from your connected wallet. Success appears only after Arc includes the transaction in a final block.</p>
+      <Title n="01 / CREATE" t="LAUNCH A MARKET" />
+      <p className="lede">Create a meme market on Arc with your wallet. Set its supply and USDC pricing, review the transaction, then confirm it onchain.</p>
       <div className="form-grid">
         <form onSubmit={handleSubmit}>
           <label>
@@ -753,7 +772,7 @@ function Launch() {
             />
           </label>
           <label>
-            INITIAL PRICE / TOKEN
+            STARTING PRICE (USDC)
             <input
               value={basePrice}
               onChange={(event) => setBasePrice(event.target.value)}
@@ -764,10 +783,10 @@ function Launch() {
               required
             />
           </label>
-          <label>CURVE PRICE INCREASE<input value={slopePrice} onChange={(event) => setSlopePrice(event.target.value)} type="number" min="0" max="1000" step="0.000001" required /></label>
+          <label>PRICE STEP (USDC)<input value={slopePrice} onChange={(event) => setSlopePrice(event.target.value)} type="number" min="0" max="1000" step="0.000001" required /></label>
           <label>
-            LORE / DESCRIPTION
-            <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength="280" placeholder="Why does this deserve liquidity?" />
+            DESCRIPTION
+            <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength="280" placeholder="What makes this meme worth trading?" />
           </label>
           <ImagePicker
             id="launch-market-image"
@@ -1155,11 +1174,10 @@ function Markets() {
 
   return (
     <section className="page markets-page">
-      <Title n="02 TRADE" t="ONCHAIN USDC MARKETS" />
+      <Title n="02 / TRADE" t="EXPLORE MARKETS" />
       <p className="lede">
-        Trade any MemeVerse market that lives on Arc — launched here or pasted from a contract
-        address. Quotes, reserves, positions, and fees are live chain state. Every buy and sell
-        pays the creator and the treasury in the same transaction.
+        Explore meme markets on Arc, check live USDC prices, and trade from your wallet.
+        Quotes, positions, and fees come directly from the blockchain.
       </p>
       <form className="market-toolbar" onSubmit={importOnchainMarket}>
         <label className="market-search">
@@ -1188,7 +1206,7 @@ function Markets() {
           {onlyHeld ? 'SHOWING YOUR BAGS' : 'YOUR POSITIONS'}
         </button>
         <label className="market-import">
-          IMPORT ANY ONCHAIN MARKET
+          IMPORT BY ADDRESS
           <span>
             <input
               value={importValue}
@@ -1197,7 +1215,7 @@ function Markets() {
               spellCheck="false"
             />
             <button className="btn primary" disabled={importState.status === 'LOADING'}>
-              {importState.status === 'LOADING' ? 'READING ARC…' : 'TRADE IT →'}
+              {importState.status === 'LOADING' ? 'CHECKING…' : 'IMPORT →'}
             </button>
           </span>
         </label>
@@ -1207,7 +1225,7 @@ function Markets() {
           {importState.message}
         </p>
       ) : null}
-      {markets.isError ? <p className="agent-error" role="alert">ARC RPC READ FAILED // {markets.error.shortMessage ?? 'Public RPC unavailable. Retry shortly.'}</p> : null}
+      {markets.isError ? <p className="inline-error" role="alert">ARC RPC READ FAILED // {markets.error.shortMessage ?? 'Public RPC unavailable. Retry shortly.'}</p> : null}
       {!markets.isPending && !boardMarkets.length ? (
         <div className="empty"><Mascot small /><span>NO MARKETS MATCH THIS VIEW<br /><NavLink to="/launch">LAUNCH A MARKET →</NavLink></span></div>
       ) : null}
@@ -1252,25 +1270,25 @@ function Markets() {
             tabIndex={-1}
             ref={tradeDialogRef}
           >
-            <button type="button" className="trade-modal-close" onClick={() => setTradeOpen(false)}>CLOSE</button>
+            <button type="button" className="trade-modal-close" aria-label="Close trade panel" onClick={() => setTradeOpen(false)}>✕ <span>Close</span></button>
             <div className="trade-modal-scroll">
             <div className="market-terminal">
               <section className="market-proof">
                 <div className="market-identity">
                   <MarketImage src={imageFor(selected)} alt={`${selected.symbol} artwork`} size="md" />
                   <div>
-                    <small>MARKET</small>
-                    <strong id="trade-modal-title">{selected.name} / ${selected.symbol}</strong>
+                    <small>MARKET DETAILS</small>
+                    <strong id="trade-modal-title">{selected.name} <span>/ ${selected.symbol}</span></strong>
                     <ExternalLink href={`${arcLinks.explorer}/address/${selected.address}`}>{shortAddress(selected.address)} ↗</ExternalLink>
                   </div>
                 </div>
                 <dl>
-                  <dt>SPOT QUOTE</dt><dd>{marketSpotLabel(selected, formatUsdc)}</dd>
-                  <dt>CURVE RESERVE</dt><dd>{formatUsdc(selected.reserveUsdc)} USDC</dd>
+                  <dt>LIVE PRICE</dt><dd>{marketSpotLabel(selected, formatUsdc)}</dd>
+                  <dt>USDC IN MARKET</dt><dd>{formatUsdc(selected.reserveUsdc)} USDC</dd>
                   <dt>SUPPLY SOLD</dt><dd>{selected.soldTokenCount.toLocaleString()} / {selected.totalSupplyTokens.toLocaleString()}</dd>
                   <dt>CREATOR</dt><dd>{shortAddress(selected.creator)}</dd>
-                  <dt>CREATOR FEES PAID</dt><dd>{formatUsdc(selected.creatorFeesPaidUsdc)} USDC</dd>
-                  <dt>TREASURY FEES PAID</dt><dd>{formatUsdc(selected.treasuryFeesPaidUsdc)} USDC</dd>
+                  <dt>CREATOR FEES</dt><dd>{formatUsdc(selected.creatorFeesPaidUsdc)} USDC</dd>
+                  <dt>TREASURY FEES</dt><dd>{formatUsdc(selected.treasuryFeesPaidUsdc)} USDC</dd>
                   <dt>YOUR POSITION</dt><dd>{formatTokenAmount(selected.userBalance)} {selected.symbol}</dd>
                 </dl>
                 {selected.description ? <p>{selected.description}</p> : null}
@@ -1285,18 +1303,18 @@ function Markets() {
                     <span>The complete fixed supply is circulating, so this market has no next token to price. Selling back to the curve reserve remains available.</span>
                   </div>
                 ) : side === 'BUY' ? <form onSubmit={buyTokens}>
-                  <label>MAXIMUM USDC INPUT<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="number" inputMode="decimal" min="0.000001" step="0.000001" required /><small>USDC</small></label>
+                  <label>MAX USDC TO SPEND<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="number" inputMode="decimal" min="0.000001" step="0.000001" required /><small>USDC</small></label>
                   <div className="trade-review">
                     <span>WALLET BALANCE <b>{onArc && usdcBalance.data !== undefined ? `${formatUsdc(usdcBalance.data)} USDC` : 'CONNECT ON ARC'}</b></span>
                     <span>MAX INPUT <b>{buyAmount || '0'} USDC</b></span>
-                    <span>ACTUAL ESTIMATED SPEND <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[4])} USDC` : '—'}</b></span>
+                    <span>ESTIMATED SPEND <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[4])} USDC` : '—'}</b></span>
                     <span>ESTIMATED OUT <b>{buyQuote.data ? `${formatTokenAmount(buyQuote.data[0], 0)} ${selected.symbol}` : '—'}</b></span>
                     <span>CURVE COST <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[1])} USDC` : '—'}</b></span>
                     <span>CREATOR ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[2])} USDC` : '—'}</b></span>
                     <span>TREASURY ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[3])} USDC` : '—'}</b></span>
                     <span>MINIMUM OUT / SLIPPAGE <b>{buyQuote.data ? `${formatTokenAmount(minimumAfterSlippage(buyQuote.data[0], slippageBps), 2)} / 1%` : '—'}</b></span>
                   </div>
-                  {buyInputError ? <p className="agent-error">{buyInputError}</p> : null}
+                  {buyInputError ? <p className="inline-error">{buyInputError}</p> : null}
                   {allowanceRequired ? <button className="btn secondary full" type="button" disabled={!onArc || approval.state.status === 'WALLET_SIGNATURE' || approval.state.status === 'SUBMITTED'} onClick={approveUsdc}>APPROVE MAX {buyAmount || '0'} USDC →</button> : null}
                   <button className="btn primary full" disabled={!onArc || !buyQuote.data || buyQuote.data[0] === 0n || allowanceRequired || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(buy.state.status)}>SIGN BUY ON ARC →</button>
                   <TransactionStatus state={approval.state} />
@@ -1308,10 +1326,10 @@ function Markets() {
                     <span>GROSS CURVE RETURN <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[1])} USDC` : '—'}</b></span>
                     <span>CREATOR ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[2])} USDC` : '—'}</b></span>
                     <span>TREASURY ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[3])} USDC` : '—'}</b></span>
-                    <span>ESTIMATED USDC OUT <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[0])} USDC` : '—'}</b></span>
+                    <span>ESTIMATED RECEIVE <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[0])} USDC` : '—'}</b></span>
                     <span>MINIMUM OUT / SLIPPAGE <b>{sellQuote.data ? `${formatUsdc(minimumAfterSlippage(sellQuote.data[0], slippageBps))} / 1%` : '—'}</b></span>
                   </div>
-                  {sellInputError ? <p className="agent-error">{sellInputError}</p> : null}
+                  {sellInputError ? <p className="inline-error">{sellInputError}</p> : null}
                   <button className="btn primary full" disabled={!onArc || !sellQuote.data || sellQuote.data[0] === 0n || sellUnits > selected.userBalance || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(sell.state.status)}>SIGN SELL ON ARC →</button>
                   <TransactionStatus state={sell.state} />
                 </form>}

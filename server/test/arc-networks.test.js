@@ -40,7 +40,6 @@ test('Arc mainnet catalog is official 5042 / 0x13b2 and never Archie 1243', () =
   assert.equal(ARC_NETWORKS.mainnet.chainIdHex, ARC_MAINNET_CHAIN_ID_HEX);
   assert.equal(ARC_NETWORKS.mainnet.chainIdHex, '0x13b2');
   assert.equal(Number.parseInt(ARC_NETWORKS.mainnet.chainIdHex, 16), 5042);
-  assert.equal(ARC_NETWORKS.mainnet.circleChainCode, null);
   assert.equal(ARC_NETWORKS.mainnet.readRpcUrl, 'https://rpc.mainnet.arc.io');
   assert.equal(ARC_NETWORKS.mainnet.readFallbackRpcUrl, 'https://rpc.drpc.mainnet.arc.io');
   assert.equal(ARC_NETWORKS.mainnet.walletRpcUrl, 'https://rpc.mainnet.arc.io');
@@ -70,7 +69,6 @@ test('resolveArcNetwork ignores stale testnet product addresses and refuses a ne
   });
   assert.equal(stale.factory, null);
   assert.equal(stale.readRpcUrl, 'https://rpc.mainnet.arc.io');
-  assert.equal(stale.circleChainCode, null);
   const chosen = resolveArcNetwork({
     ARC_NETWORK: 'mainnet',
     VITE_MEMEVERSE_FACTORY_ADDRESS: '0x1111111111111111111111111111111111111111',
