@@ -1210,7 +1210,7 @@ function Markets() {
           {importState.message}
         </p>
       ) : null}
-      {markets.isError ? <p className="agent-error" role="alert">ARC RPC READ FAILED // {markets.error.shortMessage ?? 'Public RPC unavailable. Retry shortly.'}</p> : null}
+      {markets.isError ? <p className="inline-error" role="alert">ARC RPC READ FAILED // {markets.error.shortMessage ?? 'Public RPC unavailable. Retry shortly.'}</p> : null}
       {!markets.isPending && !boardMarkets.length ? (
         <div className="empty"><Mascot small /><span>NO MARKETS MATCH THIS VIEW<br /><NavLink to="/launch">LAUNCH A MARKET →</NavLink></span></div>
       ) : null}
@@ -1299,7 +1299,7 @@ function Markets() {
                     <span>TREASURY ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[3])} USDC` : '—'}</b></span>
                     <span>MINIMUM OUT / SLIPPAGE <b>{buyQuote.data ? `${formatTokenAmount(minimumAfterSlippage(buyQuote.data[0], slippageBps), 2)} / 1%` : '—'}</b></span>
                   </div>
-                  {buyInputError ? <p className="agent-error">{buyInputError}</p> : null}
+                  {buyInputError ? <p className="inline-error">{buyInputError}</p> : null}
                   {allowanceRequired ? <button className="btn secondary full" type="button" disabled={!onArc || approval.state.status === 'WALLET_SIGNATURE' || approval.state.status === 'SUBMITTED'} onClick={approveUsdc}>APPROVE MAX {buyAmount || '0'} USDC →</button> : null}
                   <button className="btn primary full" disabled={!onArc || !buyQuote.data || buyQuote.data[0] === 0n || allowanceRequired || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(buy.state.status)}>SIGN BUY ON ARC →</button>
                   <TransactionStatus state={approval.state} />
@@ -1314,7 +1314,7 @@ function Markets() {
                     <span>ESTIMATED RECEIVE <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[0])} USDC` : '—'}</b></span>
                     <span>MINIMUM OUT / SLIPPAGE <b>{sellQuote.data ? `${formatUsdc(minimumAfterSlippage(sellQuote.data[0], slippageBps))} / 1%` : '—'}</b></span>
                   </div>
-                  {sellInputError ? <p className="agent-error">{sellInputError}</p> : null}
+                  {sellInputError ? <p className="inline-error">{sellInputError}</p> : null}
                   <button className="btn primary full" disabled={!onArc || !sellQuote.data || sellQuote.data[0] === 0n || sellUnits > selected.userBalance || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(sell.state.status)}>SIGN SELL ON ARC →</button>
                   <TransactionStatus state={sell.state} />
                 </form>}
