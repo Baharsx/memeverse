@@ -304,7 +304,8 @@ test('mainnet homepage foregrounds live launch, trade and token markets only', a
   assert.ok(home.includes('TRADE ONCHAIN'));
   assert.ok(home.includes('label="Explore markets"'));
   assert.ok(home.includes('getMarketImages('));
-  assert.ok(home.includes('Real USDC is at risk.'));
+  assert.equal(home.includes('Real USDC is at risk.'), false);
+  assert.equal(home.includes('hero-mainnet-risk'), false);
   assert.equal(home.includes('label="NFTs"'), false);
   assert.equal(home.includes('IN DEVELOPMENT'), false);
   assert.equal(home.includes('THE THREE-MINUTE TOUR'), false);
@@ -374,8 +375,5 @@ test('both Create and Trade get a green hover / keyboard-focus outline', async (
   assert.match(css.slice(sharedHover), /border-color:rgba\(198,244,50,\.65\)/);
   assert.match(css.slice(sharedHover), /box-shadow:0 0 0 1px/);
 
-  const styles = [...css.matchAll(/\.hero-mainnet-risk\{([^}]+)\}/g)];
-  const risk = styles.at(-1)?.[1] ?? '';
-  assert.match(risk, /border:0/);
-  assert.match(risk, /background:transparent/);
+  assert.equal(css.includes('.hero-mainnet-risk'), false, 'removed homepage warning must have no leftover styles');
 });
