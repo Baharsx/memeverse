@@ -1172,6 +1172,9 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 .brand-lockup{width:184px;height:auto;max-width:100%;object-fit:contain}
 .market-toolbar{grid-template-columns:minmax(180px,1.5fr) minmax(160px,1fr) minmax(180px,1fr)}
 .market-view-hint{margin:-8px 0 18px;color:#b4b6bb;font:13px/1.6 var(--ui)}
+.hero h1.hero-headline-art{line-height:0}
+.hero-headline-art img{display:block;width:100%;max-width:650px;height:auto}
+.launch-price-note{margin:-8px 0 22px;color:#b4b6bb;font:13px/1.6 var(--ui)}
 .carousel-track{scroll-snap-type:none}
 .launch-preview input[type="file"][hidden]{display:none!important}
 .launch-upload-button{display:block;width:calc(100% - 28px);margin:12px 14px 0;color:var(--acid);text-align:center;font-size:12px}

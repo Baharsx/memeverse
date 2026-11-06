@@ -109,8 +109,8 @@ test('all product routes fit mobile, tablet and desktop, including narrow screen
         await page.locator('h1').waitFor();
         if (route === '/') {
           await page.waitForFunction(() => {
-            const art = document.querySelector('.hero-art img');
-            return art?.complete && art.naturalWidth > 0;
+            const images = [...document.querySelectorAll('.hero-art img, .hero-headline-art img')];
+            return images.length === 2 && images.every((art) => art.complete && art.naturalWidth > 0);
           });
         }
         const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
@@ -299,6 +299,7 @@ test('launch previews form values and requires artwork picked through the previe
   page.on('request', (request) => { if (request.url().includes('/media/uploads')) uploads.push(request.url()); });
   try {
     await page.goto(origin + '/launch');
+    assert.equal(await page.getByLabel('PRICE STEP (USDC)', { exact: true }).count(), 0);
     await page.getByLabel('MEME NAME', { exact: true }).fill('Happy Pixel');
     await page.getByLabel('TICKER', { exact: true }).fill('happy');
     await page.getByLabel('DESCRIPTION', { exact: true }).fill('A cheerful community meme.');

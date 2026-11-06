@@ -508,10 +508,14 @@ function Home() {
     <>
       <section className="hero">
         <div>
-          <h1>
-            A MEME
-            <br />BECOMES A
-            <br /><mark>MARKET.</mark>
+          <h1 className="hero-headline-art">
+            <span className="visually-hidden">A MEME BECOMES A <mark>MARKET.</mark></span>
+            <img
+              src={`${import.meta.env.BASE_URL}memeverse-headline-v1-1280.webp`}
+              srcSet={`${import.meta.env.BASE_URL}memeverse-headline-v1-640.webp 640w, ${import.meta.env.BASE_URL}memeverse-headline-v1-1280.webp 1280w`}
+              sizes="(max-width: 800px) calc(100vw - 32px), 650px"
+              width="1280" height="559" alt="" aria-hidden="true" fetchPriority="high" decoding="async"
+            />
           </h1>
           <p>
             MemeVerse turns a meme into an Arc market. People trade it in USDC. Creator and
@@ -642,7 +646,7 @@ function Launch() {
   const [supply, setSupply] = useState('1000000');
   const [description, setDescription] = useState('');
   const [basePrice, setBasePrice] = useState('0.0001');
-  const [slopePrice, setSlopePrice] = useState('0.001');
+  const slopePrice = '0.001';
   const [review, setReview] = useState(false);
   const [result, setResult] = useState(null);
   const [formError, setFormError] = useState(null);
@@ -839,7 +843,7 @@ function Launch() {
               required
             />
           </label>
-          <label>PRICE STEP (USDC)<input value={slopePrice} onChange={(event) => setSlopePrice(event.target.value)} type="number" min="0" max="1000" step="0.000001" required /></label>
+          <p className="launch-price-note">The price increases automatically as tokens sell. Your starting price excludes trading fees.</p>
           <label>
             DESCRIPTION
             <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength="280" placeholder="What makes this meme worth trading?" />
@@ -851,7 +855,7 @@ function Launch() {
           <button className="btn primary full" disabled={action.state.status === 'WALLET_SIGNATURE' || action.state.status === 'SUBMITTED'}>REVIEW ONCHAIN LAUNCH →</button>
           {formError ? <small className="tx-error" role="alert">{formError}</small> : null}
           {review ? <div className="launch-wallet-access">{!isConnected ? <div className="trade-wallet"><p>Connect your wallet to launch your market.</p><Wallet /></div> : null}<NetworkStatus /></div> : null}
-          {review ? <div className="onchain-review" role="region" aria-label="Launch review"><b>REVIEW BEFORE SIGNING</b><span>CREATOR // {address ?? 'CONNECT WALLET'}</span><span>FACTORY // {arcContracts.memeVerseFactory}</span><span>PRICE // {basePrice} + UP TO {slopePrice} USDC</span><span>FEES // {factory.data ? `${Number(factory.data.creatorFeeBps) / 100}% CREATOR + ${Number(factory.data.treasuryFeeBps) / 100}% TREASURY` : 'READING ONCHAIN'}</span><button className="btn primary full" type="button" disabled={!onArc || !factory.data || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(action.state.status)} onClick={launchMarket}>{!isConnected ? 'CONNECT WALLET FIRST' : !onArc ? (ARC_IS_MAINNET ? 'SWITCH TO ARC MAINNET' : 'SWITCH TO ARC TESTNET') : 'SIGN + LAUNCH ON ARC →'}</button></div> : null}
+          {review ? <div className="onchain-review" role="region" aria-label="Launch review"><b>REVIEW BEFORE SIGNING</b><span>CREATOR // {address ?? 'CONNECT WALLET'}</span><span>FACTORY // {arcContracts.memeVerseFactory}</span><span>STARTING PRICE // {basePrice} USDC</span><span>PRICING // INCREASES AS TOKENS SELL</span><span>FEES // {factory.data ? `${Number(factory.data.creatorFeeBps) / 100}% CREATOR + ${Number(factory.data.treasuryFeeBps) / 100}% TREASURY` : 'READING ONCHAIN'}</span><button className="btn primary full" type="button" disabled={!onArc || !factory.data || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(action.state.status)} onClick={launchMarket}>{!isConnected ? 'CONNECT WALLET FIRST' : !onArc ? (ARC_IS_MAINNET ? 'SWITCH TO ARC MAINNET' : 'SWITCH TO ARC TESTNET') : 'SIGN + LAUNCH ON ARC →'}</button></div> : null}
           <TransactionStatus state={action.state} />
           {result ? <div className="receipt onchain-receipt" role="status"><b>MARKET CONFIRMED ON ARC</b><span>MARKET + TOKEN // {result.market}</span><span>CREATOR // {result.creator}</span><ExternalLink href={`${arcLinks.explorer}/tx/${result.hash}`}>VIEW TRANSACTION ON ARCSCAN ↗</ExternalLink><ExternalLink href={`${arcLinks.explorer}/address/${result.market}`}>VIEW MARKET CONTRACT ↗</ExternalLink></div> : null}
           {/*
