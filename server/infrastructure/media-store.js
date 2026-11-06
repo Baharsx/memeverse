@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { link, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { DomainError } from '../domain/errors.js';
 import { join } from 'node:path';
 import { detectImageType } from '../../src/image-signature.js';
 import { ALLOWED_IMAGE_TYPES, imageExtensionFor } from '../../src/media-authorization.js';
@@ -135,8 +136,8 @@ export class MediaStore {
    * Points a market at a piece of content.
    *
    * One small JSON document per market, named from the checksummed address, written atomically.
-   * A market's artwork is replaceable by its creator, so this is a pointer rather than part of the
-   * content address — but the pointer only ever names a hash this store has already validated.
+   * The first fully written pointer wins atomically. Identical retries are idempotent; no later
+   * upload, including a concurrent upload by the creator, can replace the selected artwork.
    */
   async setMarketImage({ market, contentId, contentHash, mimeType, creator }) {
     if (!/^0x[0-9a-fA-F]{40}$/.test(market)) throw new Error('Malformed market address.');
@@ -161,7 +162,14 @@ export class MediaStore {
       await handle.sync();
       await handle.close();
       handle = null;
-      await rename(temporary, target);
+      try {
+        await link(temporary, target);
+      } catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+        const existing = JSON.parse(await readFile(target, 'utf8'));
+        if (existing.contentId === contentId && existing.contentHash === contentHash) return existing;
+        throw new DomainError('MEDIA_IMAGE_LOCKED', 'This token already has an image. Token images cannot be replaced.', { status: 409 });
+      }
     } finally {
       if (handle) await handle.close().catch(() => undefined);
       await rm(temporary, { force: true }).catch(() => undefined);

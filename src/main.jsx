@@ -63,8 +63,6 @@ import {
 import { useOnchainAction } from './use-onchain-action';
 import { useDebouncedValue } from './use-debounced-value.js';
 import {
-  AttachImageButton,
-  ImagePicker,
   MarketImage,
   mediaContentUrl,
   useImageSelection,
@@ -363,11 +361,10 @@ function NetworkStatus() {
     return undefined;
   }
 
+  if (onArc || (!actionLabel && !(arcSwitch.failed && arcSwitch.message))) return null;
+
   return (
     <div className="network-switch" role="group" aria-label={`${arc.name} connection status`}>
-      <span className={onArc ? 'network-brand active' : 'network-brand'}>
-        <i />BUILT ON ARC<sup>{onArc ? 'ON' : (ARC_IS_MAINNET ? 'MAINNET' : 'TESTNET')}</sup>
-      </span>
       {actionLabel ? (
         <button
           type="button"
@@ -900,10 +897,8 @@ function Launch() {
             <input
               value={supply}
               onChange={(event) => setSupply(event.target.value)}
-              type="number"
-              min="100"
-              max="1000000000"
-              step="1"
+              type="text"
+              inputMode="numeric"
               required
             />
           </label>
@@ -912,10 +907,8 @@ function Launch() {
             <input
               value={basePrice}
               onChange={(event) => setBasePrice(event.target.value)}
-              type="number"
-              min="0.000001"
-              max="1000"
-              step="0.000001"
+              type="text"
+              inputMode="decimal"
               required
             />
           </label>
@@ -926,7 +919,7 @@ function Launch() {
           </label>
           <div className="receive">
             <span>FIXED ONCHAIN SUPPLY</span>
-            <b>{Number(supply || 0).toLocaleString()} ${symbol || 'TOKEN'}</b>
+            <b>{supplyValue === null ? '—' : supplyValue.toLocaleString()} ${symbol || 'TOKEN'}</b>
           </div>
           <button className="btn primary full" disabled={action.state.status === 'WALLET_SIGNATURE' || action.state.status === 'SUBMITTED'}>REVIEW ONCHAIN LAUNCH →</button>
           {formError ? <small className="tx-error" role="alert">{formError}</small> : null}
@@ -962,7 +955,7 @@ function Launch() {
                   : artworkStage === 'FAILED'
                     // The headline above already states the market launched, and some error
                     // messages say so themselves, so this must not repeat it a third time.
-                    ? `${attach.state.error ?? 'The image could not be attached.'} Retry below, or set the image any time from Markets.`
+                    ? `${attach.state.error ?? 'The image could not be attached.'} Retry below using the same selected image.`
                     : artworkStage === 'WRONG_WALLET'
                       ? `Connected wallet is not this market’s creator. Reconnect ${shortAddress(result.creator)} to attach the selected image.`
                       : 'Attaching the image you selected is a free wallet signature — no gas, no transaction, and it moves no funds.'}
@@ -983,11 +976,11 @@ function Launch() {
         <aside className="spec launch-preview" aria-label="Live token preview">
           <span className="eyebrow">YOUR TOKEN / LIVE PREVIEW</span>
           <article className="launch-token-card">
-            <button type="button" className="launch-artwork-picker" onClick={() => launchImageRef.current?.click()} aria-label="Choose token artwork">
+            <button type="button" className="launch-artwork-picker" disabled={Boolean(result?.market)} onClick={() => launchImageRef.current?.click()} aria-label="Choose token artwork">
               <MarketImage src={image.selection?.previewUrl} alt="Token preview artwork" />
             </button>
-            <button type="button" className="btn launch-upload-button" onClick={() => launchImageRef.current?.click()} aria-label="Upload token image">UPLOAD TOKEN IMAGE ↗</button>
-            <input ref={launchImageRef} id="launch-market-image" type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => { image.select(event.target.files?.[0] ?? null); setReview(false); setFormError(null); }} />
+            <button type="button" className="btn launch-upload-button" disabled={Boolean(result?.market)} onClick={() => launchImageRef.current?.click()} aria-label="Upload token image">UPLOAD TOKEN IMAGE ↗</button>
+            <input ref={launchImageRef} id="launch-market-image" type="file" accept="image/png,image/jpeg,image/webp" disabled={Boolean(result?.market)} hidden onChange={(event) => { image.select(event.target.files?.[0] ?? null); setReview(false); setFormError(null); }} />
             <p className="launch-image-hint">Click the image above to upload your token image. <b>Required.</b><small>PNG, JPEG or WebP · Up to 5 MB</small></p>
             {image.error ? <p className="inline-error" role="alert">{image.error}</p> : null}
             <div className="launch-token-details">
@@ -999,7 +992,7 @@ function Launch() {
               <span className="launch-preview-label">TOKEN CARD PREVIEW</span>
             </div>
           </article>
-          <p className="launch-upload-note">Your selected image is attached after the launch confirms, using a free wallet signature.</p>
+          <p className="launch-upload-note">Your selected image is attached after the launch confirms, using a free wallet signature. Once attached, it cannot be replaced.</p>
         </aside>
       </div>
     </section>
@@ -1019,68 +1012,6 @@ function TransactionStatus({ state }) {
 
 function shortAddress(address) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
-}
-
-/**
- * Creator-only artwork management for an existing market.
- *
- * Secondary by design: it sits below the order form, it is collapsed until asked for, and it
- * never competes with the live financial data above it. Only the market's creator sees it — but
- * that is presentation. The server reads `creator()` from the market contract on Arc and refuses
- * anyone else, so hiding this control is convenience and the real boundary is elsewhere.
- */
-function MarketImageManager({ market, hasImage, onChanged }) {
-  const { address } = useAccount();
-  const [open, setOpen] = useState(false);
-  const image = useImageSelection();
-  const attach = useMediaUpload({
-    action: MEDIA_ACTIONS.MARKET_AVATAR,
-    market: market.address,
-    selection: image.selection,
-    onUploaded: async () => {
-      image.clear();
-      await onChanged();
-    },
-  });
-
-  const isCreator = address && market.creator
-    && address.toLowerCase() === market.creator.toLowerCase();
-  if (!isCreator) return null;
-
-  return (
-    <section className="market-image-manager">
-      <button
-        type="button"
-        className="btn ghost full"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-      >
-        {hasImage ? 'REPLACE MARKET IMAGE' : 'SET MARKET IMAGE'} {open ? '▲' : '▼'}
-      </button>
-      {open ? (
-        <div className="market-image-manager-body">
-          <p>
-            Market artwork is authenticated offchain presentation metadata keyed to this market’s
-            address. Attaching it is a free wallet signature that proves you are the market’s
-            onchain <code>creator()</code>. It costs no gas and moves no funds.
-          </p>
-          <ImagePicker
-            id={`market-image-${market.address}`}
-            label="NEW MARKET IMAGE"
-            selection={image.selection}
-            error={image.error}
-            onSelect={image.select}
-            onClear={image.clear}
-          />
-          {image.selection ? (
-            <AttachImageButton state={attach.state} onStart={attach.start}>
-              SIGN + {hasImage ? 'REPLACE' : 'SET'} MARKET IMAGE →
-            </AttachImageButton>
-          ) : null}
-        </div>
-      ) : null}
-    </section>
-  );
 }
 
 function Markets() {
@@ -1326,9 +1257,6 @@ function Markets() {
                 <div className="market-card-hit">
                   <div className="market-card-art">
                     <MarketImage src={imageFor(market)} alt={`${market.symbol} artwork`} size="md" />
-                    <span className={`origin-chip ${market.origin === 'IMPORTED' ? 'imported' : ''}`}>
-                      {market.origin === 'IMPORTED' ? 'IMPORTED' : 'FACTORY'}
-                    </span>
                   </div>
                   <div className="market-card-body">
                     <small>{market.symbol}</small>
@@ -1393,7 +1321,7 @@ function Markets() {
                     <span>The complete fixed supply is circulating, so this market has no next token to price. Selling back to the curve reserve remains available.</span>
                   </div>
                 ) : side === 'BUY' ? <form onSubmit={buyTokens}>
-                  <label>MAX USDC TO SPEND<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="number" inputMode="decimal" min="0.000001" step="0.000001" required /><small>USDC</small></label>
+                  <label>MAX USDC TO SPEND<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="text" inputMode="decimal" required /><small>USDC</small></label>
                   <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={buyQuote.data ? formatTokenAmount(buyQuote.data[0], 0) : '—'} aria-label="Estimated tokens received" /><small>{selected.symbol}</small></label>
                   <details className="trade-details" key={`${selected.address}-buy`}><summary>TRADE DETAILS <span>Fees, limits & wallet balance</span></summary>
                   <div className="trade-review">
@@ -1417,7 +1345,7 @@ function Markets() {
                   <TransactionStatus state={approval.state} />
                   <TransactionStatus state={buy.state} />
                 </form> : <form onSubmit={sellTokens}>
-                  <label>TOKEN AMOUNT<input value={sellAmount} onChange={(event) => setSellAmount(event.target.value)} type="number" inputMode="numeric" min="1" step="1" required /><small>{selected.symbol}</small></label>
+                  <label>TOKEN AMOUNT<input value={sellAmount} onChange={(event) => setSellAmount(event.target.value)} type="text" inputMode="numeric" required /><small>{selected.symbol}</small></label>
                   <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={sellQuote.data ? formatUsdc(sellQuote.data[0]) : '—'} aria-label="Estimated USDC received" /><small>USDC</small></label>
                   <details className="trade-details" key={`${selected.address}-sell`}><summary>TRADE DETAILS <span>Fees, limits & wallet balance</span></summary>
                   <div className="trade-review">
@@ -1437,11 +1365,6 @@ function Markets() {
                   <button className="btn primary full" disabled={!onArc || walletStateLoading || !sellQuote.data || sellQuote.data[0] === 0n || sellUnits > selected.userBalance || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(sell.state.status)}>SIGN SELL ON ARC →</button>
                   <TransactionStatus state={sell.state} />
                 </form>}
-                <MarketImageManager
-                  market={selected}
-                  hasImage={Boolean(marketImages.data?.[selected.address])}
-                  onChanged={() => marketImages.refetch()}
-                />
               </section>
             </div>
             </div>

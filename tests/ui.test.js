@@ -166,7 +166,7 @@ test('trade sheet traps focus, restores its trigger, and debounces only the acti
     await page.waitForFunction(() => document.querySelector('.trade-review')?.textContent.includes('1 PXPS'));
     assert.equal(calls.quoteBuy.length, 1);
     assert.equal(calls.quoteSell.length, 0, 'hidden sell side must not fetch a quote');
-    const amount = dialog.locator('input[type="number"]');
+    const amount = dialog.getByLabel('MAX USDC TO SPEND', { exact: false });
     assert.equal(await amount.inputValue(), '1');
     assert.equal(await dialog.locator('.trade-details').evaluate((node) => node.open), false);
     assert.equal(await dialog.getByLabel('Estimated tokens received').inputValue(), '1');
@@ -338,16 +338,64 @@ test('hover keeps the carousel border inside its viewport and trade units stay r
     assert.ok(bounds.top >= bounds.viewportTop + 1, 'hover must not clip the top border');
     await page.locator('.site-header nav a[href$="/markets"]').click();
     await page.locator('.market-card-actions').getByRole('button', { name: 'BUY', exact: true }).click();
-    const unit = page.getByRole('dialog').locator('.market-order form > label small').first();
-    const metrics = await unit.evaluate((node) => {
-      const bounds = node.getBoundingClientRect();
-      const input = node.parentElement.querySelector('input').getBoundingClientRect();
-      return { size: parseFloat(getComputedStyle(node).fontSize), right: bounds.right, inputRight: input.right, center: bounds.top + bounds.height / 2, inputCenter: input.top + input.height / 2 };
-    });
-    assert.ok(metrics.size >= 14, 'USDC must be readable');
-    assert.ok(metrics.right <= metrics.inputRight - 12, 'the unit needs breathing room inside the input');
-    assert.ok(Math.abs(metrics.center - metrics.inputCenter) <= 2, 'the unit should be centered vertically');
+    const units = page.getByRole('dialog').locator('.market-order form > label small');
+    assert.equal(await units.count(), 2);
+    for (const unit of await units.all()) {
+      const metrics = await unit.evaluate((node) => {
+        const bounds = node.getBoundingClientRect();
+        const input = node.parentElement.querySelector('input').getBoundingClientRect();
+        return { size: parseFloat(getComputedStyle(node).fontSize), right: bounds.right, inputRight: input.right, center: bounds.top + bounds.height / 2, inputCenter: input.top + input.height / 2 };
+      });
+      assert.ok(metrics.size >= 14, 'USDC must be readable');
+      assert.ok(metrics.right <= metrics.inputRight - 12, 'the unit needs breathing room inside the input');
+      assert.ok(Math.abs(metrics.center - metrics.inputCenter) <= 2, 'the unit should be centered vertically');
+    }
   } finally { await context.close(); }
+});
+
+test('trade units stay inside both fields on mobile and scrolling never changes amounts', async () => {
+  for (const width of [390, 1440]) {
+    const { context, page, errors } = await fixture({ width, reducedMotion: 'reduce' });
+    try {
+      async function scrollWithoutEditing(input, value, mode) {
+        assert.equal(await input.getAttribute('type'), 'text');
+        assert.equal(await input.getAttribute('inputmode'), mode);
+        await input.fill(value);
+        await input.focus();
+        await input.hover();
+        await page.mouse.wheel(0, -180);
+        await page.waitForTimeout(100);
+        assert.equal(await input.inputValue(), value);
+        assert.equal(await input.evaluate((node) => document.activeElement === node), true);
+      }
+      await page.goto(origin + '/launch');
+      await scrollWithoutEditing(page.getByLabel('TOTAL SUPPLY', { exact: true }), '123456', 'numeric');
+      await scrollWithoutEditing(page.getByLabel('STARTING PRICE (USDC)', { exact: true }), '0.012345', 'decimal');
+      await page.goto(origin + '/markets');
+      await page.locator('.market-card-actions').getByRole('button', { name: 'BUY', exact: true }).click();
+      assert.equal(await page.locator('.market-card .origin-chip').count(), 0);
+      const dialog = page.getByRole('dialog');
+      assert.equal(await dialog.locator('.network-brand').count(), 0);
+      assert.equal(await dialog.getByText('REPLACE MARKET IMAGE', { exact: false }).count(), 0);
+      for (const side of ['BUY', 'SELL']) {
+        await dialog.getByRole('group', { name: 'Trade direction' }).getByRole('button', { name: side, exact: true }).click();
+        const amount = dialog.getByLabel(side === 'BUY' ? 'MAX USDC TO SPEND' : 'TOKEN AMOUNT', { exact: false });
+        await scrollWithoutEditing(amount, side === 'BUY' ? '1.234567' : '123', side === 'BUY' ? 'decimal' : 'numeric');
+        const units = dialog.locator('.market-order form > label small');
+        assert.equal(await units.count(), 2);
+        for (const unit of await units.all()) {
+          const fits = await unit.evaluate((node) => {
+            const unit = node.getBoundingClientRect();
+            const input = node.parentElement.querySelector('input').getBoundingClientRect();
+            return unit.left >= input.left && unit.right <= input.right - 12
+              && Math.abs((unit.top + unit.bottom - input.top - input.bottom) / 2) <= 2;
+          });
+          assert.ok(fits, `${side} unit must stay centered inside the field at ${width}px`);
+        }
+      }
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  }
 });
 
 test('launch previews form values and requires artwork picked through the preview card', async () => {

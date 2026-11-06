@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readdir } from 'node:fs/promises';
+import { readdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
 import { getAddress, keccak256 } from 'viem';
 import { detectImageType, parseContentId } from '../infrastructure/media-store.js';
@@ -377,7 +378,7 @@ test('uploading identical bytes twice is idempotent', async (t) => {
   assert.equal(stored.length, 1, 'identical content must occupy one file');
 });
 
-test('a creator can replace their market image, and the pointer follows', async (t) => {
+test('the first market image is immutable even for its creator', async (t) => {
   const app = await withMediaApp(t);
   const original = pngFixture({ seed: 1 });
   const replacement = pngFixture({ seed: 2 });
@@ -386,16 +387,30 @@ test('a creator can replace their market image, and the pointer follows', async 
   const lookupBefore = await (await fetch(`${app.baseUrl}/api/v1/media/markets?markets=${testMarket}`)).json();
   assert.equal(lookupBefore.data[testMarket].contentId, first.data.contentId);
 
-  const second = await (await uploadRequest(app.baseUrl, await signedUpload({ bytes: replacement }))).json();
-  assert.notEqual(second.data.contentId, first.data.contentId);
+  const second = await uploadRequest(app.baseUrl, await signedUpload({ bytes: replacement }));
+  assert.equal(second.status, 409);
+  assert.equal((await second.json()).error.code, 'MEDIA_IMAGE_LOCKED');
 
   const lookupAfter = await (await fetch(`${app.baseUrl}/api/v1/media/markets?markets=${testMarket}`)).json();
-  assert.equal(lookupAfter.data[testMarket].contentId, second.data.contentId);
+  assert.equal(lookupAfter.data[testMarket].contentId, first.data.contentId);
+  assert.equal((await readdir(app.store.contentDirectory)).length, 1, 'a rejected replacement must not write new bytes');
 
-  // The superseded bytes remain individually addressable, so any NFT that committed to them
-  // keeps resolving. Replacement moves a pointer; it does not rewrite history.
+  // The original content remains available unchanged.
   const old = await fetch(`${app.baseUrl}${first.data.url}`);
   assert.equal(old.status, 200);
+});
+
+test('concurrent first-image uploads cannot overwrite the winner', async (t) => {
+  const app = await withMediaApp(t);
+  const forms = await Promise.all([1, 2].map((seed) => signedUpload({ bytes: pngFixture({ seed }) })));
+  const responses = await Promise.all(forms.map((form) => uploadRequest(app.baseUrl, form)));
+  assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
+  const winner = await responses.find((response) => response.status === 201).json();
+  const lookup = await (await fetch(`${app.baseUrl}/api/v1/media/markets?markets=${testMarket}`)).json();
+  assert.equal(lookup.data[testMarket].contentId, winner.data.contentId);
+  const retry = await uploadRequest(app.baseUrl, forms[responses.findIndex((response) => response.status === 201)]);
+  assert.equal(retry.status, 201);
+  assert.equal((await retry.json()).data.contentId, winner.data.contentId);
 });
 
 test('a stranger cannot replace a market image the creator already set', async (t) => {
@@ -536,18 +551,19 @@ test('a market with no image is absent rather than an error', async (t) => {
   assert.deepEqual((await response.json()).data, {});
 });
 
-test('a pointer whose content no longer parses resolves to no image', async (t) => {
+test('an externally corrupted pointer cannot serve missing content', async (t) => {
   const app = await withMediaApp(t);
   await uploadRequest(app.baseUrl, await signedUpload());
 
   // Simulates a hand-edited or corrupted index entry.
-  await app.store.setMarketImage({
+  await writeFile(join(app.store.pointerDirectory, `${testMarket.toLowerCase()}.json`), JSON.stringify({
+    version: 1,
     market: testMarket,
     contentId: `${'a'.repeat(64)}.png`,
     contentHash: `0x${'a'.repeat(64)}`,
     mimeType: 'image/png',
     creator: creatorAccount.address,
-  }).catch(() => undefined);
+  }));
   const document = await app.store.getMarketImage(testMarket);
   // The shape is valid, so it resolves; the bytes are simply missing and the read 404s.
   assert.ok(document);

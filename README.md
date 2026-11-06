@@ -4,6 +4,8 @@ A meme becomes a market. Launch, discover, and trade meme markets in USDC on Arc
 
 Live at **<https://memeverse.biz>**.
 
+Token artwork is selected during launch and attached once after the market confirms. The first successful image is permanent in the application: later replacements are rejected, while retrying the same image remains safe.
+
 ```
 LAUNCH → MARKETS → REFERRAL → CAMPAIGNS
 ```

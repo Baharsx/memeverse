@@ -208,20 +208,14 @@ test('a successful attach refreshes the surfaces that render the new artwork', a
   assert.ok(onUploaded[0].includes("queryKey: ['onchain-markets']"), 'the market list is refetched');
 });
 
-// ── 6. The existing manual flow is untouched ────────────────────────────────
+// ── 6. Existing markets cannot expose a replacement flow ──────────────────
 
-test('the manual artwork control for existing markets is unchanged', async () => {
+test('artwork is selected only at launch, with no replacement control on existing markets', async () => {
   const text = await source('../../src/main.jsx');
-  const manager = text.slice(text.indexOf('function MarketImageManager'), text.indexOf('function Markets()'));
-
-  // Still creator-gated, still its own picker, still an explicit button — no auto-start anywhere.
-  assert.ok(manager.includes('const isCreator = address && market.creator'));
-  assert.ok(manager.includes('if (!isCreator) return null;'));
-  assert.ok(manager.includes('<ImagePicker'), 'it keeps its own file picker');
-  assert.ok(manager.includes('<AttachImageButton'), 'it keeps its explicit attach button');
-  assert.ok(manager.includes('action: MEDIA_ACTIONS.MARKET_AVATAR'));
-  assert.equal(/autoAttach|startAttachRef/.test(manager), false,
-    'the manual flow must not gain automatic behaviour');
+  assert.equal(text.includes('function MarketImageManager'), false);
+  assert.equal(text.includes('REPLACE MARKET IMAGE'), false);
+  assert.ok(text.includes('aria-label="Upload token image"'));
+  assert.ok(text.includes('disabled={Boolean(result?.market)}'));
 });
 
 test('the upload primitive itself is unchanged by this orchestration', async () => {

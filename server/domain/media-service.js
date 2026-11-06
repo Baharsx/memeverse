@@ -184,6 +184,11 @@ export class MediaService {
       );
     }
 
+    const existing = await this.store.getMarketImage(normalizedMarket);
+    if (existing && existing.contentHash !== actualHash) {
+      throw new DomainError('MEDIA_IMAGE_LOCKED', 'This token already has an image. Token images cannot be replaced.', { status: 409 });
+    }
+
     const stored = await this.store.putContent({
       bytes,
       keccakHash: actualHash.slice(2),
