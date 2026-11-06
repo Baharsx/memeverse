@@ -37,7 +37,7 @@ after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
 });
 
-async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n } = {}) {
+async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n, total = 1 } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion });
   context.setDefaultTimeout(10_000);
   const calls = { marketCount: 0, quoteBuy: [], quoteSell: [] };
@@ -53,7 +53,7 @@ async function fixture({ width = 390, reducedMotion = 'no-preference', empty = f
       if (name === 'quoteBuy') calls.quoteBuy.push(args[0]);
       if (name === 'quoteSell') calls.quoteSell.push(args[0]);
       const values = {
-        marketCount: empty ? 0n : 1n, markets: MARKET, isMarket: String(args?.[0] ?? '').toLowerCase() !== IMPORTED,
+        marketCount: empty ? 0n : BigInt(total), markets: `0x${(BigInt(MARKET) + (typeof args?.[0] === 'bigint' ? args[0] : 0n)).toString(16).padStart(40, '0')}`, isMarket: String(args?.[0] ?? '').toLowerCase() !== IMPORTED,
         name: target?.toLowerCase() === IMPORTED ? 'Imported Meme' : 'Pixel Possum', symbol: 'PXPS',
         description: 'Browser test fixture', creator: MARKET, treasury: MARKET, usdc: USDC,
         totalSupplyTokens: 1000000n, soldTokenCount: 100n, reserveUsdc: 1000000n,
@@ -158,13 +158,16 @@ test('trade sheet traps focus, restores its trigger, and debounces only the acti
     assert.equal(calls.quoteBuy.length, 1);
     assert.equal(calls.quoteSell.length, 0, 'hidden sell side must not fetch a quote');
     const amount = dialog.locator('input[type="number"]');
+    assert.equal(await amount.inputValue(), '1');
+    assert.equal(await dialog.locator('.trade-details').evaluate((node) => node.open), false);
+    assert.equal(await dialog.getByLabel('Estimated tokens received').inputValue(), '1');
     await amount.fill('0.02');
     await amount.fill('0.03');
     await amount.fill('0.04');
     assert.ok(await dialog.getByText('Updating your buy quote…').isVisible());
     assert.ok(await dialog.getByRole('button', { name: 'SIGN BUY ON ARC' }).isDisabled());
     await page.waitForFunction(() => !document.querySelector('.quote-feedback'));
-    assert.deepEqual(calls.quoteBuy, [10000n, 40000n], 'intermediate keystrokes must not hit the RPC');
+    assert.deepEqual(calls.quoteBuy, [1000000n, 40000n], 'intermediate keystrokes must not hit the RPC');
     assert.equal(await page.locator('#root').evaluate((node) => node.inert), true);
     const focusable = dialog.locator('button:not(:disabled), a[href], input:not(:disabled)');
     await focusable.last().focus();
@@ -278,7 +281,7 @@ test('hover keeps the carousel border inside its viewport and trade units stay r
     assert.ok(bounds.top >= bounds.viewportTop + 1, 'hover must not clip the top border');
     await page.locator('.site-header nav a[href$="/markets"]').click();
     await page.locator('.market-card-actions').getByRole('button', { name: 'BUY', exact: true }).click();
-    const unit = page.getByRole('dialog').locator('.market-order form > label small');
+    const unit = page.getByRole('dialog').locator('.market-order form > label small').first();
     const metrics = await unit.evaluate((node) => {
       const bounds = node.getBoundingClientRect();
       const input = node.parentElement.querySelector('input').getBoundingClientRect();
@@ -313,8 +316,38 @@ test('launch previews form values and requires artwork picked through the previe
     await (await chooser).setFiles('public/memeverse-hero-v1-640.webp');
     await page.waitForFunction(() => document.querySelector('.launch-artwork-picker img')?.getAttribute('src')?.startsWith('blob:'));
     assert.equal(await page.locator('.form-grid form .image-picker').count(), 0);
+    assert.equal(await page.locator('#launch-market-image').isVisible(), false);
+    const photo = await page.locator('.launch-artwork-picker').boundingBox();
+    const upload = await page.getByRole('button', { name: 'Upload token image' }).boundingBox();
+    assert.ok(upload.y >= photo.y + photo.height, 'upload button should be below the photo');
     await page.getByRole('button', { name: 'REVIEW ONCHAIN LAUNCH' }).click();
     await page.getByRole('region', { name: 'Launch review' }).waitFor();
     assert.deepEqual(uploads, [], 'picking an image must not upload before a confirmed market');
+  } finally { await context.close(); }
+});
+
+test('market carousel scrolls slowly, pauses on hover, and offers an explicit pause control', async () => {
+  const { context, page } = await fixture({ width: 1440, total: 6 });
+  try {
+    await page.goto(origin + '/');
+    const track = page.locator('.carousel-track');
+    await page.waitForFunction(() => document.querySelectorAll('.carousel-card').length === 6);
+    await track.scrollIntoViewIfNeeded();
+    await page.mouse.move(0, 0);
+    const before = await track.evaluate((node) => node.scrollLeft);
+    await page.waitForTimeout(900);
+    const after = await track.evaluate((node) => node.scrollLeft);
+    assert.ok(after - before > 3 && after - before < 20, `expected a gentle scroll, got ${after - before}px`);
+    await page.locator('.carousel-card').nth(1).hover();
+    const hovered = await track.evaluate((node) => node.scrollLeft);
+    await page.waitForTimeout(400);
+    assert.ok(Math.abs((await track.evaluate((node) => node.scrollLeft)) - hovered) <= 1);
+    await page.getByRole('button', { name: 'Pause automatic scrolling' }).click();
+    await page.mouse.move(0, 0);
+    const paused = await track.evaluate((node) => node.scrollLeft);
+    await page.waitForTimeout(400);
+    assert.ok(Math.abs((await track.evaluate((node) => node.scrollLeft)) - paused) <= 1);
+    assert.equal(await page.getByRole('button', { name: 'Resume automatic scrolling' }).count(), 1);
+    assert.equal((await page.locator('.marquee').textContent()).includes('READING'), false);
   } finally { await context.close(); }
 });

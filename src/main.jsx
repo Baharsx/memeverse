@@ -126,7 +126,7 @@ function Marquee() {
       <div>
         {(items.length ? [...items, ...items] : [null, null]).map((market, index) => (
           <span key={market ? `${market.address}-${index}` : `empty-${index}`}>
-            {market ? <>{market.symbol} <b>{marketSpotLabel(market, formatUsdc)}</b>{' '}<em className="up">ONCHAIN</em></> : <b>{markets.isPending ? 'READING LIVE MARKETS…' : markets.isError ? 'LIVE MARKET DATA TEMPORARILY UNAVAILABLE' : 'NO ONCHAIN MARKETS YET // LAUNCH THE FIRST'}</b>}
+            {market ? <>{market.symbol} <b>{marketSpotLabel(market, formatUsdc)}</b>{' '}<em className="up">ONCHAIN</em></> : <b>MEMEVERSE · CREATE & TRADE ON ARC</b>}
           </span>
         ))}
       </div>
@@ -421,9 +421,50 @@ const economySteps = [
 ];
 
 function AssetCarousel({ label, detail, trackRef, count, children }) {
+  const [autoPaused, setAutoPaused] = useState(false);
+  useEffect(() => {
+    const node = trackRef.current;
+    if (!node || count < 2 || autoPaused) return undefined;
+    const container = node.closest('.carousel');
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let frame, previous = 0, position = node.scrollLeft, direction = 1, pausedUntil = 0, hovering = false, visible = true;
+    const enter = () => { hovering = true; };
+    const leave = () => { hovering = false; };
+    const pause = () => { pausedUntil = performance.now() + 7000; };
+    const observer = new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; });
+    observer.observe(node);
+    container.addEventListener('pointerenter', enter);
+    container.addEventListener('pointerleave', leave);
+    container.addEventListener('pointerdown', pause, { passive: true });
+    container.addEventListener('wheel', pause, { passive: true });
+    node.addEventListener('carousel-manual-scroll', pause);
+    function advance(now) {
+      const elapsed = previous ? Math.min((now - previous) / 1000, .05) : 0;
+      previous = now;
+      const maximum = node.scrollWidth - node.clientWidth;
+      if (reduced.matches || hovering || !visible || document.hidden || now < pausedUntil || node.contains(document.activeElement) || maximum <= 0) {
+        position = node.scrollLeft;
+      } else {
+        position = Math.max(0, Math.min(maximum, position + direction * 12 * elapsed));
+        node.scrollTo({ left: position, behavior: 'instant' });
+        if (position >= maximum) direction = -1;
+        else if (position <= 0) direction = 1;
+      }
+      frame = requestAnimationFrame(advance);
+    }
+    frame = requestAnimationFrame(advance);
+    return () => {
+      cancelAnimationFrame(frame); observer.disconnect();
+      container.removeEventListener('pointerenter', enter); container.removeEventListener('pointerleave', leave);
+      container.removeEventListener('pointerdown', pause); container.removeEventListener('wheel', pause);
+      node.removeEventListener('carousel-manual-scroll', pause);
+    };
+  }, [count, autoPaused, trackRef]);
+
   function scrollCards(direction) {
     const node = trackRef.current;
     if (!node) return;
+    node.dispatchEvent(new Event('carousel-manual-scroll'));
     const card = node.querySelector('.carousel-card');
     const width = card ? card.getBoundingClientRect().width + 16 : 296;
     node.scrollBy({ left: direction * width, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
@@ -439,6 +480,7 @@ function AssetCarousel({ label, detail, trackRef, count, children }) {
         {count > 1 ? (
           <div className="carousel-controls">
             <button type="button" onClick={() => scrollCards(-1)} aria-label={`Previous ${label}`}>←</button>
+            <button type="button" aria-pressed={autoPaused} onClick={() => setAutoPaused((paused) => !paused)} aria-label={autoPaused ? 'Resume automatic scrolling' : 'Pause automatic scrolling'}>{autoPaused ? '▶' : 'Ⅱ'}</button>
             <button type="button" onClick={() => scrollCards(1)} aria-label={`Next ${label}`}>→</button>
           </div>
         ) : null}
@@ -861,10 +903,10 @@ function Launch() {
         <aside className="spec launch-preview" aria-label="Live token preview">
           <span className="eyebrow">YOUR TOKEN / LIVE PREVIEW</span>
           <article className="launch-token-card">
-            <button type="button" className="launch-artwork-picker" onClick={() => launchImageRef.current?.click()} aria-label="Upload token image">
+            <button type="button" className="launch-artwork-picker" onClick={() => launchImageRef.current?.click()} aria-label="Choose token artwork">
               <MarketImage src={image.selection?.previewUrl} alt="Token preview artwork" />
-              <span>{image.selection ? 'CHANGE IMAGE ↗' : 'UPLOAD TOKEN IMAGE ↗'}</span>
             </button>
+            <button type="button" className="btn launch-upload-button" onClick={() => launchImageRef.current?.click()} aria-label="Upload token image">UPLOAD TOKEN IMAGE ↗</button>
             <input ref={launchImageRef} id="launch-market-image" type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => { image.select(event.target.files?.[0] ?? null); setReview(false); setFormError(null); }} />
             <p className="launch-image-hint">Click the image above to upload your token image. <b>Required.</b><small>PNG, JPEG or WebP · Up to 5 MB</small></p>
             {image.error ? <p className="inline-error" role="alert">{image.error}</p> : null}
@@ -967,7 +1009,7 @@ function Markets() {
   const [tradeOpen, setTradeOpen] = useState(false);
   const tradeDialogRef = useRef(null);
   const [side, setSide] = useState('BUY');
-  const [buyAmount, setBuyAmount] = useState('0.01');
+  const [buyAmount, setBuyAmount] = useState('1');
   const [sellAmount, setSellAmount] = useState('1');
   const [boardQuery, setBoardQuery] = useState('');
   const [boardSort, setBoardSort] = useState('newest');
@@ -1272,6 +1314,8 @@ function Markets() {
                   </div>
                 ) : side === 'BUY' ? <form onSubmit={buyTokens}>
                   <label>MAX USDC TO SPEND<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="number" inputMode="decimal" min="0.000001" step="0.000001" required /><small>USDC</small></label>
+                  <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={buyQuote.data ? formatTokenAmount(buyQuote.data[0], 0) : '—'} aria-label="Estimated tokens received" /><small>{selected.symbol}</small></label>
+                  <details className="trade-details" key={`${selected.address}-buy`}><summary>TRADE DETAILS <span>Fees, limits & wallet balance</span></summary>
                   <div className="trade-review">
                     <span>WALLET BALANCE <b>{onArc && usdcBalance.data !== undefined ? `${formatUsdc(usdcBalance.data)} USDC` : 'CONNECT ON ARC'}</b></span>
                     <span>MAX INPUT <b>{buyAmount || '0'} USDC</b></span>
@@ -1281,7 +1325,11 @@ function Markets() {
                     <span>CREATOR ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[2])} USDC` : '—'}</b></span>
                     <span>TREASURY ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[3])} USDC` : '—'}</b></span>
                     <span>MINIMUM OUT / SLIPPAGE <b>{buyQuote.data ? `${formatTokenAmount(minimumAfterSlippage(buyQuote.data[0], slippageBps), 2)} / 1%` : '—'}</b></span>
-                  </div>
+                    <span>CREATOR FEE RATE <b>{Number(selected.creatorFeeBps) / 100}%</b></span>
+                    <span>TREASURY FEE RATE <b>{Number(selected.treasuryFeeBps) / 100}%</b></span>
+                    <span>NETWORK <b>{network.chain.name}</b></span>
+                    <span>UNSPENT MAX INPUT <b>{buyQuote.data ? `${formatUsdc(buyUnits - buyQuote.data[4])} USDC` : '—'}</b></span>
+                  </div></details>
                   {buyInputError ? <p className="inline-error">{buyInputError}</p> : null}
                   {!buyInputError && buyUnits > 0n && !buyQuote.data ? <p className="quote-feedback" role="status">{buyQuoteResult.isError ? 'Quote unavailable. Check your connection or try another amount.' : 'Updating your buy quote…'}</p> : null}
                   {allowanceRequired ? <button className="btn secondary full" type="button" disabled={!onArc || walletStateLoading || !buyQuote.data || approval.state.status === 'WALLET_SIGNATURE' || approval.state.status === 'SUBMITTED'} onClick={approveUsdc}>APPROVE MAX {buyAmount || '0'} USDC →</button> : null}
@@ -1290,6 +1338,8 @@ function Markets() {
                   <TransactionStatus state={buy.state} />
                 </form> : <form onSubmit={sellTokens}>
                   <label>TOKEN AMOUNT<input value={sellAmount} onChange={(event) => setSellAmount(event.target.value)} type="number" inputMode="numeric" min="1" step="1" required /><small>{selected.symbol}</small></label>
+                  <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={sellQuote.data ? formatUsdc(sellQuote.data[0]) : '—'} aria-label="Estimated USDC received" /><small>USDC</small></label>
+                  <details className="trade-details" key={`${selected.address}-sell`}><summary>TRADE DETAILS <span>Fees, limits & wallet balance</span></summary>
                   <div className="trade-review">
                     <span>YOUR POSITION <b>{formatTokenAmount(selected.userBalance)} {selected.symbol}</b></span>
                     <span>GROSS CURVE RETURN <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[1])} USDC` : '—'}</b></span>
@@ -1297,7 +1347,10 @@ function Markets() {
                     <span>TREASURY ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[3])} USDC` : '—'}</b></span>
                     <span>ESTIMATED RECEIVE <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[0])} USDC` : '—'}</b></span>
                     <span>MINIMUM OUT / SLIPPAGE <b>{sellQuote.data ? `${formatUsdc(minimumAfterSlippage(sellQuote.data[0], slippageBps))} / 1%` : '—'}</b></span>
-                  </div>
+                    <span>CREATOR FEE RATE <b>{Number(selected.creatorFeeBps) / 100}%</b></span>
+                    <span>TREASURY FEE RATE <b>{Number(selected.treasuryFeeBps) / 100}%</b></span>
+                    <span>NETWORK <b>{network.chain.name}</b></span>
+                  </div></details>
                   {sellInputError ? <p className="inline-error">{sellInputError}</p> : null}
                   {!sellInputError && sellUnits > 0n && !sellQuote.data ? <p className="quote-feedback" role="status">{sellQuoteResult.isError ? 'Quote unavailable. Check your connection or try another amount.' : 'Updating your sell quote…'}</p> : null}
                   {sellUnits > selected.userBalance && onArc ? <p className="inline-error">This amount exceeds your token balance.</p> : null}

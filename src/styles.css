@@ -1172,6 +1172,18 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 .brand-lockup{width:184px;height:auto;max-width:100%;object-fit:contain}
 .market-toolbar{grid-template-columns:minmax(180px,1.5fr) minmax(160px,1fr) minmax(180px,1fr)}
 .market-view-hint{margin:-8px 0 18px;color:#b4b6bb;font:13px/1.6 var(--ui)}
+.carousel-track{scroll-snap-type:none}
+.launch-preview input[type="file"][hidden]{display:none!important}
+.launch-upload-button{display:block;width:calc(100% - 28px);margin:12px 14px 0;color:var(--acid);text-align:center;font-size:12px}
+.market-order .quote-output{margin-top:18px}
+.market-order .quote-output input{color:var(--acid);font-weight:600;cursor:default}
+.trade-details{margin-top:22px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.trade-details summary{display:flex;justify-content:space-between;gap:12px;padding:15px 16px;cursor:pointer;color:var(--ink);font:600 12px/1.5 var(--ui);list-style:none}
+.trade-details summary::-webkit-details-marker{display:none}
+.trade-details summary::after{content:'+';color:var(--acid);font-size:18px;line-height:1}
+.trade-details[open] summary::after{content:'−'}
+.trade-details summary span{margin-left:auto;color:var(--mute);font-weight:400}
+.trade-details .trade-review{margin:0;border:0;border-top:1px solid var(--line)}
 .site-header nav a:is(:hover,.active,:focus-visible) sup{color:var(--acid)}
 .launch-preview{position:sticky;top:108px;padding:20px;min-width:0}
 .launch-preview>.eyebrow{display:block;margin-bottom:16px}
@@ -1179,7 +1191,6 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 .launch-artwork-picker{display:block;position:relative;width:100%;padding:0;border:0;background:#080809;cursor:pointer;overflow:hidden;aspect-ratio:1}
 .launch-artwork-picker .market-image{display:block;width:100%;height:100%;border:0;border-radius:0}
 .launch-artwork-picker img{width:100%;height:100%;object-fit:cover}
-.launch-artwork-picker>span:last-child{position:absolute;bottom:12px;left:12px;right:12px;padding:10px;border-radius:999px;background:rgba(0,0,0,.78);color:var(--acid);font:600 11px var(--ui);text-align:center}
 .launch-image-hint{margin:0;padding:14px 16px;border-bottom:1px solid var(--line);color:#c7c9cd;font:13px/1.6 var(--ui)}
 .launch-image-hint b{color:var(--acid)}
 .launch-image-hint small{display:block;margin-top:4px;color:var(--mute);font-size:11px}
