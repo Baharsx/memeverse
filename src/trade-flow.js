@@ -20,7 +20,7 @@ export function friendlyTradeError(message) {
  * @param step null | 'approve' | 'trade' — which transaction the current click is on
  * @param needsApproval whether this buy first needs a USDC allowance
  */
-export function tradeButtonState({ side, step, needsApproval, approval, action, ready }) {
+export function tradeButtonState({ side, step, needsApproval, approval, action, ready, blockedLabel = null }) {
   const buying = side === 'BUY';
   const total = buying && (needsApproval || step === 'approve' || approval?.hash) ? 2 : 1;
   if (step === 'approve') {
@@ -33,6 +33,7 @@ export function tradeButtonState({ side, step, needsApproval, approval, action, 
     const prefix = total === 2 ? 'Step 2 of 2 · ' : '';
     return { busy: true, label: signing ? 'CONFIRM IN YOUR WALLET' : verb, progress: `${prefix}${signing ? `Approve the ${buying ? 'buy' : 'sale'} in your wallet` : 'Waiting for Arc'}` };
   }
+  if (blockedLabel) return { busy: false, label: blockedLabel, progress: null, disabled: true };
   const label = buying ? (needsApproval ? 'ALLOW USDC & BUY →' : 'BUY NOW →') : 'SELL NOW →';
   return { busy: false, label, progress: null, disabled: !ready };
 }

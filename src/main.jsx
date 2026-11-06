@@ -1279,6 +1279,10 @@ function Markets() {
   const [buyStep, setBuyStep] = useState(null);
   const [sellStep, setSellStep] = useState(null);
   const walletStateLoading = onArc && markets.isPlaceholderData;
+  // A sale the wallet cannot cover simply disables the button with a calm reason, never a red error.
+  const sellBlockedLabel = !selected || !onArc || walletStateLoading ? null
+    : selected.userBalance === 0n ? `NO ${selected.symbol} TO SELL`
+      : sellUnits > selected.userBalance ? 'MORE THAN YOU HOLD' : null;
   const allowanceRequired = Boolean(selected && buyQuote.data?.[0] > 0n && buyUnits > selected.usdcAllowance);
   const minimumBuyUsdc = marketMinimumBuyUsdc(selected);
   // Legacy (v1) markets sell whole tokens only, so a budget below one token quotes zero.
@@ -1479,23 +1483,6 @@ function Markets() {
                     <a className="fund-link" href={FUNDING.href} target="_blank" rel="noreferrer noopener">Need USDC on Arc? <b>{ARC_IS_MAINNET ? 'Bridge in with Relay' : 'Get test USDC from the Circle faucet'} ↗</b></a>
                   )}
                   {wholeTokenOnlyZero ? <p className="whole-token-note" role="status">{selected.symbol} trades in whole tokens only. One token costs {formatUsdc(minimumBuyUsdc)} USDC with fees.</p> : null}
-                  <details className="trade-details" key={`${selected.address}-buy`}><summary>TRADE DETAILS <span>Fees, limits & wallet balance</span></summary>
-                  <div className="trade-review">
-                    <span>WALLET BALANCE <b>{onArc && usdcBalance.data !== undefined ? `${formatUsdc(usdcBalance.data)} USDC` : 'CONNECT ON ARC'}</b></span>
-                    <span>MAX INPUT <b>{buyAmount || '0'} USDC</b></span>
-                    <span>ESTIMATED SPEND <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[4])} USDC` : '—'}</b></span>
-                    <span>ESTIMATED OUT <b>{buyQuote.data ? `${formatTokenAmount(buyQuote.data[0], 6)} ${selected.symbol}` : '—'}</b></span>
-                    <span>CURVE COST <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[1])} USDC` : '—'}</b></span>
-                    <span>CREATOR ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[2])} USDC` : '—'}</b></span>
-                    <span>TREASURY ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[3])} USDC` : '—'}</b></span>
-                    <span>MINIMUM OUT / SLIPPAGE <b>{buyQuote.data ? `${formatTokenAmount(minimumAfterSlippage(buyQuote.data[0], slippageBps), 2)} / 1%` : '—'}</b></span>
-                    <span>CREATOR FEE RATE <b>{Number(selected.creatorFeeBps) / 100}%</b></span>
-                    <span>TREASURY FEE RATE <b>{Number(selected.treasuryFeeBps) / 100}%</b></span>
-                    <span>BASE PRICE / TOKEN <b>{marketSpotLabel(selected, formatUsdc)}</b></span>
-                    <span>BUY PRICE WITH FEES <b>{minimumBuyUsdc === null ? '—' : `${formatUsdc(minimumBuyUsdc)} USDC`}</b></span>
-                    <span>NETWORK <b>{network.chain.name}</b></span>
-                    <span>UNSPENT MAX INPUT <b>{buyQuote.data ? `${formatUsdc(buyUnits - buyQuote.data[4])} USDC` : '—'}</b></span>
-                  </div></details>
                   {buyInputError ? <p className="inline-error">{buyInputError}</p> : null}
                   {!buyInputError && buyUnits > 0n && !buyQuote.data ? <p className="quote-feedback" role="status">{buyQuoteResult.isError ? 'Quote unavailable. Check your connection or try another amount.' : 'Updating your buy quote…'}</p> : null}
                   <TradeAction
@@ -1516,23 +1503,10 @@ function Markets() {
                     </div>
                   ) : null}
                   <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={sellQuote.data ? formatUsdc(sellQuote.data[0]) : '—'} aria-label="Estimated USDC received" /><small>USDC</small></label>
-                  <details className="trade-details" key={`${selected.address}-sell`}><summary>TRADE DETAILS <span>Fees, limits & wallet balance</span></summary>
-                  <div className="trade-review">
-                    <span>YOUR POSITION <b>{formatTokenAmount(selected.userBalance, 6)} {selected.symbol}</b></span>
-                    <span>GROSS CURVE RETURN <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[1])} USDC` : '—'}</b></span>
-                    <span>CREATOR ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[2])} USDC` : '—'}</b></span>
-                    <span>TREASURY ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[3])} USDC` : '—'}</b></span>
-                    <span>ESTIMATED RECEIVE <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[0])} USDC` : '—'}</b></span>
-                    <span>MINIMUM OUT / SLIPPAGE <b>{sellQuote.data ? `${formatUsdc(minimumAfterSlippage(sellQuote.data[0], slippageBps))} / 1%` : '—'}</b></span>
-                    <span>CREATOR FEE RATE <b>{Number(selected.creatorFeeBps) / 100}%</b></span>
-                    <span>TREASURY FEE RATE <b>{Number(selected.treasuryFeeBps) / 100}%</b></span>
-                    <span>NETWORK <b>{network.chain.name}</b></span>
-                  </div></details>
                   {sellInputError ? <p className="inline-error">{sellInputError}</p> : null}
                   {!sellInputError && sellUnits > 0n && !sellQuote.data ? <p className="quote-feedback" role="status">{sellQuoteResult.isError ? 'Quote unavailable. Check your connection or try another amount.' : 'Updating your sell quote…'}</p> : null}
-                  {sellUnits > selected.userBalance && onArc ? <p className="inline-error">This amount exceeds your token balance.</p> : null}
                   <TradeAction
-                    button={tradeButtonState({ side: 'SELL', step: sellStep, needsApproval: false, action: sell.state, ready: onArc && !walletStateLoading && Boolean(sellQuote.data) && sellQuote.data[0] > 0n && sellUnits <= selected.userBalance })}
+                    button={tradeButtonState({ side: 'SELL', step: sellStep, needsApproval: false, action: sell.state, blockedLabel: sellBlockedLabel, ready: onArc && !walletStateLoading && Boolean(sellQuote.data) && sellQuote.data[0] > 0n && sellUnits <= selected.userBalance })}
                     line={tradeStatusLine({ side: 'SELL', step: sellStep, action: sell.state })}
                   />
                 </form>}

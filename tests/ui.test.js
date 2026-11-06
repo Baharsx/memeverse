@@ -164,12 +164,12 @@ test('trade sheet traps focus, restores its trigger, and debounces only the acti
     await buy.click();
     const dialog = page.getByRole('dialog');
     await dialog.waitFor();
-    await page.waitForFunction(() => document.querySelector('.trade-review')?.textContent.includes('1 PXPS'));
+    await page.waitForFunction(() => document.querySelector('input[aria-label="Estimated tokens received"]')?.value === '1');
     assert.equal(calls.quoteBuy.length, 1);
     assert.equal(calls.quoteSell.length, 0, 'hidden sell side must not fetch a quote');
     const amount = dialog.getByLabel('MAX USDC TO SPEND', { exact: false });
     assert.equal(await amount.inputValue(), '1');
-    assert.equal(await dialog.locator('.trade-details').evaluate((node) => node.open), false);
+    assert.equal(await dialog.locator('.trade-details').count(), 0, 'no fee breakdown to confuse a buyer');
     assert.equal(await dialog.getByLabel('Estimated tokens received').inputValue(), '1');
     await amount.fill('0.02');
     await amount.fill('0.03');
@@ -694,6 +694,34 @@ test('selling shows the held position with 25%, 50% and MAX presets', async () =
     assert.match(await dialog.locator('.trade-cta').textContent(), /SELL NOW/);
     const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
     assert.ok(size.scroll <= size.width);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('selling more than the position disables the button calmly instead of showing a red error', async () => {
+  const { context, page, errors } = await fixture({ width: 390, fractional: true, held: 0n });
+  await page.addInitScript(() => {
+    window.ethereum = {
+      on() {}, removeListener() {},
+      async request({ method }) {
+        if (method === 'eth_chainId') return '0x4cef52';
+        if (['eth_accounts', 'eth_requestAccounts'].includes(method)) return ['0x3333333333333333333333333333333333333333'];
+        if (method === 'wallet_requestPermissions') return [{ parentCapability: 'eth_accounts' }];
+        throw new Error(`Unexpected wallet request: ${method}`);
+      },
+    };
+  });
+  try {
+    await page.goto(origin + '/markets');
+    await page.locator('.market-card-actions').getByRole('button', { name: 'SELL', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    const connect = dialog.getByRole('button', { name: 'Connect a wallet' });
+    if (await connect.count()) await connect.click();
+    const cta = dialog.locator('.trade-cta');
+    await page.waitForFunction(() => document.querySelector('.trade-cta')?.textContent.includes('NO PXPS TO SELL'));
+    assert.ok(await cta.isDisabled());
+    assert.equal(await dialog.locator('.inline-error').count(), 0, 'no red error for an empty position');
+    assert.equal(await dialog.locator('.trade-details').count(), 0);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });

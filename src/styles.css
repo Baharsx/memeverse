@@ -1344,3 +1344,8 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 .trade-feed::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}
 .trade-feed:focus-visible{outline:1px solid rgba(198,244,50,.5);outline-offset:4px;border-radius:12px}
 .trade-feed li:last-child{margin-bottom:18px}
+
+/* Primary actions feel soft to press: a quick squeeze, then a gentle springy release. */
+.btn.primary:not(:disabled),.trade-cta:not(:disabled){transition:transform .42s cubic-bezier(.34,1.56,.64,1),background .3s var(--ease),box-shadow .3s var(--ease)}
+.btn.primary:not(:disabled):active,.trade-cta:not(:disabled):active{transform:scale(.965) translateY(1px);transition:transform .12s cubic-bezier(.2,.8,.2,1)}
+@media (prefers-reduced-motion:reduce){.btn.primary:not(:disabled):active,.trade-cta:not(:disabled):active{transform:none}}

@@ -33,3 +33,7 @@ test('sell presets use exact fractions or whole tokens', () => {
   assert.equal(sellPresetAmount(10n ** 17n, 1n, 4n, false), '', 'no whole token to sell');
   assert.equal(sellPresetAmount(0n, 1n, 1n, true), '');
 });
+
+test('a blocked sale reads as a calm disabled button', () => {
+  assert.deepEqual(tradeButtonState({ side: 'SELL', step: null, action: { status: 'IDLE' }, ready: false, blockedLabel: 'NO DGR TO SELL' }), { busy: false, label: 'NO DGR TO SELL', progress: null, disabled: true });
+});
