@@ -18,7 +18,7 @@ let server;
 let origin;
 
 before(async () => {
-  const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' };
+  const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
   server = createServer(async (request, response) => {
     const pathname = new URL(request.url, 'http://localhost').pathname.replace(/^\/memeverse\/?/, '');
     const relative = path.extname(pathname) ? pathname : 'index.html';
@@ -106,6 +106,12 @@ test('all product routes fit mobile, tablet and desktop, including narrow screen
       for (const route of ['/', '/markets', '/launch', '/referral', '/campaigns', '/missing']) {
         await page.goto(origin + route);
         await page.locator('h1').waitFor();
+        if (route === '/') {
+          await page.waitForFunction(() => {
+            const art = document.querySelector('.hero-art img');
+            return art?.complete && art.naturalWidth > 0;
+          });
+        }
         const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
         assert.ok(size.scroll <= size.width, `${route} overflows at ${width}px: ${size.scroll}`);
         assert.ok(await page.locator('.site-header .wallet').isVisible());

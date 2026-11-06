@@ -1109,6 +1109,11 @@ label>input:focus-visible,label>textarea:focus-visible,label>select:focus-visibl
 .economy-flow > .economy-step:is(:hover, :focus-visible) b{color:var(--acid)}
 .economy-flow > .economy-step:is(:hover, :focus-visible) p{color:var(--mute)}
 
+/* The homepage illustration replaces the former technical information card. */
+.hero-art{align-self:center;justify-self:center;width:100%;max-width:440px;aspect-ratio:4/5;margin:20px 0 24px;line-height:0}
+.hero-art img{display:block;width:100%;height:100%;object-fit:contain}
+@media(max-width:800px){.hero-art{max-width:300px;margin:0 auto 20px}}
+
 /* Shared loading, focus and touch feedback across the product. */
 main:focus{outline:none}
 html{scrollbar-gutter:stable;scroll-padding-top:130px}

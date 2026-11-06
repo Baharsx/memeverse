@@ -485,16 +485,18 @@ function Home() {
             <NavLink className="btn secondary" to="/markets">TRADE ONCHAIN →</NavLink>
           </div>
         </div>
-        <aside>
-          <Mascot />
-          <p>
-            PRODUCT: MEMEVERSE
-            <br />INFRASTRUCTURE: <b className="acid">BUILT ON ARC</b>
-            <br />MONEY + GAS: USDC
-            <br />FEES: <b className="acid">INSIDE THE TRADE</b>
-            <br />ASSETS: {ARC_IS_MAINNET ? 'REAL USDC' : 'TESTNET ONLY'}
-          </p>
-        </aside>
+        <figure className="hero-art">
+          <img
+            src={`${import.meta.env.BASE_URL}memeverse-hero-v1-960.webp`}
+            srcSet={`${import.meta.env.BASE_URL}memeverse-hero-v1-640.webp 640w, ${import.meta.env.BASE_URL}memeverse-hero-v1-960.webp 960w`}
+            sizes="(max-width: 800px) 300px, (max-width: 1120px) 38vw, 410px"
+            width="960"
+            height="1200"
+            fetchPriority="high"
+            decoding="async"
+            alt="MemeVerse’s pixel mascot waves hello, surrounded by floating lime cubes and a glowing ribbon."
+          />
+        </figure>
       </section>
 
       <section className="economy-flow" aria-label="How the MemeVerse economy works">

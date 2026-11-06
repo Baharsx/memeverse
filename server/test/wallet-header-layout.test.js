@@ -24,6 +24,7 @@ const CONTENT_TYPES = {
   '.js': 'text/javascript',
   '.css': 'text/css',
   '.png': 'image/png',
+  '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.wasm': 'application/wasm',
 };
