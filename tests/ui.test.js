@@ -37,7 +37,7 @@ after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
 });
 
-async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n, total = 1, artwork = false, mediaDelay = 0, imageDelay = 0, imageFailure = false, highPrice = false, fractional = false } = {}) {
+async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n, total = 1, artwork = false, mediaDelay = 0, imageDelay = 0, imageFailure = false, highPrice = false, fractional = false, activity = null } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion });
   context.setDefaultTimeout(10_000);
   const calls = { marketCount: 0, quoteBuy: [], quoteSell: [] };
@@ -81,6 +81,7 @@ async function fixture({ width = 390, reducedMotion = 'no-preference', empty = f
       if (imageDelay) await new Promise((resolve) => setTimeout(resolve, imageDelay));
       return imageFailure ? route.fulfill({ status: 404 }) : route.fulfill({ contentType: 'image/webp', body: await readFile('public/memeverse-hero-v1-640.webp') });
     }
+    if (url.pathname === '/api/v1/activity' && activity) return route.fulfill({ json: { data: activity } });
     if (url.pathname === '/api/v1/referrals/invite') return route.fulfill({ json: { data: { code: 'aB3_kD9-zX2q', chainId: 5042002 } } });
     if (url.pathname.startsWith('/api/')) {
       return route.fulfill({ json: { data: {}, status: 'ok', arc: { status: 'verified' } } });
@@ -598,5 +599,49 @@ test('home explains the three starting steps with an external USDC route', async
     assert.match(await funding.getAttribute('rel'), /noopener/);
     assert.match(await steps.locator('a').nth(1).getAttribute('href'), /\/launch$/);
     assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('home shows trending markets and live trades from the activity index, or an honest empty state', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const activity = {
+    recent: [
+      { market: MARKET, side: 'BUY', trader: '0x52e1d2a7ECe14cb84aA74687Fafe40D5794de2fF', usdc: '5000000', tokens: '1', tx: '0x' + 'ab'.repeat(32), at: now - 120 },
+      { market: MARKET, side: 'SELL', trader: '0x1111111111111111111111111111111111111111', usdc: '1250000', tokens: '1', tx: '0x' + 'cd'.repeat(32), at: now - 7200 },
+    ],
+    markets: { [MARKET]: { holders: 3, trades: 2, volumeUsdc: '6250000', trades24h: 2, volume24hUsdc: '6250000', traders24h: 2, lastTradeAt: now - 120 } },
+  };
+  for (const width of [1440, 390]) {
+    const { context, page, errors } = await fixture({ width, activity });
+    try {
+      await page.goto(origin + '/');
+      const section = page.getByRole('region', { name: 'Market activity' });
+      await section.locator('.trending-row').waitFor();
+      assert.match(await section.locator('.trending-row').textContent(), /Pixel Possum.*\$PXPS · 3 holders.*\$6\.25.*2 trades today/);
+      const feed = section.locator('.trade-feed li');
+      assert.equal(await feed.count(), 2);
+      assert.match(await feed.first().textContent(), /0x52e1…e2fF bought \$5 of \$PXPS.*2m ago/);
+      assert.match(await feed.nth(1).textContent(), /sold \$1\.25/);
+      assert.match(await feed.first().getByRole('link').getAttribute('href'), /\/tx\/0xabab/);
+      const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
+      assert.ok(size.scroll <= size.width, `activity overflows at ${width}px`);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  }
+  const quiet = { recent: activity.recent.map((trade) => ({ ...trade, at: now - 5 * 86_400 })), markets: { [MARKET]: { ...activity.markets[MARKET], trades24h: 0, volume24hUsdc: '0', traders24h: 0 } } };
+  const old = await fixture({ width: 1440, activity: quiet });
+  try {
+    await old.page.goto(origin + '/');
+    const section = old.page.getByRole('region', { name: 'Market activity' });
+    await section.locator('.trending-row').waitFor();
+    assert.match(await section.locator('header').first().textContent(), /TOP MARKETS.*ALL-TIME VOLUME/);
+    assert.match(await section.locator('.trending-row').textContent(), /\$6\.25.*2 trades total/);
+  } finally { await old.context.close(); }
+  const { context, page } = await fixture({ width: 1440 });
+  try {
+    await page.goto(origin + '/');
+    const section = page.getByRole('region', { name: 'Market activity' });
+    await section.getByText('No trades yet').waitFor();
+    assert.equal(await section.locator('.trending-row').count(), 0, 'no trend is shown without trades');
   } finally { await context.close(); }
 });

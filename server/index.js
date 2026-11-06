@@ -6,6 +6,9 @@ import { createMediaStore } from './infrastructure/media-store.js';
 import { createMarketResolver } from './infrastructure/market-resolver.js';
 import { MediaService } from './domain/media-service.js';
 import { createReferralService } from './domain/referral-service.js';
+import { join } from 'node:path';
+import { createPublicClient, http } from 'viem';
+import { ActivityIndexer } from './domain/activity-indexer.js';
 
 loadLocalEnvironment();
 
@@ -28,7 +31,13 @@ const mediaService = new MediaService({
   chainId: config.arcChainId,
 });
 const referralService = createReferralService({ storageDir: config.mediaStorageDir, chainId: config.arcChainId });
-const app = createApp({ config, arcRpc, mediaService, referralService });
+const activityIndexer = new ActivityIndexer({
+  publicClient: createPublicClient({ transport: http(config.arcRpcUrl, { retryCount: 0 }) }),
+  factories: [config.marketFactoryAddress, config.fractionalFactoryAddress],
+  stateFile: join(config.mediaStorageDir, 'activity', 'state.json'),
+});
+activityIndexer.start();
+const app = createApp({ config, arcRpc, mediaService, referralService, activityIndexer });
 
 const server = app.listen(config.port, '127.0.0.1', () => {
   console.info(JSON.stringify({
@@ -41,6 +50,7 @@ const server = app.listen(config.port, '127.0.0.1', () => {
 
 async function shutdown(signal) {
   console.info(JSON.stringify({ type: 'server_stopping', signal }));
+  activityIndexer.stop();
   await new Promise((resolvePromise, reject) => {
     server.close((error) => (error ? reject(error) : resolvePromise()));
   });

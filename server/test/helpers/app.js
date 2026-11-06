@@ -34,6 +34,7 @@ export async function startTestApp({
   configOverrides = {},
   mediaService,
   referralService,
+  activityIndexer,
 } = {}) {
   const config = baseTestConfig(configOverrides);
   const app = createApp({
@@ -41,6 +42,7 @@ export async function startTestApp({
     arcRpc: verifiedArcRpc,
     mediaService,
     referralService,
+    activityIndexer,
     logger: { info() {}, error() {} },
   });
   const server = app.listen(0, '127.0.0.1');

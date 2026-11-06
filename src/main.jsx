@@ -70,7 +70,8 @@ import {
   useImageSelection,
   useMediaUpload,
 } from './media-views.jsx';
-import { getMarketImages } from './api';
+import { getActivity, getMarketImages } from './api';
+import { shortTrader, timeAgo, trendingMarkets } from './activity';
 import { QUICK_BUY_AMOUNTS, fundingLink, needsMoreUsdc } from './funding';
 import { MEDIA_ACTIONS } from './media-authorization';
 import { canRetryLaunchArtwork, launchArtworkStage } from './media-upload';
@@ -667,6 +668,8 @@ function Home() {
         })}
       </section>
 
+      <HomeActivity listed={listed} images={images.data} />
+
       <section className="home-community" aria-label="Community programs">
         <NavLink to="/referral" className="home-community-card">
           <span>03 / REFERRAL</span>
@@ -717,6 +720,74 @@ function Home() {
 
       </section>
     </>
+  );
+}
+
+function activityQueryOptions() {
+  return { queryKey: ['activity'], queryFn: () => getActivity(12), staleTime: 10_000, refetchInterval: 15_000 };
+}
+
+/**
+ * Trending and live trades, from the server's chain index. Both lists show only recorded trades;
+ * with none yet, the section invites the first one instead of implying activity.
+ */
+function HomeActivity({ listed, images }) {
+  const activity = useQuery(activityQueryOptions());
+  const byAddress = Object.fromEntries(listed.map((market) => [market.address, market]));
+  const trending = trendingMarkets(listed, activity.data?.markets);
+  const recent = (activity.data?.recent ?? []).filter((trade) => byAddress[trade.market]).slice(0, 6);
+  // With no trade in the last day, rank by all-time volume and say so rather than show zeros.
+  const live = trending.some(({ stats }) => stats.trades24h > 0);
+  if (activity.isPending) return null;
+  return (
+    <section className="home-activity" aria-label="Market activity">
+      <div className="activity-panel">
+        <header><span><i aria-hidden="true" />{live || !trending.length ? 'TRENDING NOW' : 'TOP MARKETS'}</span><small>{live || !trending.length ? '24H VOLUME' : 'ALL-TIME VOLUME'}</small></header>
+        {trending.length ? (
+          <ol className="trending-list">
+            {trending.map(({ market, stats }, index) => (
+              <li key={market.address}>
+                <NavLink to="/markets" className="trending-row">
+                  <b className="trending-rank">{index + 1}</b>
+                  <MarketImage src={mediaContentUrl(images?.[market.address]?.url)} alt="" size="sm" />
+                  <span className="trending-name"><strong>{market.name}</strong><small>${market.symbol} · {stats.holders} holder{stats.holders === 1 ? '' : 's'}</small></span>
+                  {live ? (
+                    <span className="trending-volume"><strong>${formatUsdc(BigInt(stats.volume24hUsdc), 2)}</strong><small>{stats.trades24h} trade{stats.trades24h === 1 ? '' : 's'} today</small></span>
+                  ) : (
+                    <span className="trending-volume"><strong>${formatUsdc(BigInt(stats.volumeUsdc), 2)}</strong><small>{stats.trades} trade{stats.trades === 1 ? '' : 's'} total</small></span>
+                  )}
+                </NavLink>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className="activity-empty"><strong>No trades yet</strong><p>Be the first to buy a meme on Arc. New tokens start from $1.</p><NavLink className="btn primary" to="/markets">EXPLORE MARKETS →</NavLink></div>
+        )}
+      </div>
+      <div className="activity-panel">
+        <header><span><i aria-hidden="true" />LIVE TRADES</span><small>ONCHAIN</small></header>
+        {recent.length ? (
+          <ul className="trade-feed">
+            {recent.map((trade) => {
+              const market = byAddress[trade.market];
+              return (
+                <li key={`${trade.tx}-${trade.market}-${trade.side}`}>
+                  <MarketImage src={mediaContentUrl(images?.[trade.market]?.url)} alt="" size="sm" />
+                  <p>
+                    <span className="trade-trader">{shortTrader(trade.trader)}</span>{' '}
+                    <b className={trade.side === 'BUY' ? 'trade-buy' : 'trade-sell'}>{trade.side === 'BUY' ? 'bought' : 'sold'}</b>{' '}
+                    <strong>${formatUsdc(BigInt(trade.usdc), 2)}</strong> of <strong>${market.symbol}</strong>
+                  </p>
+                  <ExternalLink href={`${arcLinks.explorer}/tx/${trade.tx}`} className="trade-time" aria-label={`View transaction, ${timeAgo(trade.at)}`}>{timeAgo(trade.at)} ↗</ExternalLink>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="activity-empty"><strong>Waiting for the first trade</strong><p>Every buy and sell shows up here, straight from the chain.</p></div>
+        )}
+      </div>
+    </section>
   );
 }
 

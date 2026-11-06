@@ -122,3 +122,16 @@ export async function registerReferral({ wallet, referrer, code, issuedAt, signa
   });
   return result.data;
 }
+
+/**
+ * Indexed public trade activity: recent trades and per-market stats. Activity is decoration,
+ * so an outage resolves to an empty snapshot and prices still render from the chain.
+ */
+export async function getActivity(limit = 12) {
+  try {
+    const payload = await request(`/api/v1/activity?limit=${limit}`);
+    return { recent: payload?.data?.recent ?? [], markets: payload?.data?.markets ?? {} };
+  } catch {
+    return { recent: [], markets: {} };
+  }
+}
