@@ -128,8 +128,9 @@ export function filterTradeableMarkets(markets, { query = '', onlyHeld = false, 
 }
 
 function soldRatio(market) {
-  const sold = BigInt(market?.soldTokenCount ?? 0n);
-  const total = BigInt(market?.totalSupplyTokens ?? 0n);
+  const fractional = market?.tradingVersion === 2;
+  const sold = BigInt(fractional ? market.soldTokenUnits ?? 0n : market?.soldTokenCount ?? 0n);
+  const total = BigInt(market?.totalSupplyTokens ?? 0n) * (fractional ? 10n ** 18n : 1n);
   if (total === 0n) return 0;
   return Number((sold * 10_000n) / total) / 10_000;
 }

@@ -71,6 +71,7 @@ export function loadServerConfig(environment = process.env) {
     arcExplorerUrl: network.explorerUrl,
     mediaStorageDir: resolve(process.cwd(), parsed.MEDIA_STORAGE_DIR),
     marketFactoryAddress: network.factory,
+    fractionalFactoryAddress: network.fractionalFactory,
     arcUsdcAddress: network.usdc,
     trustedProxyHopCount: parsed.TRUSTED_PROXY_HOP_COUNT,
     secureCookies: parsed.NODE_ENV === 'production',

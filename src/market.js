@@ -24,6 +24,7 @@ export const usdcAbi = parseAbi([
 ]);
 
 export const factoryAbi = parseAbi([
+  'function tradingVersion() view returns (uint256)',
   'function usdc() view returns (address)',
   'function treasury() view returns (address)',
   'function creatorFeeBps() view returns (uint16)',
@@ -46,6 +47,8 @@ export const marketAbi = parseAbi([
   'function totalSupply() view returns (uint256)',
   'function totalSupplyTokens() view returns (uint256)',
   'function soldTokenCount() view returns (uint256)',
+  'function soldTokenUnits() view returns (uint256)',
+  'function tradingVersion() view returns (uint256)',
   'function reserveUsdc() view returns (uint256)',
   'function creatorFeesPaidUsdc() view returns (uint256)',
   'function treasuryFeesPaidUsdc() view returns (uint256)',
@@ -125,12 +128,25 @@ export function parseWholeTokens(value) {
   return parseUnits(value, TOKEN_DECIMALS);
 }
 
+export function parseTokenAmount(value, { fractional = false } = {}) {
+  if (!fractional) return parseWholeTokens(value);
+  const text = String(value ?? '').trim();
+  if (!/^\d+(?:\.\d{1,18})?$/.test(text)) throw new Error('Enter a positive token amount with at most 18 decimals.');
+  const units = parseUnits(text, TOKEN_DECIMALS);
+  if (units === 0n) throw new Error('Enter a positive token amount.');
+  return units;
+}
+
 export function formatUsdc(value, maximumFractionDigits = 6) {
   return formatExactUnits(value, USDC_DECIMALS, maximumFractionDigits);
 }
 
 export function formatTokenAmount(value, maximumFractionDigits = 2) {
-  return formatExactUnits(value, TOKEN_DECIMALS, maximumFractionDigits);
+  // A positive fractional balance or quote must never be presented as zero.
+  const units = value ?? 0n;
+  const threshold = 10n ** BigInt(TOKEN_DECIMALS - maximumFractionDigits);
+  const precision = units > 0n && units < threshold ? TOKEN_DECIMALS : maximumFractionDigits;
+  return formatExactUnits(units, TOKEN_DECIMALS, precision);
 }
 
 function formatExactUnits(value, decimals, maximumFractionDigits) {
@@ -170,7 +186,7 @@ export async function loadUsdcBalance(address) {
   });
 }
 
-export async function loadMarket(address, userAddress) {
+export async function loadMarket(address, userAddress, { tradingVersion = 1 } = {}) {
   const reads = [
     ['name'], ['symbol'], ['description'], ['creator'], ['treasury'], ['totalSupplyTokens'],
     ['soldTokenCount'], ['reserveUsdc'], ['creatorFeesPaidUsdc'], ['treasuryFeesPaidUsdc'],
@@ -184,6 +200,7 @@ export async function loadMarket(address, userAddress) {
       { address: arcContracts.usdc, abi: usdcAbi, functionName: 'allowance', args: [userAddress, address] },
     );
   }
+  if (tradingVersion === 2) contracts.push({ address, abi: marketAbi, functionName: 'soldTokenUnits' });
   const values = await marketPublicClient.multicall({ contracts, allowFailure: false });
   const [
     name, symbol, description, creator, treasury, totalSupplyTokens, soldTokenCount,
@@ -197,38 +214,32 @@ export async function loadMarket(address, userAddress) {
     address, name, symbol, description, creator, treasury, totalSupplyTokens, soldTokenCount,
     reserveUsdc, creatorFeesPaidUsdc, treasuryFeesPaidUsdc, creatorFeeBps,
     treasuryFeeBps, basePriceUsdc, slopePriceUsdc, createdAt, createdBlock, active,
-    spotPriceUsdc, userBalance, usdcAllowance,
+    spotPriceUsdc, userBalance, usdcAllowance, tradingVersion,
+    soldTokenUnits: tradingVersion === 2 ? values[userAddress ? 20 : 18] : soldTokenCount * 10n ** 18n,
   };
 }
 
 export async function loadMarkets(userAddress) {
-  if (!arcContracts.memeVerseFactory) return [];
-  const marketCount = await marketPublicClient.readContract({
-    address: arcContracts.memeVerseFactory,
-    abi: factoryAbi,
-    functionName: 'marketCount',
-  });
-  const addresses = marketCount === 0n ? [] : await marketPublicClient.multicall({
-    contracts: Array.from({ length: Number(marketCount) }, (_, index) => ({
-      address: arcContracts.memeVerseFactory,
-      abi: factoryAbi,
-      functionName: 'markets',
-      args: [BigInt(index)],
-    })),
-    allowFailure: false,
-  });
-  if (addresses.length === 0) return [];
-  const registered = await marketPublicClient.multicall({
-    contracts: addresses.map((address) => ({
-      address: arcContracts.memeVerseFactory,
-      abi: factoryAbi,
-      functionName: 'isMarket',
-      args: [address],
-    })),
-    allowFailure: false,
-  });
-  const live = addresses.filter((_, index) => registered[index]);
-  return Promise.all(live.map((address) => loadMarket(address, userAddress)));
+  const groups = await Promise.all(arcContracts.marketFactories.map(async ({ address: factoryAddress, tradingVersion: configuredVersion }) => {
+    const [marketCount, detectedVersion] = await Promise.all([
+      marketPublicClient.readContract({ address: factoryAddress, abi: factoryAbi, functionName: 'marketCount' }),
+      configuredVersion === 2 ? Promise.resolve(2n)
+        : marketPublicClient.readContract({ address: factoryAddress, abi: factoryAbi, functionName: 'tradingVersion' }).catch(() => 1n),
+    ]);
+    const tradingVersion = detectedVersion === 2n ? 2 : 1;
+    if (marketCount === 0n) return [];
+    const addresses = await marketPublicClient.multicall({
+      contracts: Array.from({ length: Number(marketCount) }, (_, index) => ({
+        address: factoryAddress, abi: factoryAbi, functionName: 'markets', args: [BigInt(index)],
+      })), allowFailure: false,
+    });
+    const registered = await marketPublicClient.multicall({
+      contracts: addresses.map((address) => ({ address: factoryAddress, abi: factoryAbi, functionName: 'isMarket', args: [address] })),
+      allowFailure: false,
+    });
+    return Promise.all(addresses.filter((_, index) => registered[index]).map((address) => loadMarket(address, userAddress, { tradingVersion })));
+  }));
+  return groups.flat();
 }
 
 export async function quoteBuy(marketAddress, usdcIn) {

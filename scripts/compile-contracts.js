@@ -8,6 +8,11 @@ const require = createRequire(import.meta.url);
 
 const builds = [
   {
+    sourceName: 'MemeVerseFractional.sol',
+    contractNames: ['MemeFractionalMarket', 'MemeVerseFractionalFactory'],
+    viaIR: true,
+  },
+  {
     sourceName: 'MemeVerseMarket.sol',
     contractNames: ['MemeMarket', 'MemeVerseFactory'],
     viaIR: true,

@@ -16,13 +16,14 @@ const marketAbi = parseAbi([
  * the request.
  */
 export class MarketResolver {
-  constructor({ publicClient, factoryAddress }) {
+  constructor({ publicClient, factoryAddress, fractionalFactoryAddress }) {
     this.publicClient = publicClient;
     this.factoryAddress = factoryAddress ? getAddress(factoryAddress) : null;
+    this.factoryAddresses = [...new Set([factoryAddress, fractionalFactoryAddress].filter(Boolean).map((address) => getAddress(address)))];
   }
 
   async resolveMarket(marketAddress) {
-    if (!this.factoryAddress) {
+    if (this.factoryAddresses.length === 0) {
       throw new DomainError(
         'MARKET_NOT_REGISTERED',
         'No market factory is configured for this network.',
@@ -30,12 +31,13 @@ export class MarketResolver {
       );
     }
     const address = getAddress(marketAddress);
-    const registered = await this.publicClient.readContract({
-      address: this.factoryAddress,
+    const registrations = await Promise.all(this.factoryAddresses.map((factory) => this.publicClient.readContract({
+      address: factory,
       abi: factoryAbi,
       functionName: 'isMarket',
       args: [address],
-    });
+    })));
+    const registered = registrations.some(Boolean);
     if (!registered) {
       throw new DomainError(
         'MARKET_NOT_REGISTERED',
@@ -59,5 +61,6 @@ export function createMarketResolver(config) {
   return new MarketResolver({
     publicClient: createPublicClient({ transport: http(config.arcRpcUrl) }),
     factoryAddress: config.marketFactoryAddress,
+    fractionalFactoryAddress: config.fractionalFactoryAddress,
   });
 }

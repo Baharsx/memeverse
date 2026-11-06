@@ -56,7 +56,7 @@ import {
   marketAbi,
   minimumAfterSlippage,
   parseUsdc,
-  parseWholeTokens,
+  parseTokenAmount,
   quoteBuy,
   quoteSell,
   tokenSupplyValue,
@@ -1149,7 +1149,7 @@ function Markets() {
   let buyInputError = null;
   let sellInputError = null;
   try { buyUnits = parseUsdc(buyAmount); } catch (error) { buyInputError = error.message; }
-  try { sellUnits = parseWholeTokens(sellAmount); } catch (error) { sellInputError = error.message; }
+  try { sellUnits = parseTokenAmount(sellAmount, { fractional: selected?.tradingVersion === 2 }); } catch (error) { sellInputError = error.message; }
 
   const settledBuyUnits = useDebouncedValue(buyUnits);
   const settledSellUnits = useDebouncedValue(sellUnits);
@@ -1176,7 +1176,6 @@ function Markets() {
   const walletStateLoading = onArc && markets.isPlaceholderData;
   const allowanceRequired = Boolean(selected && buyQuote.data?.[0] > 0n && buyUnits > selected.usdcAllowance);
   const minimumBuyUsdc = marketMinimumBuyUsdc(selected);
-  const belowMinimumBuy = Boolean(buyQuote.data && buyQuote.data[0] === 0n && minimumBuyUsdc > 0n && buyUnits < minimumBuyUsdc);
   const availability = marketAvailability(selected);
 
   function openTrade(address, nextSide) {
@@ -1300,7 +1299,7 @@ function Markets() {
                     <strong>{market.name}</strong>
                     <b>{marketSpotPerTokenLabel(market, formatUsdc)}</b>
                     <span className="sold-meter" aria-hidden="true"><i style={{ width: `${sold}%` }} /></span>
-                    <em>{market.soldTokenCount.toLocaleString()} / {market.totalSupplyTokens.toLocaleString()} sold · {formatUsdc(market.reserveUsdc)} USDC reserve</em>
+                    <em>{formatTokenAmount(market.soldTokenUnits, 6)} / {market.totalSupplyTokens.toLocaleString()} sold · {formatUsdc(market.reserveUsdc)} USDC reserve</em>
                   </div>
                 </div>
                 <div className="market-card-actions">
@@ -1335,13 +1334,13 @@ function Markets() {
                   </div>
                 </div>
                 <dl>
-                  <dt>LIVE BUY PRICE</dt><dd>{marketBuyPriceLabel(selected, formatUsdc)}<small className="price-fee-note">Per whole token · includes fees</small></dd>
+                  <dt>LIVE BUY PRICE</dt><dd>{marketBuyPriceLabel(selected, formatUsdc)}<small className="price-fee-note">Per token · includes fees</small></dd>
                   <dt>USDC IN MARKET</dt><dd>{formatUsdc(selected.reserveUsdc)} USDC</dd>
-                  <dt>SUPPLY SOLD</dt><dd>{selected.soldTokenCount.toLocaleString()} / {selected.totalSupplyTokens.toLocaleString()}</dd>
+                  <dt>SUPPLY SOLD</dt><dd>{formatTokenAmount(selected.soldTokenUnits, 6)} / {selected.totalSupplyTokens.toLocaleString()}</dd>
                   <dt>CREATOR</dt><dd>{shortAddress(selected.creator)}</dd>
                   <dt>CREATOR FEES</dt><dd>{formatUsdc(selected.creatorFeesPaidUsdc)} USDC</dd>
                   <dt>TREASURY FEES</dt><dd>{formatUsdc(selected.treasuryFeesPaidUsdc)} USDC</dd>
-                  <dt>YOUR POSITION</dt><dd>{formatTokenAmount(selected.userBalance)} {selected.symbol}</dd>
+                  <dt>YOUR POSITION</dt><dd>{formatTokenAmount(selected.userBalance, 6)} {selected.symbol}</dd>
                 </dl>
                 {marketDescriptionForDisplay(selected) ? <p>{marketDescriptionForDisplay(selected)}</p> : null}
               </section>
@@ -1353,20 +1352,19 @@ function Markets() {
                 {side === 'BUY' && availability.soldOut ? (
                   <div className="trade-review sold-out" role="status">
                     <span>BUY AVAILABILITY <b>SOLD OUT</b></span>
-                    <span>SUPPLY <b>{selected.soldTokenCount.toLocaleString()} / {selected.totalSupplyTokens.toLocaleString()} SOLD</b></span>
+                    <span>SUPPLY <b>{formatTokenAmount(selected.soldTokenUnits, 6)} / {selected.totalSupplyTokens.toLocaleString()} SOLD</b></span>
                     <span>CURVE RESERVE <b>{formatUsdc(selected.reserveUsdc)} USDC</b></span>
                     <span>The complete fixed supply is circulating, so this market has no next token to price. Selling back to the curve reserve remains available.</span>
                   </div>
                 ) : side === 'BUY' ? <form onSubmit={buyTokens}>
                   <label>MAX USDC TO SPEND<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="text" inputMode="decimal" required /><small>USDC</small></label>
-                  <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={buyQuote.data ? formatTokenAmount(buyQuote.data[0], 0) : '—'} aria-label="Estimated tokens received" /><small>{selected.symbol}</small></label>
-                  {belowMinimumBuy ? <div className="quote-minimum" role="status"><p>This market trades whole tokens. The minimum for 1 {selected.symbol} is <b>{formatUsdc(minimumBuyUsdc)} USDC</b>, including creator and treasury fees.</p><button type="button" className="btn secondary" onClick={() => setBuyAmount(formatUsdc(minimumBuyUsdc).replaceAll(',', ''))}>USE {formatUsdc(minimumBuyUsdc)} USDC →</button></div> : null}
+                  <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={buyQuote.data ? formatTokenAmount(buyQuote.data[0], 6) : '—'} aria-label="Estimated tokens received" /><small>{selected.symbol}</small></label>
                   <details className="trade-details" key={`${selected.address}-buy`}><summary>TRADE DETAILS <span>Fees, limits & wallet balance</span></summary>
                   <div className="trade-review">
                     <span>WALLET BALANCE <b>{onArc && usdcBalance.data !== undefined ? `${formatUsdc(usdcBalance.data)} USDC` : 'CONNECT ON ARC'}</b></span>
                     <span>MAX INPUT <b>{buyAmount || '0'} USDC</b></span>
                     <span>ESTIMATED SPEND <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[4])} USDC` : '—'}</b></span>
-                    <span>ESTIMATED OUT <b>{buyQuote.data ? `${formatTokenAmount(buyQuote.data[0], 0)} ${selected.symbol}` : '—'}</b></span>
+                    <span>ESTIMATED OUT <b>{buyQuote.data ? `${formatTokenAmount(buyQuote.data[0], 6)} ${selected.symbol}` : '—'}</b></span>
                     <span>CURVE COST <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[1])} USDC` : '—'}</b></span>
                     <span>CREATOR ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[2])} USDC` : '—'}</b></span>
                     <span>TREASURY ALLOCATION <b>{buyQuote.data ? `${formatUsdc(buyQuote.data[3])} USDC` : '—'}</b></span>
@@ -1374,7 +1372,7 @@ function Markets() {
                     <span>CREATOR FEE RATE <b>{Number(selected.creatorFeeBps) / 100}%</b></span>
                     <span>TREASURY FEE RATE <b>{Number(selected.treasuryFeeBps) / 100}%</b></span>
                     <span>BASE PRICE / TOKEN <b>{marketSpotLabel(selected, formatUsdc)}</b></span>
-                    <span>MINIMUM BUY WITH FEES <b>{minimumBuyUsdc === null ? '—' : `${formatUsdc(minimumBuyUsdc)} USDC`}</b></span>
+                    <span>BUY PRICE WITH FEES <b>{minimumBuyUsdc === null ? '—' : `${formatUsdc(minimumBuyUsdc)} USDC`}</b></span>
                     <span>NETWORK <b>{network.chain.name}</b></span>
                     <span>UNSPENT MAX INPUT <b>{buyQuote.data ? `${formatUsdc(buyUnits - buyQuote.data[4])} USDC` : '—'}</b></span>
                   </div></details>
@@ -1385,11 +1383,11 @@ function Markets() {
                   <TransactionStatus state={approval.state} />
                   <TransactionStatus state={buy.state} />
                 </form> : <form onSubmit={sellTokens}>
-                  <label>TOKEN AMOUNT<input value={sellAmount} onChange={(event) => setSellAmount(event.target.value)} type="text" inputMode="numeric" required /><small>{selected.symbol}</small></label>
+                  <label>TOKEN AMOUNT<input value={sellAmount} onChange={(event) => setSellAmount(event.target.value)} type="text" inputMode={selected.tradingVersion === 2 ? "decimal" : "numeric"} required /><small>{selected.symbol}</small></label>
                   <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={sellQuote.data ? formatUsdc(sellQuote.data[0]) : '—'} aria-label="Estimated USDC received" /><small>USDC</small></label>
                   <details className="trade-details" key={`${selected.address}-sell`}><summary>TRADE DETAILS <span>Fees, limits & wallet balance</span></summary>
                   <div className="trade-review">
-                    <span>YOUR POSITION <b>{formatTokenAmount(selected.userBalance)} {selected.symbol}</b></span>
+                    <span>YOUR POSITION <b>{formatTokenAmount(selected.userBalance, 6)} {selected.symbol}</b></span>
                     <span>GROSS CURVE RETURN <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[1])} USDC` : '—'}</b></span>
                     <span>CREATOR ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[2])} USDC` : '—'}</b></span>
                     <span>TREASURY ALLOCATION <b>{sellQuote.data ? `${formatUsdc(sellQuote.data[3])} USDC` : '—'}</b></span>

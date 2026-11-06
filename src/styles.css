@@ -1231,7 +1231,3 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 .trade-wallet .wallet:hover .wallet-address{color:inherit}
 .btn.primary:not(:disabled):hover{color:#000}
 .price-fee-note{display:block;margin-top:5px;color:#b4b6bb;font:11px/1.5 var(--ui)}
-.quote-minimum{margin-top:16px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025)}
-.quote-minimum p{margin:0;color:#c7c9cd;font:13px/1.6 var(--ui)}
-.quote-minimum b{color:var(--ink)}
-.quote-minimum .btn{margin-top:12px;font-size:13px;min-height:44px}

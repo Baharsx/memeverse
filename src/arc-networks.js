@@ -285,6 +285,12 @@ export function resolveArcNetwork(env = {}) {
     { value: firstNonEmpty(env, ['VITE_MARKET_FACTORY_ADDRESS']), stale: false },
     { value: firstNonEmpty(env, ['MARKET_FACTORY_ADDRESS']), stale: true },
   ]);
+  const fractionalFactory = pickProductAddress(name, 'FRACTIONAL_FACTORY_ADDRESS', [
+    { value: firstNonEmpty(env, ['VITE_FRACTIONAL_FACTORY_ADDRESS', 'FRACTIONAL_FACTORY_ADDRESS']), stale: false },
+  ]) ?? null;
+  if (fractionalFactory && fractionalFactory.toLowerCase() === (factory ?? catalog.factory)?.toLowerCase()) {
+    throw new Error('Fractional factory must be a separate version-2 deployment.');
+  }
   const usdc = optionalAddress(firstNonEmpty(env, ['VITE_USDC_ADDRESS', 'ARC_USDC_ADDRESS']), 'USDC_ADDRESS')
     ?? catalog.usdc;
 
@@ -312,6 +318,7 @@ export function resolveArcNetwork(env = {}) {
     ),
     usdc,
     factory: factory ?? catalog.factory,
+    fractionalFactory,
   });
 }
 

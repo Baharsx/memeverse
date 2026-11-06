@@ -37,7 +37,7 @@ after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
 });
 
-async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n, total = 1, artwork = false, mediaDelay = 0, imageDelay = 0, imageFailure = false, highPrice = false } = {}) {
+async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n, total = 1, artwork = false, mediaDelay = 0, imageDelay = 0, imageFailure = false, highPrice = false, fractional = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion });
   context.setDefaultTimeout(10_000);
   const calls = { marketCount: 0, quoteBuy: [], quoteSell: [] };
@@ -56,12 +56,12 @@ async function fixture({ width = 390, reducedMotion = 'no-preference', empty = f
         marketCount: empty ? 0n : BigInt(total), markets: `0x${(BigInt(MARKET) + (typeof args?.[0] === 'bigint' ? args[0] : 0n)).toString(16).padStart(40, '0')}`, isMarket: String(args?.[0] ?? '').toLowerCase() !== IMPORTED,
         name: target?.toLowerCase() === IMPORTED ? 'Imported Meme' : 'Pixel Possum', symbol: 'PXPS',
         description: 'Browser test fixture', creator: MARKET, treasury: MARKET, usdc: USDC,
-        totalSupplyTokens: 1000000n, soldTokenCount: 100n, reserveUsdc: 1000000n,
+        totalSupplyTokens: 1000000n, soldTokenCount: 100n, soldTokenUnits: 100500000000000000000n, tradingVersion: fractional ? 2n : 1n, reserveUsdc: 1000000n,
         creatorFeesPaidUsdc: 10000n, treasuryFeesPaidUsdc: 10000n,
         creatorFeeBps: 100n, treasuryFeeBps: 100n, basePriceUsdc: 100n, slopePriceUsdc: 1000n,
         createdAt: 1700000000n, createdBlock: 100n, deployedAtBlock: 10n,
         active: true, spotPriceUsdc: highPrice ? 1000000n : 100n, balanceOf: held, allowance: 0n,
-        quoteBuy: highPrice ? (args?.[0] < 1020000n ? [0n, 0n, 0n, 0n, 0n] : [10n ** 18n, 1000000n, 10000n, 10000n, 1020000n]) : [10n ** 18n, 100n, 1n, 1n, 102n], quoteSell: [98n, 100n, 1n, 1n],
+        quoteBuy: fractional ? [980392156862745098n, 980393n, 9803n, 9803n, 999999n] : highPrice ? (args?.[0] < 1020000n ? [0n, 0n, 0n, 0n, 0n] : [10n ** 18n, 1000000n, 10000n, 10000n, 1020000n]) : [10n ** 18n, 100n, 1n, 1n, 102n], quoteSell: [98n, 100n, 1n, 1n],
       };
       assert.ok(name in values, `unhandled RPC fixture: ${name}`);
       result = values[name];
@@ -478,16 +478,16 @@ test('carousel waits ten seconds, moves exactly one card smoothly, and loops for
   } finally { await context.close(); }
 });
 
-test('whole-token minimum includes fees and both wallet and disabled buy labels survive hover', async () => {
+test('legacy quotes remain truthful without a minimum-purchase message and hover stays readable', async () => {
   const { context, page, calls, errors } = await fixture({ width: 1440, highPrice: true, reducedMotion: 'reduce' });
   try {
     await page.goto(origin + '/markets');
     await page.locator('.market-card-actions').getByRole('button', { name: 'BUY', exact: true }).click();
     const dialog = page.getByRole('dialog');
-    await dialog.locator('.quote-minimum').waitFor();
+    await page.waitForFunction(() => document.querySelector('input[aria-label="Estimated tokens received"]')?.value === '0');
     assert.equal(await dialog.getByLabel('Estimated tokens received').inputValue(), '0');
     assert.match(await dialog.locator('.market-proof dd').first().textContent(), /1.02 USDC/);
-    assert.match(await dialog.locator('.quote-minimum').textContent(), /whole tokens.*1.02 USDC/);
+    assert.equal(await dialog.locator('.quote-minimum').count(), 0);
     assert.equal(await dialog.getByRole('button', { name: 'APPROVE MAX', exact: false }).count(), 0);
     const buy = dialog.getByRole('button', { name: 'SIGN BUY ON ARC', exact: false });
     assert.ok(await buy.isDisabled());
@@ -503,11 +503,30 @@ test('whole-token minimum includes fees and both wallet and disabled buy labels 
     const hovered = await wallet.evaluate(style);
     assert.equal(hovered.color, 'rgb(0, 0, 0)');
     assert.equal(hovered.background, 'rgb(198, 244, 50)');
-    await dialog.getByRole('button', { name: 'USE 1.02 USDC', exact: false }).click();
+    await dialog.getByLabel('MAX USDC TO SPEND', { exact: false }).fill('1.02');
     await page.waitForFunction(() => document.querySelector('input[aria-label="Estimated tokens received"]')?.value === '1');
     assert.equal(await dialog.getByLabel('MAX USDC TO SPEND', { exact: false }).inputValue(), '1.02');
     assert.deepEqual(calls.quoteBuy, [1000000n, 1020000n]);
     assert.equal(await dialog.locator('.quote-minimum').count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('fractional contracts display fractional buy output and accept fractional sell amounts', async () => {
+  const { context, page, calls, errors } = await fixture({ fractional: true, highPrice: true });
+  try {
+    await page.goto(origin + '/markets');
+    await page.locator('.market-card-actions').getByRole('button', { name: 'BUY', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await page.waitForFunction(() => document.querySelector('input[aria-label="Estimated tokens received"]')?.value === '0.980392');
+    assert.equal(await dialog.locator('.quote-minimum').count(), 0);
+    assert.match(await dialog.locator('.market-proof').textContent(), /100.5/);
+    await dialog.getByRole('group', { name: 'Trade direction' }).getByRole('button', { name: 'SELL', exact: true }).click();
+    const input = dialog.getByLabel('TOKEN AMOUNT', { exact: false });
+    assert.equal(await input.getAttribute('inputmode'), 'decimal');
+    await input.fill('0.123456789012345678');
+    await page.waitForFunction(() => !document.querySelector('.quote-feedback'));
+    assert.equal(calls.quoteSell.at(-1), 123456789012345678n);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });

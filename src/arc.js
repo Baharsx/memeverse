@@ -14,6 +14,7 @@ export const ARC_NETWORK = resolveArcNetwork({
   VITE_ARC_EXPLORER_URL: viteEnv.VITE_ARC_EXPLORER_URL,
   VITE_MEMEVERSE_FACTORY_ADDRESS: viteEnv.VITE_MEMEVERSE_FACTORY_ADDRESS,
   VITE_MARKET_FACTORY_ADDRESS: viteEnv.VITE_MARKET_FACTORY_ADDRESS,
+  VITE_FRACTIONAL_FACTORY_ADDRESS: viteEnv.VITE_FRACTIONAL_FACTORY_ADDRESS,
   VITE_USDC_ADDRESS: viteEnv.VITE_USDC_ADDRESS,
 });
 
@@ -146,7 +147,11 @@ export const arcContracts = Object.freeze({
   usdc: ARC_NETWORK.usdc,
   memo: ARC_NETWORK.memo,
   multicall3From: ARC_NETWORK.multicall3From,
-  memeVerseFactory: ARC_NETWORK.factory,
+  memeVerseFactory: ARC_NETWORK.fractionalFactory ?? ARC_NETWORK.factory,
+  marketFactories: Object.freeze([
+    ...(ARC_NETWORK.factory ? [{ address: ARC_NETWORK.factory, tradingVersion: 1 }] : []),
+    ...(ARC_NETWORK.fractionalFactory ? [{ address: ARC_NETWORK.fractionalFactory, tradingVersion: 2 }] : []),
+  ]),
 });
 
 export const memoAbi = [

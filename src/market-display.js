@@ -45,6 +45,9 @@ export function publicMarkets(markets) {
 
 export function isMarketSoldOut(market) {
   if (!market) return false;
+  if (market.tradingVersion === 2 && market.soldTokenUnits !== undefined && market.totalSupplyTokens !== undefined) {
+    return BigInt(market.soldTokenUnits) >= BigInt(market.totalSupplyTokens) * 10n ** 18n;
+  }
   const { soldTokenCount, totalSupplyTokens } = market;
   if (soldTokenCount === undefined || totalSupplyTokens === undefined) return false;
   return BigInt(soldTokenCount) >= BigInt(totalSupplyTokens);
