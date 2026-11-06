@@ -30,7 +30,9 @@ const CONTENT_TYPES = {
 
 async function loadPlaywright() {
   try {
-    return (await import('playwright')).chromium;
+    const { chromium } = await import('playwright');
+    await stat(chromium.executablePath());
+    return chromium;
   } catch {
     return null;
   }
@@ -69,7 +71,7 @@ function serveDist() {
 
 test('the header fits every target mobile width', async (t) => {
   const chromium = await loadPlaywright();
-  if (!chromium) return t.skip('playwright is not installed in this environment');
+  if (!chromium) return t.skip('Playwright Chromium is unavailable — run `npx playwright install chromium`');
   if (!await distIsBuilt()) return t.skip('dist/ is not built — run `npm run build` first');
 
   const { server, port } = await serveDist();

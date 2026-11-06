@@ -13,10 +13,10 @@ export const RouterContext = React.createContext(null);
 
 export function BrowserRouter({ basename = '', children }) {
   const routePath = React.useCallback(() => {
-    const withoutBase = basename && window.location.pathname.startsWith(basename)
+    const withoutBase = basename && (window.location.pathname === basename || window.location.pathname.startsWith(`${basename}/`))
       ? window.location.pathname.slice(basename.length)
       : window.location.pathname;
-    return withoutBase || '/';
+    return withoutBase.replace(/\/+$/, '') || '/';
   }, [basename]);
   const [pathname, setPathname] = useState(routePath);
 
@@ -28,22 +28,23 @@ export function BrowserRouter({ basename = '', children }) {
 
   function navigate(to) {
     const href = `${basename}${to === '/' ? '/' : to}`;
+    if (window.location.pathname === href && !window.location.search && !window.location.hash) return;
     window.history.pushState({}, '', href);
     setPathname(to);
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    window.scrollTo({ top: 0, left: 0, behavior: reduceMotion ? 'instant' : 'smooth' });
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }
 
   return <RouterContext.Provider value={{ basename, pathname, navigate }}>{children}</RouterContext.Provider>;
 }
 
-export function NavLink({ to, className = '', children, ...props }) {
+export function NavLink({ to, className = '', children, onClick: handleClick, ...props }) {
   const router = React.useContext(RouterContext);
   const active = router.pathname === to;
   const href = `${router.basename}${to === '/' ? '/' : to}`;
 
   function onClick(event) {
-    if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+    handleClick?.(event);
+    if (!event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && !props.download && (!props.target || props.target === '_self')) {
       event.preventDefault();
       router.navigate(to);
     }
@@ -53,6 +54,7 @@ export function NavLink({ to, className = '', children, ...props }) {
     <a
       href={href}
       className={`${className}${active ? ' active' : ''}`.trim()}
+      aria-current={active ? 'page' : undefined}
       onClick={onClick}
       {...props}
     >

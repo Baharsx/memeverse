@@ -49,6 +49,12 @@ jobs:
           NODE_ENV: production
         run: npm run build
 
+      - name: Install browser for UI regression tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify responsive layouts and market interactions
+        run: npm run test:ui
+
       # Production graph only. The dev toolchain (hardhat, vite, concurrently) is
       # pinned in package.json overrides and is not shipped to memeverse.biz.
       - name: Audit production dependencies

@@ -291,7 +291,8 @@ test('product navigation exposes live markets and planned community program rout
   }
   assert.ok(main.includes('notFound={<NotFound />}'), 'old deep links get a 404 surface');
   assert.ok(main.includes('market-images'), 'market artwork still loads independently');
-  assert.ok(main.includes('<Referral />') && main.includes('<Campaigns />'), 'community routes are wired');
+  assert.match(main, /path="\/referral" element=\{<Referral\b/, 'referral route is wired');
+  assert.match(main, /path="\/campaigns" element=\{<Campaigns\b/, 'campaign route is wired');
   assert.ok(main.includes('MARKET IMAGE (OPTIONAL)'), 'image upload remains part of launch');
 });
 

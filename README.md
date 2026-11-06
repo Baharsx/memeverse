@@ -40,6 +40,14 @@ Turn those four off in the Reown dashboard. The dashboard overrides the code.
 
 Signed referral records (wallet, referrer, chain and creation time) live inside `MEDIA_STORAGE_DIR/referrals/`. They contain no signatures or private keys. Back up that directory with the media storage. The API service user must have write permission to `MEDIA_STORAGE_DIR`. See [rewards status and implementation](docs/REWARDS.md).
 
+## Local checks
+
+Run `npm ci`, then `npm test` for application and contract tests, and `npm run build` for the deployment bundle.
+
+For browser regression checks, install Chromium once with `npx playwright install chromium`, then run `npm run test:ui`. This builds a separate test bundle in `cache/ui-dist` and checks mobile layouts, navigation, market filtering, import, trade-dialog keyboard focus, quote debouncing, and reduced motion. All RPC and API responses in this suite are browser fixtures; no wallet signatures or network transactions are sent. The regular deployment build and `.env.local` are preserved.
+
+Run `npm run dev` to preview the app locally. The existing `.env.local` selects the network; pulling the repository does not switch it from testnet to mainnet.
+
 ## Production
 
 The site is a single-page app. `/`, `/markets`, `/launch`, `/referral`, and `/campaigns` must all open on refresh. nginx serves the files and these headers:

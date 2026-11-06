@@ -66,6 +66,7 @@ import {
   usdcAbi,
 } from './market';
 import { useOnchainAction } from './use-onchain-action';
+import { useDebouncedValue } from './use-debounced-value.js';
 import {
   AttachImageButton,
   ImagePicker,
@@ -81,6 +82,19 @@ import { BrowserRouter, NavLink, Route, RouterContext, Routes } from './router.j
 import './styles.css';
 
 const queryClient = new QueryClient();
+// The ticker, home and anonymous board observe the same cache and in-flight RPC request.
+function marketQueryOptions(address) {
+  return {
+    queryKey: ['onchain-markets', address ?? 'anonymous'],
+    queryFn: () => loadMarkets(address),
+    retry: 1,
+    staleTime: 12_000,
+    refetchInterval: 15_000,
+    // Keep public cards visible while a newly connected wallet loads its own positions.
+    // Anonymous records contain no previous wallet's balances or allowances.
+    placeholderData: address ? () => queryClient.getQueryData(['onchain-markets', 'anonymous']) : undefined,
+  };
+}
 const routerBase =
   import.meta.env.BASE_URL === '/'
     ? undefined
@@ -108,12 +122,7 @@ function Mascot({ small = false }) {
 }
 
 function Marquee() {
-  const markets = useQuery({
-    queryKey: ['onchain-markets', 'marquee'],
-    queryFn: () => loadMarkets(),
-    retry: 1,
-    refetchInterval: 15_000,
-  });
+  const markets = useQuery(marketQueryOptions());
   // Same presentation filter as the Markets selector, so the ticker and the list can never
   // disagree about what a visitor is being shown.
   const items = publicMarkets(markets.data);
@@ -122,7 +131,7 @@ function Marquee() {
       <div>
         {(items.length ? [...items, ...items] : [null, null]).map((market, index) => (
           <span key={market ? `${market.address}-${index}` : `empty-${index}`}>
-            {market ? <>{market.symbol} <b>{marketSpotLabel(market, formatUsdc)}</b>{' '}<em className="up">ONCHAIN</em></> : <b>NO ONCHAIN MARKETS YET // LAUNCH THE FIRST</b>}
+            {market ? <>{market.symbol} <b>{marketSpotLabel(market, formatUsdc)}</b>{' '}<em className="up">ONCHAIN</em></> : <b>{markets.isPending ? 'READING LIVE MARKETS…' : markets.isError ? 'LIVE MARKET DATA TEMPORARILY UNAVAILABLE' : 'NO ONCHAIN MARKETS YET // LAUNCH THE FIRST'}</b>}
           </span>
         ))}
       </div>
@@ -180,11 +189,12 @@ function Wallet() {
     queryKey: ['wallet-usdc', address],
     queryFn: () => loadUsdcBalance(address),
     enabled: onArc,
+    staleTime: 12_000,
     refetchInterval: 12_000,
   });
   const balanceLabel = onArc && balance.data !== undefined
     ? `${formatUsdc(balance.data, 4)} USDC`
-    : 'TESTNET';
+    : onArc ? 'BALANCE UNAVAILABLE' : `SWITCH TO ${network.chain.name.toUpperCase()}`;
 
   /*
     One button, two destinations, and never a disconnect. Tapping while connected opens the
@@ -353,6 +363,15 @@ const navItems = [
 
 function Shell() {
   const { pathname } = React.useContext(RouterContext);
+  const mainRef = useRef(null);
+  const previousPath = useRef(pathname);
+  useEffect(() => {
+    document.title = `${pathname === '/' ? 'A meme becomes a market' : navItems.find((item) => item[2] === pathname)?.[1] ?? (pathname === '/trade' ? 'MARKETS' : 'Page not found')} | MemeVerse`;
+    if (previousPath.current !== pathname) {
+      mainRef.current?.focus({ preventScroll: true });
+      previousPath.current = pathname;
+    }
+  }, [pathname]);
 
   return (
     <>
@@ -376,14 +395,14 @@ function Shell() {
         </nav>
         <Wallet />
       </header>
-      <main id="main-content">
+      <main id="main-content" ref={mainRef} tabIndex={-1}>
         <div key={pathname} className="surface-enter">
           <Routes notFound={<NotFound />}>
             <Route path="/" element={<Home />} />
             <Route path="/markets" element={<Markets />} />
             <Route path="/trade" element={<Markets />} />
             <Route path="/launch" element={<Launch />} />
-            <Route path="/referral" element={<Referral />} />
+            <Route path="/referral" element={<Referral connectWallet={<Wallet />} />} />
             <Route path="/campaigns" element={<Campaigns />} />
           </Routes>
         </div>
@@ -412,7 +431,7 @@ function AssetCarousel({ label, detail, trackRef, count, children }) {
     if (!node) return;
     const card = node.querySelector('.carousel-card');
     const width = card ? card.getBoundingClientRect().width + 16 : 296;
-    node.scrollBy({ left: direction * width, behavior: 'smooth' });
+    node.scrollBy({ left: direction * width, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
   }
 
   return (
@@ -437,16 +456,11 @@ function AssetCarousel({ label, detail, trackRef, count, children }) {
 }
 
 function Home() {
-  const markets = useQuery({
-    queryKey: ['onchain-markets', 'home'],
-    queryFn: () => loadMarkets(),
-    retry: 1,
-    refetchInterval: 20_000,
-  });
+  const markets = useQuery(marketQueryOptions());
   const listed = publicMarkets(markets.data);
   const imageKey = listed.map((market) => market.address).join(',');
   const images = useQuery({
-    queryKey: ['market-images', 'home', imageKey],
+    queryKey: ['market-images', imageKey],
     queryFn: () => getMarketImages(listed.map((market) => market.address)),
     enabled: listed.length > 0,
     staleTime: 30_000,
@@ -519,7 +533,10 @@ function Home() {
           {markets.isPending ? (
             <article className="carousel-card"><div><small>TOKEN</small><strong>Loading markets…</strong></div></article>
           ) : null}
-          {!markets.isPending && listed.length === 0 ? (
+          {markets.isError && listed.length === 0 ? (
+            <div className="collection-feedback" role="status"><strong>Markets couldn’t load</strong><p>Check your connection and try again.</p><button className="btn secondary" type="button" disabled={markets.isFetching} onClick={() => markets.refetch()}>{markets.isFetching ? 'RETRYING…' : 'TRY AGAIN →'}</button></div>
+          ) : null}
+          {!markets.isPending && !markets.isError && listed.length === 0 ? (
             <NavLink className="carousel-card" to="/launch">
               <div className="carousel-fallback"><Mascot small /></div>
               <div><small>TOKEN</small><strong>No tokens yet</strong><em>Launch the first market</em></div>
@@ -545,8 +562,7 @@ function Home() {
 }
 
 function CarouselArt({ src, alt }) {
-  if (!src) return <div className="carousel-fallback"><Mascot small /></div>;
-  return <img src={src} alt={alt} referrerPolicy="no-referrer" />;
+  return <div className="carousel-art"><MarketImage src={src} alt={alt} /></div>;
 }
 
 /**
@@ -803,6 +819,7 @@ function Launch() {
           </div>
           <button className="btn primary full" disabled={action.state.status === 'WALLET_SIGNATURE' || action.state.status === 'SUBMITTED'}>REVIEW ONCHAIN LAUNCH →</button>
           {formError ? <small className="tx-error" role="alert">{formError}</small> : null}
+          {review ? <div className="launch-wallet-access">{!isConnected ? <div className="trade-wallet"><p>Connect your wallet to launch your market.</p><Wallet /></div> : null}<NetworkStatus /></div> : null}
           {review ? <div className="onchain-review" role="region" aria-label="Launch review"><b>REVIEW BEFORE SIGNING</b><span>CREATOR // {address ?? 'CONNECT WALLET'}</span><span>FACTORY // {arcContracts.memeVerseFactory}</span><span>PRICE // {basePrice} + UP TO {slopePrice} USDC</span><span>FEES // {factory.data ? `${Number(factory.data.creatorFeeBps) / 100}% CREATOR + ${Number(factory.data.treasuryFeeBps) / 100}% TREASURY` : 'READING ONCHAIN'}</span><button className="btn primary full" type="button" disabled={!onArc || !factory.data || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(action.state.status)} onClick={launchMarket}>{!isConnected ? 'CONNECT WALLET FIRST' : !onArc ? (ARC_IS_MAINNET ? 'SWITCH TO ARC MAINNET' : 'SWITCH TO ARC TESTNET') : 'SIGN + LAUNCH ON ARC →'}</button></div> : null}
           <TransactionStatus state={action.state} />
           {result ? <div className="receipt onchain-receipt" role="status"><b>MARKET CONFIRMED ON ARC</b><span>MARKET + TOKEN // {result.market}</span><span>CREATOR // {result.creator}</span><ExternalLink href={`${arcLinks.explorer}/tx/${result.hash}`}>VIEW TRANSACTION ON ARCSCAN ↗</ExternalLink><ExternalLink href={`${arcLinks.explorer}/address/${result.market}`}>VIEW MARKET CONTRACT ↗</ExternalLink></div> : null}
@@ -971,16 +988,12 @@ function Markets() {
   const [importState, setImportState] = useState({ status: 'IDLE', message: null });
   const [importedAddresses, setImportedAddresses] = useState(() => readImportedMarketAddresses());
   const slippageBps = 100;
-  const markets = useQuery({
-    queryKey: ['onchain-markets', address ?? 'anonymous'],
-    queryFn: () => loadMarkets(address),
-    retry: 1,
-    refetchInterval: 12_000,
-  });
+  const markets = useQuery(marketQueryOptions(address));
   const usdcBalance = useQuery({
     queryKey: ['wallet-usdc', address],
     queryFn: () => loadUsdcBalance(address),
     enabled: onArc,
+    staleTime: 12_000,
     refetchInterval: 12_000,
   });
   /*
@@ -1000,8 +1013,10 @@ function Markets() {
       return loaded;
     },
     enabled: importedAddresses.length > 0,
+    placeholderData: address ? () => queryClient.getQueryData(['imported-onchain-markets', importedAddresses.join(','), 'anonymous']) : undefined,
     retry: 1,
     staleTime: 12_000,
+    refetchInterval: 15_000,
   });
   const boardMarkets = useMemo(() => {
     const merged = mergeTradeableMarkets(visibleMarkets, importedMarkets.data);
@@ -1039,16 +1054,36 @@ function Markets() {
 
   useEffect(() => {
     if (!tradeOpen) return undefined;
+    const trigger = document.activeElement;
+    const background = document.getElementById('root');
+    const previousInert = background.inert;
     const previousOverflow = document.body.style.overflow;
+    background.inert = true;
     document.body.style.overflow = 'hidden';
     tradeDialogRef.current?.focus();
     function onKey(event) {
       if (event.key === 'Escape') setTradeOpen(false);
+      if (event.key !== 'Tab') return;
+      const panel = tradeDialogRef.current;
+      // Reown opens its own portal above this sheet and owns focus while it is open.
+      if (!panel?.contains(event.target)) return;
+      const controls = [...panel.querySelectorAll('a[href], button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]')]
+        .filter((node) => node.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (!first) { event.preventDefault(); panel.focus(); return; }
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === panel)) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === panel)) {
+        event.preventDefault(); first.focus();
+      }
     }
     document.addEventListener('keydown', onKey);
     return () => {
       document.body.style.overflow = previousOverflow;
+      background.inert = previousInert;
       document.removeEventListener('keydown', onKey);
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
     };
   }, [tradeOpen]);
 
@@ -1059,23 +1094,29 @@ function Markets() {
   try { buyUnits = parseUsdc(buyAmount); } catch (error) { buyInputError = error.message; }
   try { sellUnits = parseWholeTokens(sellAmount); } catch (error) { sellInputError = error.message; }
 
-  const buyQuote = useQuery({
-    queryKey: ['market-buy-quote', selected?.address, buyUnits.toString()],
-    queryFn: () => quoteBuy(selected.address, buyUnits),
-    enabled: Boolean(tradeOpen && selected && buyUnits > 0n),
+  const settledBuyUnits = useDebouncedValue(buyUnits);
+  const settledSellUnits = useDebouncedValue(sellUnits);
+  const buyQuoteResult = useQuery({
+    queryKey: ['market-buy-quote', selected?.address, settledBuyUnits.toString()],
+    queryFn: () => quoteBuy(selected.address, settledBuyUnits),
+    enabled: Boolean(tradeOpen && side === 'BUY' && selected && settledBuyUnits > 0n && settledBuyUnits === buyUnits),
     retry: 1,
     refetchInterval: 8_000,
   });
-  const sellQuote = useQuery({
-    queryKey: ['market-sell-quote', selected?.address, sellUnits.toString()],
-    queryFn: () => quoteSell(selected.address, sellUnits),
-    enabled: Boolean(tradeOpen && selected && sellUnits > 0n),
+  const sellQuoteResult = useQuery({
+    queryKey: ['market-sell-quote', selected?.address, settledSellUnits.toString()],
+    queryFn: () => quoteSell(selected.address, settledSellUnits),
+    enabled: Boolean(tradeOpen && side === 'SELL' && selected && settledSellUnits > 0n && settledSellUnits === sellUnits),
     retry: 1,
     refetchInterval: 8_000,
   });
+  // Never display or submit a quote for the amount that was in the field before this edit.
+  const buyQuote = { ...buyQuoteResult, data: settledBuyUnits === buyUnits && !buyQuoteResult.isError ? buyQuoteResult.data : undefined };
+  const sellQuote = { ...sellQuoteResult, data: settledSellUnits === sellUnits && !sellQuoteResult.isError ? sellQuoteResult.data : undefined };
   const approval = useOnchainAction();
   const buy = useOnchainAction();
   const sell = useOnchainAction();
+  const walletStateLoading = onArc && (markets.isPlaceholderData || importedMarkets.isPlaceholderData);
   const allowanceRequired = Boolean(selected && buyUnits > selected.usdcAllowance);
   const availability = marketAvailability(selected);
 
@@ -1115,7 +1156,16 @@ function Markets() {
         setImportState({ status: 'ERROR', message: copy });
         return;
       }
-      setImportedAddresses(persistImportedMarketAddress(probed.market.address));
+      const savedAddresses = persistImportedMarketAddress(probed.market.address);
+      // Keep the successfully read contract usable even if browser storage is full or blocked.
+      const nextAddresses = [...new Set([...savedAddresses, parseMarketAddress(probed.market.address)])];
+      queryClient.setQueryData(
+        ['imported-onchain-markets', nextAddresses.join(','), address ?? 'anonymous'],
+        mergeTradeableMarkets([probed.market], importedMarkets.data),
+      );
+      setBoardQuery('');
+      setOnlyHeld(false);
+      setImportedAddresses(nextAddresses);
       openTrade(probed.market.address, 'BUY');
       setImportValue('');
       setImportState({
@@ -1130,6 +1180,7 @@ function Markets() {
   }
 
   async function approveUsdc() {
+    if (!onArc || walletStateLoading || !selected || !buyQuote.data || buyUnits <= 0n) return;
     try {
       await approval.execute({
         address: arcContracts.usdc,
@@ -1144,7 +1195,7 @@ function Markets() {
 
   async function buyTokens(event) {
     event.preventDefault();
-    if (!buyQuote.data) return;
+    if (!onArc || walletStateLoading || !selected || !buyQuote.data || buyUnits <= 0n || allowanceRequired) return;
     try {
       await buy.execute({
         address: selected.address,
@@ -1159,7 +1210,7 @@ function Markets() {
 
   async function sellTokens(event) {
     event.preventDefault();
-    if (!sellQuote.data) return;
+    if (!onArc || walletStateLoading || !selected || !sellQuote.data || sellUnits <= 0n || sellUnits > selected.userBalance) return;
     try {
       await sell.execute({
         address: selected.address,
@@ -1179,7 +1230,7 @@ function Markets() {
         Explore meme markets on Arc, check live USDC prices, and trade from your wallet.
         Quotes, positions, and fees come directly from the blockchain.
       </p>
-      <form className="market-toolbar" onSubmit={importOnchainMarket}>
+      <div className="market-toolbar">
         <label className="market-search">
           SEARCH
           <input
@@ -1201,14 +1252,19 @@ function Markets() {
           type="button"
           className={`btn ghost filter-held ${onlyHeld ? 'active' : ''}`}
           aria-pressed={onlyHeld}
+          disabled={!isConnected}
+          title={!isConnected ? 'Connect your wallet to view your positions' : undefined}
           onClick={() => setOnlyHeld((current) => !current)}
         >
           {onlyHeld ? 'SHOWING YOUR BAGS' : 'YOUR POSITIONS'}
         </button>
-        <label className="market-import">
-          IMPORT BY ADDRESS
+        <form className="market-import" onSubmit={importOnchainMarket}>
+          <label htmlFor="import-market-address">
+            IMPORT BY ADDRESS
+          </label>
           <span>
             <input
+              id="import-market-address"
               value={importValue}
               onChange={(event) => setImportValue(event.target.value)}
               placeholder="0x… market address on Arc"
@@ -1218,16 +1274,23 @@ function Markets() {
               {importState.status === 'LOADING' ? 'CHECKING…' : 'IMPORT →'}
             </button>
           </span>
-        </label>
-      </form>
+        </form>
+      </div>
       {importState.message ? (
         <p className={importState.status === 'ERROR' ? 'agent-error' : 'import-ok'} role="status">
           {importState.message}
         </p>
       ) : null}
-      {markets.isError ? <p className="inline-error" role="alert">ARC RPC READ FAILED // {markets.error.shortMessage ?? 'Public RPC unavailable. Retry shortly.'}</p> : null}
-      {!markets.isPending && !boardMarkets.length ? (
-        <div className="empty"><Mascot small /><span>NO MARKETS MATCH THIS VIEW<br /><NavLink to="/launch">LAUNCH A MARKET →</NavLink></span></div>
+      <div className="market-results" role="status" aria-live="polite">
+        <span>{markets.isPending ? 'Reading markets from Arc…' : `${boardMarkets.length} ${boardMarkets.length === 1 ? 'market' : 'markets'}${boardQuery || onlyHeld ? ' match your filters' : ' on this board'}`}</span>
+        {markets.isFetching && !markets.isPending ? <span>Updating…</span> : null}
+      </div>
+      {markets.isError ? <div className="inline-error" role="alert">{markets.data ? 'Live update failed. Showing the last loaded market data.' : 'Couldn’t reach Arc. Check your connection and retry.'} <button className="btn secondary" type="button" disabled={markets.isFetching} onClick={() => markets.refetch()}>{markets.isFetching ? 'RETRYING…' : 'TRY AGAIN'}</button></div> : null}
+      {markets.isPending && !boardMarkets.length ? (
+        <div className="market-board market-skeletons" aria-hidden="true">{[0, 1, 2].map((key) => <div className="market-card market-skeleton" key={key}><div /><span /><span /><span /></div>)}</div>
+      ) : null}
+      {!markets.isPending && !markets.isError && !importedMarkets.isFetching && !boardMarkets.length ? (
+        <div className="empty market-empty"><Mascot small /><strong>{boardQuery || onlyHeld ? 'No markets match your filters' : 'No markets yet'}</strong><p>{boardQuery || onlyHeld ? 'Try a different name, ticker, or address.' : 'Create a market to start trading on Arc.'}</p>{boardQuery || onlyHeld ? <button className="btn secondary" type="button" onClick={() => { setBoardQuery(''); setOnlyHeld(false); }}>CLEAR FILTERS</button> : <NavLink className="btn primary" to="/launch">LAUNCH A MARKET →</NavLink>}</div>
       ) : null}
       {boardMarkets.length ? (
         <div className="market-board" role="list" aria-label="Onchain markets">
@@ -1294,7 +1357,10 @@ function Markets() {
                 {marketDescriptionForDisplay(selected) ? <p>{marketDescriptionForDisplay(selected)}</p> : null}
               </section>
               <section className="market-order">
-                <div className="tabs"><button type="button" className={side === 'BUY' ? 'active' : ''} onClick={() => setSide('BUY')}>BUY</button><button type="button" className={side === 'SELL' ? 'active sell' : ''} onClick={() => setSide('SELL')}>SELL</button></div>
+                {!isConnected ? <div className="trade-wallet"><p>Connect your wallet to trade this market.</p><Wallet /></div> : null}
+                <NetworkStatus />
+                {walletStateLoading ? <p className="quote-feedback" role="status">Reading your wallet balances and allowances…</p> : null}
+                <div className="tabs" role="group" aria-label="Trade direction"><button type="button" aria-pressed={side === 'BUY'} className={side === 'BUY' ? 'active' : ''} onClick={() => setSide('BUY')}>BUY</button><button type="button" aria-pressed={side === 'SELL'} className={side === 'SELL' ? 'active sell' : ''} onClick={() => setSide('SELL')}>SELL</button></div>
                 {side === 'BUY' && availability.soldOut ? (
                   <div className="trade-review sold-out" role="status">
                     <span>BUY AVAILABILITY <b>SOLD OUT</b></span>
@@ -1315,8 +1381,9 @@ function Markets() {
                     <span>MINIMUM OUT / SLIPPAGE <b>{buyQuote.data ? `${formatTokenAmount(minimumAfterSlippage(buyQuote.data[0], slippageBps), 2)} / 1%` : '—'}</b></span>
                   </div>
                   {buyInputError ? <p className="inline-error">{buyInputError}</p> : null}
-                  {allowanceRequired ? <button className="btn secondary full" type="button" disabled={!onArc || approval.state.status === 'WALLET_SIGNATURE' || approval.state.status === 'SUBMITTED'} onClick={approveUsdc}>APPROVE MAX {buyAmount || '0'} USDC →</button> : null}
-                  <button className="btn primary full" disabled={!onArc || !buyQuote.data || buyQuote.data[0] === 0n || allowanceRequired || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(buy.state.status)}>SIGN BUY ON ARC →</button>
+                  {!buyInputError && buyUnits > 0n && !buyQuote.data ? <p className="quote-feedback" role="status">{buyQuoteResult.isError ? 'Quote unavailable. Check your connection or try another amount.' : 'Updating your buy quote…'}</p> : null}
+                  {allowanceRequired ? <button className="btn secondary full" type="button" disabled={!onArc || walletStateLoading || !buyQuote.data || approval.state.status === 'WALLET_SIGNATURE' || approval.state.status === 'SUBMITTED'} onClick={approveUsdc}>APPROVE MAX {buyAmount || '0'} USDC →</button> : null}
+                  <button className="btn primary full" disabled={!onArc || walletStateLoading || !buyQuote.data || buyQuote.data[0] === 0n || allowanceRequired || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(buy.state.status)}>SIGN BUY ON ARC →</button>
                   <TransactionStatus state={approval.state} />
                   <TransactionStatus state={buy.state} />
                 </form> : <form onSubmit={sellTokens}>
@@ -1330,7 +1397,9 @@ function Markets() {
                     <span>MINIMUM OUT / SLIPPAGE <b>{sellQuote.data ? `${formatUsdc(minimumAfterSlippage(sellQuote.data[0], slippageBps))} / 1%` : '—'}</b></span>
                   </div>
                   {sellInputError ? <p className="inline-error">{sellInputError}</p> : null}
-                  <button className="btn primary full" disabled={!onArc || !sellQuote.data || sellQuote.data[0] === 0n || sellUnits > selected.userBalance || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(sell.state.status)}>SIGN SELL ON ARC →</button>
+                  {!sellInputError && sellUnits > 0n && !sellQuote.data ? <p className="quote-feedback" role="status">{sellQuoteResult.isError ? 'Quote unavailable. Check your connection or try another amount.' : 'Updating your sell quote…'}</p> : null}
+                  {sellUnits > selected.userBalance && onArc ? <p className="inline-error">This amount exceeds your token balance.</p> : null}
+                  <button className="btn primary full" disabled={!onArc || walletStateLoading || !sellQuote.data || sellQuote.data[0] === 0n || sellUnits > selected.userBalance || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(sell.state.status)}>SIGN SELL ON ARC →</button>
                   <TransactionStatus state={sell.state} />
                 </form>}
                 <MarketImageManager
@@ -1350,7 +1419,10 @@ function Markets() {
 }
 
 const rootElement = document.getElementById('root');
-assertBrowserReadChain()
+function bootApplication() {
+  const retryButton = rootElement.querySelector('button');
+  if (retryButton) { retryButton.disabled = true; retryButton.textContent = 'CHECKING ARC…'; }
+  return assertBrowserReadChain()
   .then(() => {
     createRoot(rootElement).render(
       <React.StrictMode>
@@ -1365,8 +1437,21 @@ assertBrowserReadChain()
     );
   })
   .catch((error) => {
-    const message = error instanceof Error
-      ? error.message
-      : 'Arc mainnet chain check failed. Refusing to boot.';
-    rootElement.replaceChildren(document.createTextNode(message));
+    console.error('Arc network verification failed', error);
+    const panel = document.createElement('div');
+    panel.className = 'boot-screen';
+    panel.setAttribute('role', 'alert');
+    const title = document.createElement('h1');
+    title.textContent = 'Arc connection unavailable';
+    const detail = document.createElement('p');
+    detail.textContent = 'We couldn’t verify the Arc network. Check your connection and try again.';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn primary';
+    retry.textContent = 'TRY AGAIN →';
+    retry.addEventListener('click', bootApplication);
+    panel.append(title, detail, retry);
+    rootElement.replaceChildren(panel);
   });
+}
+bootApplication();

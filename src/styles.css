@@ -1108,3 +1108,57 @@ label>input:focus-visible,label>textarea:focus-visible,label>select:focus-visibl
 .economy-flow > .economy-step:is(:hover, :focus-visible) span,
 .economy-flow > .economy-step:is(:hover, :focus-visible) b{color:var(--acid)}
 .economy-flow > .economy-step:is(:hover, :focus-visible) p{color:var(--mute)}
+
+/* Shared loading, focus and touch feedback across the product. */
+main:focus{outline:none}
+html{scrollbar-gutter:stable;scroll-padding-top:130px}
+.boot-screen{min-height:85dvh;max-width:560px;margin:auto;padding:48px 24px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:16px}
+.boot-screen>span{color:var(--acid);font:12px var(--mono)}
+.boot-screen h1{margin:0;font:600 clamp(30px,5vw,46px)/1.12 var(--display);letter-spacing:-.04em}
+.boot-screen p{margin:0;color:#b4b6bb;line-height:1.6}
+.boot-screen button{margin-top:8px}
+.market-results{display:flex;justify-content:space-between;gap:12px;margin:0 0 16px;color:#b4b6bb;font:12px/1.5 var(--ui)}
+.market-toolbar .market-import{padding:0;min-width:0}
+.market-empty{flex-direction:column;text-align:center;gap:12px;padding:36px 20px}
+.market-empty .mascot{margin:0}
+.market-empty strong{font:600 20px/1.3 var(--ui);color:var(--ink)}
+.market-empty p{margin:0;color:#b4b6bb;font:14px/1.6 var(--ui)}
+.inline-error .btn{margin-left:12px;min-height:44px;padding:10px 16px;font-size:13px}
+.collection-feedback{padding:24px;min-width:min(280px,100%);border:1px solid var(--line);border-radius:22px}
+.collection-feedback p,.quote-feedback{color:#b4b6bb;font:13px/1.6 var(--ui)}
+.market-skeleton{min-height:340px;padding-bottom:20px;gap:12px}
+.market-skeleton>div{aspect-ratio:1.4;background:rgba(255,255,255,.06)}
+.market-skeleton>span{height:14px;margin:0 18px;border-radius:6px;background:rgba(255,255,255,.08)}
+.market-skeleton>span:last-child{width:50%}
+.market-skeletons{animation:mv-loading 1.5s ease-in-out infinite alternate}
+@keyframes mv-loading{to{opacity:.45}}
+.carousel-card>.carousel-art{padding:0;display:block;aspect-ratio:1;overflow:hidden}
+.carousel-art .market-image,.carousel-art img{display:block;width:100%;height:100%;object-fit:cover}
+.carousel-art .market-image-fallback{object-fit:contain;padding:38px}
+.carousel-controls button,.trade-modal-close{min-width:44px;min-height:44px}
+.trade-wallet{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px;padding:14px;border:1px solid var(--line);border-radius:14px}
+.trade-wallet p{margin:0;font:14px/1.5 var(--ui);color:#b4b6bb}
+.trade-wallet .wallet{min-height:44px;padding:10px 16px;border:1px solid var(--acid);border-radius:999px;color:var(--acid);font:600 14px var(--ui)}
+.market-order>.network-switch{margin-bottom:16px}
+.market-order label input{padding-right:76px}
+.btn:disabled,.btn.primary:disabled{cursor:not-allowed;opacity:.45;transform:none;box-shadow:none}
+.site-header nav a{min-height:44px;display:inline-flex;align-items:center;justify-content:center}
+@media(max-width:800px){
+  main{padding-inline:16px}
+  .page{padding-left:0;padding-right:0}
+  .hero>div{padding-left:0;padding-right:0}
+  .site-header nav{justify-content:flex-start;gap:2px}
+  .site-header nav a{flex:1 0 auto;margin:4px 0;padding:8px;font-size:11px}
+  .site-header nav a sup{display:none}
+  .site-header .wallet{min-height:44px}
+  .inline-error .btn{display:block;margin:12px 0 0}
+  .market-skeletons>.market-skeleton:not(:first-child){display:none}
+  .trade-modal .market-order{padding-inline:16px}
+}
+@media(hover:none){
+  .btn:hover,.carousel-card:hover,.economy-step:hover{transform:none;box-shadow:none}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}

@@ -6,7 +6,7 @@ import { registerReferral } from './api.js';
 import { referralAddress, referralMessage, referralShareUrl } from './referral.js';
 import { NavLink } from './router.jsx';
 
-export function Referral() {
+export function Referral({ connectWallet }) {
   const { address, isConnected } = useArcNetwork();
   const { signMessageAsync } = useSignMessage();
   const referrer = referralAddress(new URLSearchParams(window.location.search).get('ref'));
@@ -59,6 +59,7 @@ export function Referral() {
           <span className="eyebrow">YOUR REFERRAL LINK</span>
           <h2>Bring your crew.</h2>
           <p>Connect your wallet to generate a personal link. Your friend can then sign a free message to confirm who invited them.</p>
+          {!isConnected ? <div className="trade-wallet">{connectWallet}</div> : null}
           <label className="referral-label" htmlFor="referral-link">SHAREABLE LINK</label>
           <div className="referral-copy">
             <input id="referral-link" readOnly value={shareUrl ?? 'Connect your wallet to generate a link'} aria-label="Your referral link" onFocus={(event) => event.target.select()} />

@@ -17,6 +17,7 @@ export async function assertBrowserReadChain({
   expectedChainId = ARC_CHAIN_ID,
   urls = [ARC_READ_RPC_URL, ARC_READ_FALLBACK_RPC_URL],
   fetchImplementation = globalThis.fetch,
+  timeoutMs = 8000,
 } = {}) {
   if (!enabled) return null;
   let lastError = null;
@@ -26,6 +27,7 @@ export async function assertBrowserReadChain({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();

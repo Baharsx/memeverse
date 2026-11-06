@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
@@ -132,4 +133,29 @@ test('browser boot aborts unless the read RPC is chain 5042', async () => {
     }),
     /chain check failed/,
   );
+});
+
+test('a stalled boot RPC times out and reaches the verified fallback', async () => {
+  const server = createServer(() => { /* Deliberately never answer the primary RPC. */ });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const primary = `http://127.0.0.1:${server.address().port}`;
+  let fallbackCalls = 0;
+  try {
+    const chainId = await assertBrowserReadChain({
+      enabled: true,
+      expectedChainId: 5042,
+      urls: [primary, 'https://fallback.example'],
+      timeoutMs: 50,
+      fetchImplementation: (url, options) => {
+        if (url === primary) return fetch(url, options);
+        fallbackCalls++;
+        return Promise.resolve(new Response(JSON.stringify({ result: '0x13b2' })));
+      },
+    });
+    assert.equal(chainId, 5042);
+    assert.equal(fallbackCalls, 1);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
