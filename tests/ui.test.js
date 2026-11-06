@@ -478,7 +478,7 @@ test('carousel waits ten seconds, moves exactly one card smoothly, and loops for
   } finally { await context.close(); }
 });
 
-test('legacy quotes remain truthful without a minimum-purchase message and hover stays readable', async () => {
+test('legacy quotes explain whole-token zero output in one line and hover stays readable', async () => {
   const { context, page, calls, errors } = await fixture({ width: 1440, highPrice: true, reducedMotion: 'reduce' });
   try {
     await page.goto(origin + '/markets');
@@ -488,6 +488,8 @@ test('legacy quotes remain truthful without a minimum-purchase message and hover
     assert.equal(await dialog.getByLabel('Estimated tokens received').inputValue(), '0');
     assert.match(await dialog.locator('.market-proof dd').first().textContent(), /1.02 USDC/);
     assert.equal(await dialog.locator('.quote-minimum').count(), 0);
+    assert.match(await dialog.locator('.whole-token-note').textContent(), /whole tokens only.*1\.02 USDC/);
+    assert.equal(await dialog.locator('.whole-token-note button').count(), 0);
     assert.equal(await dialog.getByRole('button', { name: 'APPROVE MAX', exact: false }).count(), 0);
     const buy = dialog.getByRole('button', { name: 'SIGN BUY ON ARC', exact: false });
     assert.ok(await buy.isDisabled());
@@ -507,7 +509,7 @@ test('legacy quotes remain truthful without a minimum-purchase message and hover
     await page.waitForFunction(() => document.querySelector('input[aria-label="Estimated tokens received"]')?.value === '1');
     assert.equal(await dialog.getByLabel('MAX USDC TO SPEND', { exact: false }).inputValue(), '1.02');
     assert.deepEqual(calls.quoteBuy, [1000000n, 1020000n]);
-    assert.equal(await dialog.locator('.quote-minimum').count(), 0);
+    assert.equal(await dialog.locator('.whole-token-note').count(), 0, 'the note disappears once a whole token is affordable');
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });
@@ -520,6 +522,7 @@ test('fractional contracts display fractional buy output and accept fractional s
     const dialog = page.getByRole('dialog');
     await page.waitForFunction(() => document.querySelector('input[aria-label="Estimated tokens received"]')?.value === '0.980392');
     assert.equal(await dialog.locator('.quote-minimum').count(), 0);
+    assert.equal(await dialog.locator('.whole-token-note').count(), 0, 'fractional markets need no whole-token note');
     assert.match(await dialog.locator('.market-proof').textContent(), /100.5/);
     await dialog.getByRole('group', { name: 'Trade direction' }).getByRole('button', { name: 'SELL', exact: true }).click();
     const input = dialog.getByLabel('TOKEN AMOUNT', { exact: false });

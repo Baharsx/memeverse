@@ -1176,6 +1176,8 @@ function Markets() {
   const walletStateLoading = onArc && markets.isPlaceholderData;
   const allowanceRequired = Boolean(selected && buyQuote.data?.[0] > 0n && buyUnits > selected.usdcAllowance);
   const minimumBuyUsdc = marketMinimumBuyUsdc(selected);
+  // Legacy (v1) markets sell whole tokens only, so a budget below one token quotes zero.
+  const wholeTokenOnlyZero = Boolean(selected && selected.tradingVersion !== 2 && buyQuote.data && buyQuote.data[0] === 0n && buyUnits > 0n);
   const availability = marketAvailability(selected);
 
   function openTrade(address, nextSide) {
@@ -1359,6 +1361,7 @@ function Markets() {
                 ) : side === 'BUY' ? <form onSubmit={buyTokens}>
                   <label>MAX USDC TO SPEND<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="text" inputMode="decimal" required /><small>USDC</small></label>
                   <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={buyQuote.data ? formatTokenAmount(buyQuote.data[0], 6) : '—'} aria-label="Estimated tokens received" /><small>{selected.symbol}</small></label>
+                  {wholeTokenOnlyZero ? <p className="whole-token-note" role="status">{selected.symbol} trades in whole tokens only. One token costs {formatUsdc(minimumBuyUsdc)} USDC with fees.</p> : null}
                   <details className="trade-details" key={`${selected.address}-buy`}><summary>TRADE DETAILS <span>Fees, limits & wallet balance</span></summary>
                   <div className="trade-review">
                     <span>WALLET BALANCE <b>{onArc && usdcBalance.data !== undefined ? `${formatUsdc(usdcBalance.data)} USDC` : 'CONNECT ON ARC'}</b></span>

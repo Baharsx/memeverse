@@ -24,9 +24,11 @@ Never use a testnet product contract address on chain 5042.
 | --- | --- | --- |
 | MemeVerseFactory | `0x177492EFFbe5F7847994696ef4C9B24b8C9C13BE` | [Deployment transaction](https://explorer.arc.io/tx/0xf22d7f45a8bd53a19fed27b2bdde68a092cd98cf862f9bccdb5a962445df66e2) |
 | MEMEVERSE GENESIS market | `0xDCa07Bd83bc7A4220C79afB60F8C2Bb7DC746932` | [Deployment transaction](https://explorer.arc.io/tx/0x17943aebd1437c85dde62b5375b1a24e54a5ca1f682313ba033e2c37b9a31fca) |
+| MemeVerseFractionalFactory (v2, fractional trading) | `0xa247486939e1E85916bd90b10c9D6eadf3fF3e27` | [Deployment transaction](https://explorer.arc.io/tx/0xc7433b18e0df7a12097cf99864b00849270353bbec79fd85661ec4091f40cb2f) |
 
 Factory source: [verified explorer address](https://explorer.arc.io/address/0x177492EFFbe5F7847994696ef4C9B24b8C9C13BE).
 Genesis market source: [verified explorer address](https://explorer.arc.io/address/0xDCa07Bd83bc7A4220C79afB60F8C2Bb7DC746932).
+Fractional factory source: [Sourcify exact match](https://repo.sourcify.dev/5042/0xa247486939e1E85916bd90b10c9D6eadf3fF3e27) (deployed November 6, 2026, block 29854964; see [FRACTIONAL-TRADING.md](FRACTIONAL-TRADING.md)).
 
 Deployed on October 8, 2026 from `0x5A119569569907B5D8bb94efA84375682240A85c`.
 Factory constructor: USDC as listed above, treasury = deployer, creator fee 100 bps,

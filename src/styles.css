@@ -1230,4 +1230,5 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 .trade-wallet .wallet:hover{background:var(--acid);color:#000}
 .trade-wallet .wallet:hover .wallet-address{color:inherit}
 .btn.primary:not(:disabled):hover{color:#000}
+.whole-token-note{margin:10px 0 0;color:#b4b6bb;font:12px/1.5 var(--ui)}
 .price-fee-note{display:block;margin-top:5px;color:#b4b6bb;font:11px/1.5 var(--ui)}

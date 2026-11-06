@@ -25,3 +25,13 @@ To create a fractional version of an existing token, its creator must launch a n
 ## Validation
 
 Contract tests cover fractional buying and selling, arbitrary 18-decimal token amounts, maximal affordable quotes, partial and complete reversals, repeated trades, exact reserve backing, maximum supply and pricing, fee rounding, slippage, currency failures, reentrancy, and fractional transfers. Legacy contract tests remain unchanged. Browser tests cover fractional quote display and sell parsing alongside truthful legacy quotes and removal of the minimum-purchase message.
+
+## Mainnet deployment
+
+- Factory: `0xa247486939e1E85916bd90b10c9D6eadf3fF3e27` (Arc mainnet, chain 5042)
+- Transaction: `0xc7433b18e0df7a12097cf99864b00849270353bbec79fd85661ec4091f40cb2f`, block 29854964, November 6, 2026
+- Constructor: Arc USDC, treasury `0x5A119569569907B5D8bb94efA84375682240A85c`, creator fee 100 bps, treasury fee 100 bps
+- Source: Sourcify exact match for creation and runtime bytecode
+- Production configuration: `VITE_FRACTIONAL_FACTORY_ADDRESS` in `/etc/memeverse/memeverse.env`; the deploy record at `/opt/memeverse-releases/fractional-factory-deploy.json` blocks a repeated broadcast.
+
+The six markets of the original factory remain whole-token markets. When a budget is below one whole token, their buy form shows one line explaining it; fractional markets never show it.
