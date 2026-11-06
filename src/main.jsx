@@ -629,6 +629,7 @@ function Home() {
             MemeVerse turns a meme into an Arc market. People trade it in USDC. Creator and
             treasury fees settle inside the trade.
           </p>
+          <FreeLaunchBadge />
           <div className="hero-actions">
             <NavLink className="btn primary" to="/launch">LAUNCH A MEME →</NavLink>
             <NavLink className="btn secondary" to="/markets">TRADE ONCHAIN →</NavLink>
@@ -734,6 +735,19 @@ function NotFound() {
       </div>
       <NavLink className="btn primary" to="/">BACK TO MEMEVERSE →</NavLink>
     </section>
+  );
+}
+
+/** Launching charges no platform fee; the creator pays only Arc network gas, in USDC. */
+function FreeLaunchBadge({ className = '' }) {
+  return (
+    <div className={`free-launch ${className}`.trim()} role="note" aria-label="No launch fee">
+      <span className="free-launch-price" aria-hidden="true">$0</span>
+      <span className="free-launch-copy">
+        <b>Launch fee</b>
+        <small>Only network gas, a few cents in USDC. Earn 1% of every trade.</small>
+      </span>
+    </div>
   );
 }
 
@@ -905,6 +919,7 @@ function Launch() {
     <section className="page">
       <Title n="01 / CREATE" t="LAUNCH A MARKET" />
       <p className="lede">Create a meme market on Arc with your wallet. Set its supply and USDC pricing, review the transaction, then confirm it onchain.</p>
+      <FreeLaunchBadge className="free-launch-page" />
       <div className="form-grid">
         <form onSubmit={handleSubmit}>
           <label>
@@ -959,7 +974,7 @@ function Launch() {
           <button className="btn primary full" disabled={action.state.status === 'WALLET_SIGNATURE' || action.state.status === 'SUBMITTED'}>REVIEW ONCHAIN LAUNCH →</button>
           {formError ? <small className="tx-error" role="alert">{formError}</small> : null}
           {review ? <div className="launch-wallet-access">{!isConnected ? <div className="trade-wallet"><p>Connect your wallet to launch your market.</p><Wallet /></div> : null}<NetworkStatus /></div> : null}
-          {review ? <div className="onchain-review" role="region" aria-label="Launch review"><b>REVIEW BEFORE SIGNING</b><span>CREATOR // {address ?? 'CONNECT WALLET'}</span><span>FACTORY // {arcContracts.memeVerseFactory}</span><span>STARTING PRICE // {basePrice} USDC</span><span>PRICING // INCREASES AS TOKENS SELL</span><span>FEES // {factory.data ? `${Number(factory.data.creatorFeeBps) / 100}% CREATOR + ${Number(factory.data.treasuryFeeBps) / 100}% TREASURY` : 'READING ONCHAIN'}</span><button className="btn primary full" type="button" disabled={!onArc || !factory.data || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(action.state.status)} onClick={launchMarket}>{!isConnected ? 'CONNECT WALLET FIRST' : !onArc ? (ARC_IS_MAINNET ? 'SWITCH TO ARC MAINNET' : 'SWITCH TO ARC TESTNET') : 'SIGN + LAUNCH ON ARC →'}</button></div> : null}
+          {review ? <div className="onchain-review" role="region" aria-label="Launch review"><b>REVIEW BEFORE SIGNING</b><span>CREATOR // {address ?? 'CONNECT WALLET'}</span><span>FACTORY // {arcContracts.memeVerseFactory}</span><span>STARTING PRICE // {basePrice} USDC</span><span>PRICING // INCREASES AS TOKENS SELL</span><span>LAUNCH FEE // 0 USDC · NETWORK GAS ONLY</span><span>TRADING FEES // {factory.data ? `${Number(factory.data.creatorFeeBps) / 100}% CREATOR + ${Number(factory.data.treasuryFeeBps) / 100}% TREASURY` : 'READING ONCHAIN'}</span><button className="btn primary full" type="button" disabled={!onArc || !factory.data || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(action.state.status)} onClick={launchMarket}>{!isConnected ? 'CONNECT WALLET FIRST' : !onArc ? (ARC_IS_MAINNET ? 'SWITCH TO ARC MAINNET' : 'SWITCH TO ARC TESTNET') : 'SIGN + LAUNCH ON ARC →'}</button></div> : null}
           <TransactionStatus state={action.state} />
           {result ? <div className="receipt onchain-receipt" role="status"><b>MARKET CONFIRMED ON ARC</b><span>MARKET + TOKEN // {result.market}</span><span>CREATOR // {result.creator}</span><ExternalLink href={`${arcLinks.explorer}/tx/${result.hash}`}>VIEW TRANSACTION ON ARCSCAN ↗</ExternalLink><ExternalLink href={`${arcLinks.explorer}/address/${result.market}`}>VIEW MARKET CONTRACT ↗</ExternalLink></div> : null}
           {/*

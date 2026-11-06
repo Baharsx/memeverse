@@ -1232,3 +1232,18 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 .btn.primary:not(:disabled):hover{color:#000}
 .whole-token-note{margin:10px 0 0;color:#b4b6bb;font:12px/1.5 var(--ui)}
 .price-fee-note{display:block;margin-top:5px;color:#b4b6bb;font:11px/1.5 var(--ui)}
+
+/* Zero launch fee: shown above the hero CTAs, under the launch intro and in the signing review. */
+.free-launch{display:inline-flex;align-items:center;gap:14px;max-width:100%;margin:0 0 24px;padding:8px 20px 8px 8px;
+  border:1px solid rgba(198,244,50,.32);border-radius:999px;
+  background:linear-gradient(90deg,rgba(198,244,50,.12),rgba(198,244,50,.03));box-shadow:0 0 40px rgba(198,244,50,.08)}
+.free-launch-price{flex:none;display:grid;place-items:center;min-width:58px;height:44px;padding:0 14px;border-radius:999px;
+  background:var(--acid);color:#000;font:800 20px/1 var(--display);letter-spacing:-.03em}
+.free-launch-copy{min-width:0}
+.free-launch-copy b{display:block;color:var(--ink);font:650 16px/1.2 var(--ui);letter-spacing:-.015em}
+.free-launch-copy small{display:block;margin-top:3px;color:#b4b6bb;font:13px/1.4 var(--ui);letter-spacing:-.005em}
+.free-launch-page{margin:4px 0 28px}
+@media (max-width:640px){
+  .free-launch{display:flex;border-radius:22px;padding:8px 14px 8px 8px}
+  .free-launch-copy small{font-size:12px}
+}

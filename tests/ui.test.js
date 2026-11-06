@@ -404,6 +404,7 @@ test('launch previews form values and requires artwork picked through the previe
   page.on('request', (request) => { if (request.url().includes('/media/uploads')) uploads.push(request.url()); });
   try {
     await page.goto(origin + '/launch');
+    assert.match(await page.getByRole('note', { name: 'No launch fee' }).textContent(), /\$0.*Launch fee.*network gas/i);
     assert.equal(await page.getByLabel('PRICE STEP (USDC)', { exact: true }).count(), 0);
     await page.getByLabel('MEME NAME', { exact: true }).fill('Happy Pixel');
     await page.getByLabel('TICKER', { exact: true }).fill('happy');
