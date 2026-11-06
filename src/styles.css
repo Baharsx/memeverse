@@ -1172,6 +1172,29 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 .brand-lockup{width:184px;height:auto;max-width:100%;object-fit:contain}
 .market-toolbar{grid-template-columns:minmax(180px,1.5fr) minmax(160px,1fr) minmax(180px,1fr)}
 .market-view-hint{margin:-8px 0 18px;color:#b4b6bb;font:13px/1.6 var(--ui)}
+.site-header nav a:is(:hover,.active,:focus-visible) sup{color:var(--acid)}
+.launch-preview{position:sticky;top:108px;padding:20px;min-width:0}
+.launch-preview>.eyebrow{display:block;margin-bottom:16px}
+.launch-token-card{overflow:hidden;border:1px solid var(--line);border-radius:20px;background:#111214}
+.launch-artwork-picker{display:block;position:relative;width:100%;padding:0;border:0;background:#080809;cursor:pointer;overflow:hidden;aspect-ratio:1}
+.launch-artwork-picker .market-image{display:block;width:100%;height:100%;border:0;border-radius:0}
+.launch-artwork-picker img{width:100%;height:100%;object-fit:cover}
+.launch-artwork-picker>span:last-child{position:absolute;bottom:12px;left:12px;right:12px;padding:10px;border-radius:999px;background:rgba(0,0,0,.78);color:var(--acid);font:600 11px var(--ui);text-align:center}
+.launch-image-hint{margin:0;padding:14px 16px;border-bottom:1px solid var(--line);color:#c7c9cd;font:13px/1.6 var(--ui)}
+.launch-image-hint b{color:var(--acid)}
+.launch-image-hint small{display:block;margin-top:4px;color:var(--mute);font-size:11px}
+.launch-token-details{padding:18px}
+.launch-token-details>small{color:var(--acid);font:600 12px var(--mono)}
+.launch-token-details h2{margin:8px 0 12px;overflow-wrap:anywhere;font:600 25px/1.15 var(--display);letter-spacing:-.03em}
+.launch-token-details>strong{font:600 14px/1.6 var(--ui)}
+.launch-token-details>strong span{font-size:11px;color:var(--mute)}
+.launch-token-details>p{overflow-wrap:anywhere;color:#b4b6bb;font:13px/1.6 var(--ui)}
+.launch-token-details dl{margin:16px 0}
+.launch-token-details dl>div{display:flex;justify-content:space-between;gap:12px}
+.launch-token-details dt,.launch-token-details dd{float:none;padding:9px 0;font:11px/1.5 var(--ui)}
+.launch-preview-label{color:var(--mute);font:10px/1.5 var(--mono)}
+.launch-upload-note{margin:14px 0 0;color:var(--mute);font:12px/1.6 var(--ui)}
+@media(max-width:800px){.launch-preview{position:static;max-width:430px;width:100%;justify-self:center}}
 @media(max-width:800px){.brand-lockup{width:150px;max-width:100%}.market-toolbar{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}

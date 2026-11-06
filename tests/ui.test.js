@@ -289,3 +289,32 @@ test('hover keeps the carousel border inside its viewport and trade units stay r
     assert.ok(Math.abs(metrics.center - metrics.inputCenter) <= 2, 'the unit should be centered vertically');
   } finally { await context.close(); }
 });
+
+test('launch previews form values and requires artwork picked through the preview card', async () => {
+  const { context, page } = await fixture({ width: 1440 });
+  const uploads = [];
+  page.on('request', (request) => { if (request.url().includes('/media/uploads')) uploads.push(request.url()); });
+  try {
+    await page.goto(origin + '/launch');
+    await page.getByLabel('MEME NAME', { exact: true }).fill('Happy Pixel');
+    await page.getByLabel('TICKER', { exact: true }).fill('happy');
+    await page.getByLabel('DESCRIPTION', { exact: true }).fill('A cheerful community meme.');
+    await page.getByLabel('STARTING PRICE (USDC)', { exact: true }).fill('0.012');
+    const preview = page.getByRole('complementary', { name: 'Live token preview' });
+    assert.equal(await preview.locator('h2').textContent(), 'Happy Pixel');
+    assert.ok((await preview.textContent()).includes('$HAPPY'));
+    assert.ok((await preview.textContent()).includes('0.012 USDC'));
+    assert.ok((await preview.textContent()).includes('A cheerful community meme.'));
+    await page.getByRole('button', { name: 'REVIEW ONCHAIN LAUNCH' }).click();
+    assert.equal(await page.getByRole('region', { name: 'Launch review' }).count(), 0);
+    await page.getByText('Choose a token image using the preview card before continuing.').waitFor();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Upload token image' }).click();
+    await (await chooser).setFiles('public/memeverse-hero-v1-640.webp');
+    await page.waitForFunction(() => document.querySelector('.launch-artwork-picker img')?.getAttribute('src')?.startsWith('blob:'));
+    assert.equal(await page.locator('.form-grid form .image-picker').count(), 0);
+    await page.getByRole('button', { name: 'REVIEW ONCHAIN LAUNCH' }).click();
+    await page.getByRole('region', { name: 'Launch review' }).waitFor();
+    assert.deepEqual(uploads, [], 'picking an image must not upload before a confirmed market');
+  } finally { await context.close(); }
+});

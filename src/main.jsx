@@ -608,11 +608,11 @@ function Launch() {
   const action = useOnchainAction();
   /*
     The image is entirely separate from the launch. It is chosen before signing purely so the
-    creator can see what they are making, but it is not part of `createMarket` calldata, it is not
-    part of the transaction, and it is attached — if at all — only after Arc has confirmed. A
-    launch with no image is exactly as valid as one with an image.
+    creator can see what they are making. The UI requires a selected image, while the image stays
+    outside `createMarket` calldata and is attached only after Arc has confirmed the market.
   */
   const image = useImageSelection();
+  const launchImageRef = useRef(null);
   const attach = useMediaUpload({
     action: MEDIA_ACTIONS.MARKET_AVATAR,
     market: result?.market,
@@ -692,7 +692,7 @@ function Launch() {
   // A flat curve is a real market, so zero is valid here and only here.
   const slopePriceUnits = launchPriceUnits(slopePrice, { allowZero: true });
   const launchInvalid = !name.trim() || !symbol.trim()
-    || supplyValue === null || basePriceUnits === null || slopePriceUnits === null;
+    || supplyValue === null || basePriceUnits === null || slopePriceUnits === null || !image.selection;
 
   // Clear a stale message as soon as the user edits anything. Without this, a message from an
   // earlier attempt lingers while the browser's own min/max validation silently blocks a later
@@ -711,7 +711,8 @@ function Launch() {
           : !symbol.trim() ? 'Enter a ticker.'
             : supplyValue === null ? 'Supply must be a whole number between 100 and 1,000,000,000.'
               : basePriceUnits === null ? 'Initial price must be between 0.000001 and 1000 USDC, with at most 6 decimals.'
-                : 'Curve increase must be between 0 and 1000 USDC, with at most 6 decimals.',
+                : slopePriceUnits === null ? 'Curve increase must be between 0 and 1000 USDC, with at most 6 decimals.'
+                  : 'Choose a token image using the preview card before continuing.',
       );
       return;
     }
@@ -801,15 +802,6 @@ function Launch() {
             DESCRIPTION
             <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength="280" placeholder="What makes this meme worth trading?" />
           </label>
-          <ImagePicker
-            id="launch-market-image"
-            label="MARKET IMAGE (OPTIONAL)"
-            hint="PNG, JPEG, or WebP, up to 5 MB. Attached after the launch confirms — it is not part of the transaction and costs no gas."
-            selection={image.selection}
-            error={image.error}
-            onSelect={image.select}
-            onClear={image.clear}
-          />
           <div className="receive">
             <span>FIXED ONCHAIN SUPPLY</span>
             <b>{Number(supply || 0).toLocaleString()} ${symbol || 'TOKEN'}</b>
@@ -866,27 +858,26 @@ function Launch() {
             </div>
           ) : null}
         </form>
-        <aside className="spec">
-          <span>DEPLOYMENT SPEC</span>
-          <dl>
-            <dt>MODE</dt><dd>ONCHAIN</dd>
-            <dt>NETWORK</dt><dd>{network.chain.name}</dd>
-            <dt>SETTLEMENT</dt><dd>USDC</dd>
-            <dt>CURVE</dt><dd>LINEAR / WHOLE TOKEN</dd>
-            <dt>BROADCAST</dt><dd>WALLET SIGNED</dd>
-            <dt>IMAGE</dt><dd>{image.selection ? 'SELECTED / OFFCHAIN' : 'NONE'}</dd>
-          </dl>
-          {/* The chosen artwork stands in for the mark, so the spec previews the market as it
-              will look. Falling back to the mark when nothing is chosen keeps this panel
-              identical to what it has always been for an image-less launch. */}
-          {image.selection
-            ? (
-              <figure className="spec-artwork">
-                <img src={image.selection.previewUrl} alt="Selected market artwork preview" />
-                <figcaption>OFFCHAIN PRESENTATION IMAGE</figcaption>
-              </figure>
-            )
-            : <Mascot />}
+        <aside className="spec launch-preview" aria-label="Live token preview">
+          <span className="eyebrow">YOUR TOKEN / LIVE PREVIEW</span>
+          <article className="launch-token-card">
+            <button type="button" className="launch-artwork-picker" onClick={() => launchImageRef.current?.click()} aria-label="Upload token image">
+              <MarketImage src={image.selection?.previewUrl} alt="Token preview artwork" />
+              <span>{image.selection ? 'CHANGE IMAGE ↗' : 'UPLOAD TOKEN IMAGE ↗'}</span>
+            </button>
+            <input ref={launchImageRef} id="launch-market-image" type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => { image.select(event.target.files?.[0] ?? null); setReview(false); setFormError(null); }} />
+            <p className="launch-image-hint">Click the image above to upload your token image. <b>Required.</b><small>PNG, JPEG or WebP · Up to 5 MB</small></p>
+            {image.error ? <p className="inline-error" role="alert">{image.error}</p> : null}
+            <div className="launch-token-details">
+              <small>${symbol.trim().toUpperCase() || 'TICKER'}</small>
+              <h2>{name.trim() || 'Your meme name'}</h2>
+              <strong>{basePriceUnits === null ? '—' : formatUsdc(basePriceUnits)} USDC <span>/ TOKEN</span></strong>
+              {description.trim() ? <p>{description.trim()}</p> : <p>Your token’s story will appear here.</p>}
+              <dl><div><dt>TOTAL SUPPLY</dt><dd>{supplyValue === null ? '—' : supplyValue.toLocaleString()}</dd></div><div><dt>NETWORK</dt><dd>{network.chain.name}</dd></div></dl>
+              <span className="launch-preview-label">TOKEN CARD PREVIEW</span>
+            </div>
+          </article>
+          <p className="launch-upload-note">Your selected image is attached after the launch confirms, using a free wallet signature.</p>
         </aside>
       </div>
     </section>

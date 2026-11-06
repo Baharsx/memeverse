@@ -293,7 +293,7 @@ test('product navigation exposes live markets and planned community program rout
   assert.ok(main.includes('market-images'), 'market artwork still loads independently');
   assert.match(main, /path="\/referral" element=\{<Referral\b/, 'referral route is wired');
   assert.match(main, /path="\/campaigns" element=\{<Campaigns\b/, 'campaign route is wired');
-  assert.ok(main.includes('MARKET IMAGE (OPTIONAL)'), 'image upload remains part of launch');
+  assert.ok(main.includes('aria-label="Upload token image"'), 'the preview image opens the upload picker');
 });
 
 test('mainnet homepage foregrounds live launch, trade and token markets only', async () => {
