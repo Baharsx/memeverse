@@ -175,7 +175,7 @@ test('trade sheet traps focus, restores its trigger, and debounces only the acti
     await amount.fill('0.03');
     await amount.fill('0.04');
     assert.ok(await dialog.getByText('Updating your buy quote…').isVisible());
-    assert.ok(await dialog.getByRole('button', { name: 'SIGN BUY ON ARC' }).isDisabled());
+    assert.ok(await dialog.getByRole('button', { name: 'BUY NOW', exact: false }).isDisabled());
     await page.waitForFunction(() => !document.querySelector('.quote-feedback'));
     assert.deepEqual(calls.quoteBuy, [1000000n, 40000n], 'intermediate keystrokes must not hit the RPC');
     assert.equal(await page.locator('#root').evaluate((node) => node.inert), true);
@@ -287,8 +287,11 @@ test('wallet connection preserves the trade, separates positions and creates a p
     await page.getByRole('dialog').getByRole('button', { name: 'Connect a wallet' }).click();
     await page.getByText('Reading your wallet balances and allowances…').waitFor();
     assert.match(await page.locator('#trade-modal-title').textContent(), /Pixel Possum/);
-    assert.ok(await page.getByRole('button', { name: 'SIGN BUY ON ARC' }).isDisabled());
-    await page.getByRole('dialog').getByRole('button', { name: 'APPROVE MAX', exact: false }).waitFor({ state: 'visible' });
+    assert.ok(await page.getByRole('dialog').locator('.trade-cta').isDisabled());
+    // One button covers the allowance and the buy; the line beneath explains the two confirmations.
+    await page.getByRole('dialog').getByRole('button', { name: 'ALLOW USDC & BUY', exact: false }).waitFor({ state: 'visible' });
+    assert.match(await page.getByRole('dialog').locator('.trade-line').textContent(), /allow USDC, then buy/);
+    assert.equal(await page.getByRole('dialog').locator('.trade-cta').count(), 1);
     await page.waitForFunction(() => !document.querySelector('.quote-feedback'));
     assert.equal(await page.getByRole('dialog').count(), 1);
     await page.keyboard.press('Escape');
@@ -492,8 +495,8 @@ test('legacy quotes explain whole-token zero output in one line and hover stays 
     assert.equal(await dialog.locator('.quote-minimum').count(), 0);
     assert.match(await dialog.locator('.whole-token-note').textContent(), /whole tokens only.*1\.02 USDC/);
     assert.equal(await dialog.locator('.whole-token-note button').count(), 0);
-    assert.equal(await dialog.getByRole('button', { name: 'APPROVE MAX', exact: false }).count(), 0);
-    const buy = dialog.getByRole('button', { name: 'SIGN BUY ON ARC', exact: false });
+    assert.equal(await dialog.getByRole('button', { name: 'ALLOW USDC', exact: false }).count(), 0);
+    const buy = dialog.getByRole('button', { name: 'BUY NOW', exact: false });
     assert.ok(await buy.isDisabled());
     const style = (node) => { const css = getComputedStyle(node); return { color: css.color, background: css.backgroundColor, opacity: css.opacity }; };
     const before = await buy.evaluate(style);
@@ -618,6 +621,9 @@ test('home shows trending markets and live trades from the activity index, or an
       const section = page.getByRole('region', { name: 'Market activity' });
       await section.locator('.trending-row').waitFor();
       assert.match(await section.locator('.trending-row').textContent(), /Pixel Possum.*\$PXPS · 3 holders.*\$6\.25.*2 trades today/);
+      const toggle = section.getByRole('group', { name: 'Trending period' });
+      assert.deepEqual(await toggle.getByRole('button').allTextContents(), ['24H', '7D', '30D', 'ALL']);
+      assert.equal(await toggle.getByRole('button', { name: '24H' }).getAttribute('aria-pressed'), 'true');
       const feed = section.locator('.trade-feed li');
       assert.equal(await feed.count(), 2);
       assert.match(await feed.first().textContent(), /0x52e1…e2fF bought \$5 of \$PXPS.*2m ago/);
@@ -628,14 +634,23 @@ test('home shows trending markets and live trades from the activity index, or an
       assert.deepEqual(errors, []);
     } finally { await context.close(); }
   }
-  const quiet = { recent: activity.recent.map((trade) => ({ ...trade, at: now - 5 * 86_400 })), markets: { [MARKET]: { ...activity.markets[MARKET], trades24h: 0, volume24hUsdc: '0', traders24h: 0 } } };
+  const quiet = { recent: activity.recent.map((trade) => ({ ...trade, at: now - 12 * 86_400 })), markets: { [MARKET]: { ...activity.markets[MARKET], trades24h: 0, volume24hUsdc: '0', traders24h: 0,
+    periods: { '24h': { trades: 0, volumeUsdc: '0' }, '7d': { trades: 0, volumeUsdc: '0' }, '30d': { trades: 2, volumeUsdc: '6250000' }, all: { trades: 2, volumeUsdc: '6250000' } } } } };
   const old = await fixture({ width: 1440, activity: quiet });
   try {
     await old.page.goto(origin + '/');
     const section = old.page.getByRole('region', { name: 'Market activity' });
     await section.locator('.trending-row').waitFor();
-    assert.match(await section.locator('header').first().textContent(), /TOP MARKETS.*ALL-TIME VOLUME/);
-    assert.match(await section.locator('.trending-row').textContent(), /\$6\.25.*2 trades total/);
+    // Nothing in 24h or 7d, so the panel opens on 30D; 24H then shows an honest quiet state.
+    const toggle = section.getByRole('group', { name: 'Trending period' });
+    assert.equal(await toggle.getByRole('button', { name: '30D' }).getAttribute('aria-pressed'), 'true');
+    assert.match(await section.locator('.trending-row').textContent(), /\$6\.25.*2 trades this month/);
+    await toggle.getByRole('button', { name: '24H' }).click();
+    await section.getByText('Quiet today').waitFor();
+    assert.equal(await section.locator('.trending-row').count(), 0);
+    await toggle.getByRole('button', { name: 'ALL' }).click();
+    assert.match(await section.locator('.trending-row').textContent(), /2 trades all time/);
+    assert.equal(await section.locator('.trade-feed').evaluate((node) => getComputedStyle(node).overflowY), 'auto', 'the feed scrolls');
   } finally { await old.context.close(); }
   const { context, page } = await fixture({ width: 1440 });
   try {
@@ -643,5 +658,42 @@ test('home shows trending markets and live trades from the activity index, or an
     const section = page.getByRole('region', { name: 'Market activity' });
     await section.getByText('No trades yet').waitFor();
     assert.equal(await section.locator('.trending-row').count(), 0, 'no trend is shown without trades');
+  } finally { await context.close(); }
+});
+
+test('selling shows the held position with 25%, 50% and MAX presets', async () => {
+  const { context, page, errors } = await fixture({ width: 390, fractional: true, held: 41n * 10n ** 18n + 5n * 10n ** 17n });
+  await page.addInitScript(() => {
+    window.ethereum = {
+      on() {}, removeListener() {},
+      async request({ method }) {
+        if (method === 'eth_chainId') return '0x4cef52';
+        if (['eth_accounts', 'eth_requestAccounts'].includes(method)) return ['0x3333333333333333333333333333333333333333'];
+        if (method === 'wallet_requestPermissions') return [{ parentCapability: 'eth_accounts' }];
+        throw new Error(`Unexpected wallet request: ${method}`);
+      },
+    };
+  });
+  try {
+    await page.goto(origin + '/markets');
+    await page.locator('.market-card-actions').getByRole('button', { name: 'SELL', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    const connect = dialog.getByRole('button', { name: 'Connect a wallet' });
+    if (await connect.count()) await connect.click();
+    const holding = dialog.locator('.sell-holding');
+    await holding.waitFor();
+    assert.match(await holding.textContent(), /You hold 41\.5 PXPS/);
+    const presets = dialog.getByRole('group', { name: 'Sell presets' });
+    assert.deepEqual(await presets.getByRole('button').allTextContents(), ['25%', '50%', 'MAX']);
+    await presets.getByRole('button', { name: '50%' }).click();
+    assert.equal(await dialog.getByLabel('TOKEN AMOUNT', { exact: false }).inputValue(), '20.75');
+    await presets.getByRole('button', { name: 'MAX' }).click();
+    assert.equal(await dialog.getByLabel('TOKEN AMOUNT', { exact: false }).inputValue(), '41.5');
+    assert.equal(await presets.getByRole('button', { name: 'MAX' }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await dialog.locator('.trade-cta').count(), 1, 'one action button');
+    assert.match(await dialog.locator('.trade-cta').textContent(), /SELL NOW/);
+    const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
+    assert.ok(size.scroll <= size.width);
+    assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });

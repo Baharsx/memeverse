@@ -101,8 +101,23 @@ export function marketStats(state, nowSeconds) {
     }
   }
   for (const [market, set] of Object.entries(traders)) stats[market].traders24h = set.size;
+  // Rolling windows for the trending toggles; `all` covers every indexed trade.
+  for (const [period, seconds] of Object.entries(STAT_PERIODS)) {
+    const from = seconds === null ? null : nowSeconds - seconds;
+    for (const entry of Object.values(stats)) (entry.periods ??= {})[period] = { trades: 0, volumeUsdc: '0' };
+    for (const trade of state.trades) {
+      const entry = stats[trade.market];
+      const at = state.blockTimes[trade.block] ?? null;
+      if (!entry || (from !== null && (at === null || at < from))) continue;
+      const window = entry.periods[period];
+      window.trades += 1;
+      window.volumeUsdc = (BigInt(window.volumeUsdc) + BigInt(trade.usdc)).toString();
+    }
+  }
   return stats;
 }
+
+export const STAT_PERIODS = Object.freeze({ '24h': DAY_SECONDS, '7d': 7 * DAY_SECONDS, '30d': 30 * DAY_SECONDS, all: null });
 
 export function recentTrades(state, limit = 20) {
   return state.trades

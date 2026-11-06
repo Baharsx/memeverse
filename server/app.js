@@ -191,7 +191,7 @@ export function createApp({
   // Public, read-only trade activity indexed from the chain: recent trades and per-market stats.
   app.get('/api/v1/activity', (request, response) => {
     if (!activityIndexer?.available) return response.json(responseData({ recent: [], markets: {}, status: { syncing: false, available: false } }));
-    const limit = Math.min(Math.max(Number.parseInt(String(request.query.limit ?? '20'), 10) || 20, 1), 50);
+    const limit = Math.min(Math.max(Number.parseInt(String(request.query.limit ?? '20'), 10) || 20, 1), 500);
     response.set('cache-control', 'public, max-age=5');
     response.json(responseData(activityIndexer.snapshot({ limit })));
   });

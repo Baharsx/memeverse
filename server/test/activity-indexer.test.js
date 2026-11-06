@@ -46,7 +46,14 @@ test('trades, holders and 24h statistics follow the chain', () => {
   assert.equal(state.trades.length, 3);
   assert.deepEqual(Object.keys(state.balances[MARKET]), [BOB], 'a fully sold position is no longer a holder');
   const stats = marketStats(state, 100_000)[MARKET];
-  assert.deepEqual(stats, { holders: 1, trades: 3, volumeUsdc: '4500000', trades24h: 2, volume24hUsdc: '2500000', traders24h: 2, lastTradeAt: 100_000 });
+  const { periods, ...totals } = stats;
+  assert.deepEqual(totals, { holders: 1, trades: 3, volumeUsdc: '4500000', trades24h: 2, volume24hUsdc: '2500000', traders24h: 2, lastTradeAt: 100_000 });
+  assert.deepEqual(periods['24h'], { trades: 2, volumeUsdc: '2500000' });
+  assert.deepEqual(periods['7d'], { trades: 3, volumeUsdc: '4500000' });
+  assert.deepEqual(periods.all, { trades: 3, volumeUsdc: '4500000' });
+  assert.deepEqual(marketStats(state, 100_000 + 10 * 86_400)[MARKET].periods, {
+    '24h': { trades: 0, volumeUsdc: '0' }, '7d': { trades: 0, volumeUsdc: '0' }, '30d': { trades: 3, volumeUsdc: '4500000' }, all: { trades: 3, volumeUsdc: '4500000' },
+  });
   const recent = recentTrades(state, 2);
   assert.deepEqual(recent.map((trade) => [trade.side, trade.trader, trade.usdc, trade.at]), [['SELL', ALICE, '1500000', 100_000], ['BUY', BOB, '1000000', 90_000]]);
 });
@@ -98,9 +105,9 @@ test('the activity endpoint is public, bounded and degrades when no indexer runs
   const indexer = { available: true, snapshot: ({ limit }) => ({ recent: Array.from({ length: limit }, () => ({})), markets: {}, status: { syncing: false } }) };
   const app = await startTestApp({ activityIndexer: indexer });
   try {
-    const response = await fetch(app.baseUrl + '/api/v1/activity?limit=500');
+    const response = await fetch(app.baseUrl + '/api/v1/activity?limit=9000');
     assert.equal(response.status, 200);
-    assert.equal((await response.json()).data.recent.length, 50);
+    assert.equal((await response.json()).data.recent.length, 500);
   } finally { await app.close(); }
   const bare = await startTestApp();
   try {

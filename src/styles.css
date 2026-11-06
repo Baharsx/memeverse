@@ -1303,3 +1303,44 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 @media (max-width:860px){.home-activity{grid-template-columns:1fr}}
 .home-activity .market-image{border-radius:12px;border-color:rgba(255,255,255,.1);background:#0d0d0e}
 .home-activity .market-image-fallback{padding:20%;opacity:.9;border-radius:0;background:transparent}
+
+/* One trade button: allowance, trade and confirmations in a single place. */
+.trade-action{margin-top:18px}
+.trade-cta{display:flex;align-items:center;justify-content:center;gap:10px;transition:background .3s var(--ease),opacity .3s var(--ease)}
+.trade-cta.busy,.trade-cta.busy:disabled{opacity:1;cursor:progress;background:rgba(198,244,50,.16);border-color:rgba(198,244,50,.5);color:var(--acid)}
+.trade-spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(198,244,50,.3);border-top-color:var(--acid);animation:mv-spin .8s linear infinite}
+@keyframes mv-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.trade-spinner{animation-duration:2.4s}}
+.trade-progress{margin:10px 0 0;text-align:center;color:#b4b6bb;font:12.5px/1.5 var(--ui)}
+.trade-line{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 10px;min-height:20px;margin:10px 0 0;text-align:center;color:#b4b6bb;font:13px/1.5 var(--ui)}
+.trade-line:empty{margin:0;min-height:0}
+.trade-line a{color:var(--acid);font-weight:600;white-space:nowrap}
+.trade-line.done{color:var(--ink)}
+.trade-line.done b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--acid);color:#000;font:800 12px/1 var(--ui)}
+.trade-line.error{color:#ff8a80}
+.trade-line.pending{color:#b4b6bb}
+
+/* Sell: the current position with quick fractions. */
+.sell-holding{margin:12px 0 22px}
+.sell-holding>span{display:block;margin:0 0 10px;color:#b4b6bb;font:13px/1.5 var(--ui)}
+.sell-holding>span b{color:var(--ink);font-weight:600}
+.sell-holding .quick-amounts{margin:0}
+.quick-amounts button:disabled{opacity:.4;cursor:not-allowed}
+
+/* Trending period toggle: tiny, quiet pills. */
+.activity-panel header{gap:12px}
+.period-toggle{display:inline-flex;gap:2px;padding:3px;border:1px solid rgba(255,255,255,.08);border-radius:999px;background:rgba(255,255,255,.03)}
+.period-toggle button{min-width:38px;min-height:26px;padding:0 9px;border:0;border-radius:999px;background:transparent;color:var(--mute);
+  font:600 10.5px/1 var(--mono);letter-spacing:.08em;cursor:pointer;transition:background .25s var(--ease),color .25s var(--ease)}
+.period-toggle button:hover{color:var(--ink)}
+.period-toggle button[aria-pressed="true"]{background:rgba(198,244,50,.14);color:var(--acid)}
+.period-toggle button:focus-visible{outline:1px solid var(--acid);outline-offset:1px}
+
+/* Every trade, scrollable inside the panel. */
+.trade-feed{max-height:372px;overflow-y:auto;overscroll-behavior:contain;margin-right:-8px;padding-right:8px;
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent;
+  -webkit-mask-image:linear-gradient(#000 calc(100% - 28px),transparent);mask-image:linear-gradient(#000 calc(100% - 28px),transparent)}
+.trade-feed::-webkit-scrollbar{width:6px}
+.trade-feed::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}
+.trade-feed:focus-visible{outline:1px solid rgba(198,244,50,.5);outline-offset:4px;border-radius:12px}
+.trade-feed li:last-child{margin-bottom:18px}

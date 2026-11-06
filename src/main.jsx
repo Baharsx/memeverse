@@ -71,7 +71,8 @@ import {
   useMediaUpload,
 } from './media-views.jsx';
 import { getActivity, getMarketImages } from './api';
-import { shortTrader, timeAgo, trendingMarkets } from './activity';
+import { TREND_PERIODS, defaultTrendPeriod, formatDollars, shortTrader, timeAgo, trendingMarkets } from './activity';
+import { SELL_PRESETS, sellPresetAmount, tradeButtonState, tradeStatusLine } from './trade-flow';
 import { QUICK_BUY_AMOUNTS, fundingLink, needsMoreUsdc } from './funding';
 import { MEDIA_ACTIONS } from './media-authorization';
 import { canRetryLaunchArtwork, launchArtworkStage } from './media-upload';
@@ -670,21 +671,6 @@ function Home() {
 
       <HomeActivity listed={listed} images={images.data} />
 
-      <section className="home-community" aria-label="Community programs">
-        <NavLink to="/referral" className="home-community-card">
-          <span>03 / REFERRAL</span>
-          <strong>Invite your crew</strong>
-          <p>Share your link. Invited wallets confirm with a free signature.</p>
-          <b aria-hidden="true">↗</b>
-        </NavLink>
-        <NavLink to="/campaigns" className="home-community-card">
-          <span>04 / CAMPAIGNS</span>
-          <strong>Coming up next</strong>
-          <p>Future trading, content and community programs. No rewards are live yet.</p>
-          <b aria-hidden="true">↗</b>
-        </NavLink>
-      </section>
-
       <section className="home-collections" aria-label="Live token markets">
         <AssetCarousel
           label="Explore markets"
@@ -724,50 +710,59 @@ function Home() {
 }
 
 function activityQueryOptions() {
-  return { queryKey: ['activity'], queryFn: () => getActivity(12), staleTime: 10_000, refetchInterval: 15_000 };
+  return { queryKey: ['activity'], queryFn: () => getActivity(200), staleTime: 10_000, refetchInterval: 15_000 };
 }
 
 /**
- * Trending and live trades, from the server's chain index. Both lists show only recorded trades;
- * with none yet, the section invites the first one instead of implying activity.
+ * Trending and latest trades, from the server's chain index. Both lists show only recorded
+ * trades; a period without any shows an honest empty state instead of zeros.
  */
 function HomeActivity({ listed, images }) {
   const activity = useQuery(activityQueryOptions());
+  const [chosenPeriod, setChosenPeriod] = useState(null);
   const byAddress = Object.fromEntries(listed.map((market) => [market.address, market]));
-  const trending = trendingMarkets(listed, activity.data?.markets);
-  const recent = (activity.data?.recent ?? []).filter((trade) => byAddress[trade.market]).slice(0, 6);
-  // With no trade in the last day, rank by all-time volume and say so rather than show zeros.
-  const live = trending.some(({ stats }) => stats.trades24h > 0);
+  const stats = activity.data?.markets;
+  // Until someone picks a period, open on the shortest one that has a real trade.
+  const period = chosenPeriod ?? defaultTrendPeriod(listed, stats);
+  const trending = trendingMarkets(listed, stats, 5, period);
+  const recent = (activity.data?.recent ?? []).filter((trade) => byAddress[trade.market]);
+  const anyTrade = recent.length > 0;
+  const periodWord = { '24h': 'today', '7d': 'this week', '30d': 'this month', all: 'all time' }[period];
   if (activity.isPending) return null;
   return (
     <section className="home-activity" aria-label="Market activity">
       <div className="activity-panel">
-        <header><span><i aria-hidden="true" />{live || !trending.length ? 'TRENDING NOW' : 'TOP MARKETS'}</span><small>{live || !trending.length ? '24H VOLUME' : 'ALL-TIME VOLUME'}</small></header>
+        <header>
+          <span><i aria-hidden="true" />TRENDING</span>
+          <div className="period-toggle" role="group" aria-label="Trending period">
+            {TREND_PERIODS.map(([value, label]) => (
+              <button key={value} type="button" aria-pressed={period === value} onClick={() => setChosenPeriod(value)}>{label}</button>
+            ))}
+          </div>
+        </header>
         {trending.length ? (
           <ol className="trending-list">
-            {trending.map(({ market, stats }, index) => (
+            {trending.map(({ market, stats: entry, window }, index) => (
               <li key={market.address}>
                 <NavLink to="/markets" className="trending-row">
                   <b className="trending-rank">{index + 1}</b>
                   <MarketImage src={mediaContentUrl(images?.[market.address]?.url)} alt="" size="sm" />
-                  <span className="trending-name"><strong>{market.name}</strong><small>${market.symbol} · {stats.holders} holder{stats.holders === 1 ? '' : 's'}</small></span>
-                  {live ? (
-                    <span className="trending-volume"><strong>${formatUsdc(BigInt(stats.volume24hUsdc), 2)}</strong><small>{stats.trades24h} trade{stats.trades24h === 1 ? '' : 's'} today</small></span>
-                  ) : (
-                    <span className="trending-volume"><strong>${formatUsdc(BigInt(stats.volumeUsdc), 2)}</strong><small>{stats.trades} trade{stats.trades === 1 ? '' : 's'} total</small></span>
-                  )}
+                  <span className="trending-name"><strong>{market.name}</strong><small>${market.symbol} · {entry.holders} holder{entry.holders === 1 ? '' : 's'}</small></span>
+                  <span className="trending-volume"><strong>{formatDollars(window.volumeUsdc)}</strong><small>{window.trades} trade{window.trades === 1 ? '' : 's'} {periodWord}</small></span>
                 </NavLink>
               </li>
             ))}
           </ol>
+        ) : anyTrade ? (
+          <div className="activity-empty"><strong>Quiet {periodWord}</strong><p>No trades in this period yet. Try a longer range, or make the first move.</p></div>
         ) : (
           <div className="activity-empty"><strong>No trades yet</strong><p>Be the first to buy a meme on Arc. New tokens start from $1.</p><NavLink className="btn primary" to="/markets">EXPLORE MARKETS →</NavLink></div>
         )}
       </div>
       <div className="activity-panel">
-        <header><span><i aria-hidden="true" />LATEST TRADES</span><small>ONCHAIN</small></header>
+        <header><span><i aria-hidden="true" />LATEST TRADES</span><small>{recent.length ? `${recent.length} TRADE${recent.length === 1 ? '' : 'S'}` : 'ONCHAIN'}</small></header>
         {recent.length ? (
-          <ul className="trade-feed">
+          <ul className="trade-feed" tabIndex={0} aria-label="All trades, newest first">
             {recent.map((trade) => {
               const market = byAddress[trade.market];
               return (
@@ -776,7 +771,7 @@ function HomeActivity({ listed, images }) {
                   <p>
                     <span className="trade-trader">{shortTrader(trade.trader)}</span>{' '}
                     <b className={trade.side === 'BUY' ? 'trade-buy' : 'trade-sell'}>{trade.side === 'BUY' ? 'bought' : 'sold'}</b>{' '}
-                    <strong>${formatUsdc(BigInt(trade.usdc), 2)}</strong> of <strong>${market.symbol}</strong>
+                    <strong>{formatDollars(trade.usdc)}</strong> of <strong>${market.symbol}</strong>
                   </p>
                   <ExternalLink href={`${arcLinks.explorer}/tx/${trade.tx}`} className="trade-time" aria-label={`View transaction, ${timeAgo(trade.at)}`}>{timeAgo(trade.at)} ↗</ExternalLink>
                 </li>
@@ -1138,6 +1133,21 @@ function TransactionStatus({ state }) {
   );
 }
 
+/** One button for the whole onchain flow, plus a single status line beneath it. */
+function TradeAction({ button, line }) {
+  return (
+    <div className="trade-action">
+      <button className={`btn primary full trade-cta${button.busy ? ' busy' : ''}`} disabled={button.busy || button.disabled} aria-busy={button.busy}>
+        {button.busy ? <i className="trade-spinner" aria-hidden="true" /> : null}{button.label}
+      </button>
+      {button.progress ? <p className="trade-progress">{button.progress}</p> : null}
+      <p className={`trade-line ${line?.tone ?? ''}`} role="status" aria-live="polite">
+        {line ? <>{line.tone === 'done' ? <b aria-hidden="true">✓</b> : null}<span>{line.text}</span>{line.hash ? <ExternalLink href={`${arcLinks.explorer}/tx/${line.hash}`}>View transaction ↗</ExternalLink> : null}</> : null}
+      </p>
+    </div>
+  );
+}
+
 function shortAddress(address) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
@@ -1266,6 +1276,8 @@ function Markets() {
   const approval = useOnchainAction();
   const buy = useOnchainAction();
   const sell = useOnchainAction();
+  const [buyStep, setBuyStep] = useState(null);
+  const [sellStep, setSellStep] = useState(null);
   const walletStateLoading = onArc && markets.isPlaceholderData;
   const allowanceRequired = Boolean(selected && buyQuote.data?.[0] > 0n && buyUnits > selected.usdcAllowance);
   const minimumBuyUsdc = marketMinimumBuyUsdc(selected);
@@ -1289,38 +1301,35 @@ function Markets() {
     ]);
   }
 
-  async function approveUsdc() {
-    if (!onArc || walletStateLoading || !selected || !buyQuote.data || buyQuote.data[0] === 0n || buyUnits <= 0n) return;
-    try {
-      await approval.execute({
-        address: arcContracts.usdc,
-        abi: usdcAbi,
-        functionName: 'approve',
-        args: [selected.address, buyUnits],
-        chainId: arc.id,
-      });
-      await refreshMarketState();
-    } catch { /* The action state presents the wallet/provider error. */ }
-  }
-
+  /**
+   * One click runs the whole buy: an exact USDC allowance when needed, then the buy itself, using
+   * the quote the person saw. A failed buy after a successful allowance resumes at the buy.
+   */
   async function buyTokens(event) {
     event.preventDefault();
-    if (!onArc || walletStateLoading || !selected || !buyQuote.data || buyQuote.data[0] === 0n || buyUnits <= 0n || allowanceRequired) return;
+    if (buyStep || !onArc || walletStateLoading || !selected || !buyQuote.data || buyQuote.data[0] === 0n || buyUnits <= 0n) return;
+    const market = selected.address;
+    const units = buyUnits;
+    const quote = buyQuote.data;
+    approval.reset();
+    buy.reset();
     try {
-      await buy.execute({
-        address: selected.address,
-        abi: marketAbi,
-        functionName: 'buy',
-        args: [buyUnits, minimumAfterSlippage(buyQuote.data[0], slippageBps)],
-        chainId: arc.id,
-      });
-      await refreshMarketState();
-    } catch { /* The action state presents the wallet/provider error. */ }
+      if (allowanceRequired) {
+        setBuyStep('approve');
+        await approval.execute({ address: arcContracts.usdc, abi: usdcAbi, functionName: 'approve', args: [market, units], chainId: arc.id });
+      }
+      setBuyStep('trade');
+      await buy.execute({ address: market, abi: marketAbi, functionName: 'buy', args: [units, minimumAfterSlippage(quote[0], slippageBps)], chainId: arc.id });
+    } catch { /* The status line presents the wallet/provider error. */ }
+    setBuyStep(null);
+    await refreshMarketState();
   }
 
   async function sellTokens(event) {
     event.preventDefault();
-    if (!onArc || walletStateLoading || !selected || !sellQuote.data || sellUnits <= 0n || sellUnits > selected.userBalance) return;
+    if (sellStep || !onArc || walletStateLoading || !selected || !sellQuote.data || sellUnits <= 0n || sellUnits > selected.userBalance) return;
+    sell.reset();
+    setSellStep('trade');
     try {
       await sell.execute({
         address: selected.address,
@@ -1329,8 +1338,9 @@ function Markets() {
         args: [sellUnits, minimumAfterSlippage(sellQuote.data[0], slippageBps)],
         chainId: arc.id,
       });
-      await refreshMarketState();
-    } catch { /* The action state presents the wallet/provider error. */ }
+    } catch { /* The status line presents the wallet/provider error. */ }
+    setSellStep(null);
+    await refreshMarketState();
   }
 
   return (
@@ -1488,12 +1498,23 @@ function Markets() {
                   </div></details>
                   {buyInputError ? <p className="inline-error">{buyInputError}</p> : null}
                   {!buyInputError && buyUnits > 0n && !buyQuote.data ? <p className="quote-feedback" role="status">{buyQuoteResult.isError ? 'Quote unavailable. Check your connection or try another amount.' : 'Updating your buy quote…'}</p> : null}
-                  {allowanceRequired ? <button className="btn secondary full" type="button" disabled={!onArc || walletStateLoading || !buyQuote.data || buyQuote.data[0] === 0n || approval.state.status === 'WALLET_SIGNATURE' || approval.state.status === 'SUBMITTED'} onClick={approveUsdc}>APPROVE MAX {buyAmount || '0'} USDC →</button> : null}
-                  <button className="btn primary full" disabled={!onArc || walletStateLoading || !buyQuote.data || buyQuote.data[0] === 0n || allowanceRequired || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(buy.state.status)}>SIGN BUY ON ARC →</button>
-                  <TransactionStatus state={approval.state} />
-                  <TransactionStatus state={buy.state} />
+                  <TradeAction
+                    button={tradeButtonState({ side: 'BUY', step: buyStep, needsApproval: allowanceRequired && onArc, approval: approval.state, action: buy.state, ready: onArc && !walletStateLoading && Boolean(buyQuote.data) && buyQuote.data[0] > 0n })}
+                    line={tradeStatusLine({ side: 'BUY', step: buyStep, needsApproval: allowanceRequired && onArc, approval: approval.state, action: buy.state })}
+                  />
                 </form> : <form onSubmit={sellTokens}>
                   <label>TOKEN AMOUNT<input value={sellAmount} onChange={(event) => setSellAmount(event.target.value)} type="text" inputMode={selected.tradingVersion === 2 ? "decimal" : "numeric"} required /><small>{selected.symbol}</small></label>
+                  {onArc && selected.userBalance > 0n ? (
+                    <div className="sell-holding">
+                      <span>You hold <b>{formatTokenAmount(selected.userBalance, 6)} {selected.symbol}</b></span>
+                      <div className="quick-amounts" role="group" aria-label="Sell presets">
+                        {SELL_PRESETS.map(([label, numerator, denominator]) => {
+                          const value = sellPresetAmount(selected.userBalance, numerator, denominator, selected.tradingVersion === 2);
+                          return <button key={label} type="button" disabled={!value} aria-pressed={Boolean(value) && sellAmount === value} onClick={() => setSellAmount(value)}>{label}</button>;
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                   <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={sellQuote.data ? formatUsdc(sellQuote.data[0]) : '—'} aria-label="Estimated USDC received" /><small>USDC</small></label>
                   <details className="trade-details" key={`${selected.address}-sell`}><summary>TRADE DETAILS <span>Fees, limits & wallet balance</span></summary>
                   <div className="trade-review">
@@ -1510,8 +1531,10 @@ function Markets() {
                   {sellInputError ? <p className="inline-error">{sellInputError}</p> : null}
                   {!sellInputError && sellUnits > 0n && !sellQuote.data ? <p className="quote-feedback" role="status">{sellQuoteResult.isError ? 'Quote unavailable. Check your connection or try another amount.' : 'Updating your sell quote…'}</p> : null}
                   {sellUnits > selected.userBalance && onArc ? <p className="inline-error">This amount exceeds your token balance.</p> : null}
-                  <button className="btn primary full" disabled={!onArc || walletStateLoading || !sellQuote.data || sellQuote.data[0] === 0n || sellUnits > selected.userBalance || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(sell.state.status)}>SIGN SELL ON ARC →</button>
-                  <TransactionStatus state={sell.state} />
+                  <TradeAction
+                    button={tradeButtonState({ side: 'SELL', step: sellStep, needsApproval: false, action: sell.state, ready: onArc && !walletStateLoading && Boolean(sellQuote.data) && sellQuote.data[0] > 0n && sellUnits <= selected.userBalance })}
+                    line={tradeStatusLine({ side: 'SELL', step: sellStep, action: sell.state })}
+                  />
                 </form>}
               </section>
             </div>
