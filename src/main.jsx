@@ -71,6 +71,7 @@ import {
   useMediaUpload,
 } from './media-views.jsx';
 import { getMarketImages } from './api';
+import { QUICK_BUY_AMOUNTS, fundingLink, needsMoreUsdc } from './funding';
 import { MEDIA_ACTIONS } from './media-authorization';
 import { canRetryLaunchArtwork, launchArtworkStage } from './media-upload';
 import { BrowserRouter, NavLink, Route, RouterContext, Routes } from './router.jsx';
@@ -490,9 +491,13 @@ function Shell() {
 /**
  * The economy, in the order a visitor walks it. Each step is a real surface.
  */
+const FUNDING = fundingLink(ARC_IS_MAINNET);
 const economySteps = [
-  ['01', 'CREATE', '/launch', 'A meme becomes an Arc market: a token and its USDC curve, deployed from your own wallet.'],
-  ['02', 'TRADE', '/markets', 'Anyone buys and sells it in USDC. The price, the reserve, and the receipt are the chain.'],
+  ['01', 'GET USDC', FUNDING.href, ARC_IS_MAINNET
+    ? 'Bridge USDC to Arc from Base or another chain with Relay. Gas on Arc is paid in USDC too.'
+    : 'Claim free test USDC on Arc Testnet from the Circle faucet.'],
+  ['02', 'LAUNCH FOR $0', '/launch', 'Name, ticker, image. No launch fee, only a few cents of gas. Earn 1% of every trade.'],
+  ['03', 'TRADE FROM $1', '/markets', 'Buy fractions of new tokens from $1 and sell any amount back to the curve.'],
 ];
 
 function AssetCarousel({ label, detail, trackRef, count, children }) {
@@ -649,15 +654,17 @@ function Home() {
         </figure>
       </section>
 
-      <section className="economy-flow" aria-label="How the MemeVerse economy works">
-        {economySteps.map(([n, label, to, copy]) => (
-          <NavLink key={n} to={to} className="economy-step">
-            <span>{n}</span>
-            <strong>{label}</strong>
-            <p>{copy}</p>
-            <b aria-hidden="true">→</b>
-          </NavLink>
-        ))}
+      <section className="economy-flow" aria-label="Start in three steps">
+        {economySteps.map(([n, label, to, copy]) => {
+          const body = (<><span>{n}</span><strong>{label}</strong><p>{copy}</p></>);
+          return to.startsWith('https://') ? (
+            <a key={n} href={to} target="_blank" rel="noreferrer noopener" className="economy-step">
+              {body}<b aria-hidden="true">↗</b>
+            </a>
+          ) : (
+            <NavLink key={n} to={to} className="economy-step">{body}<b aria-hidden="true">→</b></NavLink>
+          );
+        })}
       </section>
 
       <section className="home-community" aria-label="Community programs">
@@ -1192,6 +1199,7 @@ function Markets() {
   const allowanceRequired = Boolean(selected && buyQuote.data?.[0] > 0n && buyUnits > selected.usdcAllowance);
   const minimumBuyUsdc = marketMinimumBuyUsdc(selected);
   // Legacy (v1) markets sell whole tokens only, so a budget below one token quotes zero.
+  const lowUsdc = needsMoreUsdc({ onArc, balance: usdcBalance.data, budget: buyUnits });
   const wholeTokenOnlyZero = Boolean(selected && selected.tradingVersion !== 2 && buyQuote.data && buyQuote.data[0] === 0n && buyUnits > 0n);
   const availability = marketAvailability(selected);
 
@@ -1375,7 +1383,20 @@ function Markets() {
                   </div>
                 ) : side === 'BUY' ? <form onSubmit={buyTokens}>
                   <label>MAX USDC TO SPEND<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="text" inputMode="decimal" required /><small>USDC</small></label>
+                  <div className="quick-amounts" role="group" aria-label="Quick amounts">
+                    {QUICK_BUY_AMOUNTS.map((amount) => (
+                      <button key={amount} type="button" aria-pressed={buyAmount === amount} onClick={() => setBuyAmount(amount)}>${amount}</button>
+                    ))}
+                  </div>
                   <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={buyQuote.data ? formatTokenAmount(buyQuote.data[0], 6) : '—'} aria-label="Estimated tokens received" /><small>{selected.symbol}</small></label>
+                  {lowUsdc ? (
+                    <div className="fund-usdc" role="status">
+                      <div><b>Not enough USDC on Arc</b><span>Your wallet holds {formatUsdc(usdcBalance.data)} USDC. {ARC_IS_MAINNET ? 'Bridge more from Base or another chain with Relay' : 'Claim test USDC from the Circle faucet'}, then come back to buy.</span></div>
+                      <a className="btn primary" href={FUNDING.href} target="_blank" rel="noreferrer noopener">{FUNDING.label} ↗</a>
+                    </div>
+                  ) : (
+                    <a className="fund-link" href={FUNDING.href} target="_blank" rel="noreferrer noopener">Need USDC on Arc? <b>{ARC_IS_MAINNET ? 'Bridge in with Relay' : 'Get test USDC from the Circle faucet'} ↗</b></a>
+                  )}
                   {wholeTokenOnlyZero ? <p className="whole-token-note" role="status">{selected.symbol} trades in whole tokens only. One token costs {formatUsdc(minimumBuyUsdc)} USDC with fees.</p> : null}
                   <details className="trade-details" key={`${selected.address}-buy`}><summary>TRADE DETAILS <span>Fees, limits & wallet balance</span></summary>
                   <div className="trade-review">

@@ -534,3 +534,69 @@ test('fractional contracts display fractional buy output and accept fractional s
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });
+
+test('quick budgets fill the buy amount and a short USDC balance points to funding', async () => {
+  const { context, page, calls, errors } = await fixture({ width: 1440, held: 500000n });
+  try {
+    // Disconnected: no balance is known, so only the quiet funding link appears.
+    await page.goto(origin + '/markets');
+    await page.locator('.market-card-actions').getByRole('button', { name: 'BUY', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.locator('.fund-link').waitFor();
+    assert.equal(await dialog.locator('.fund-usdc').count(), 0);
+    const quick = dialog.getByRole('group', { name: 'Quick amounts' });
+    assert.deepEqual(await quick.getByRole('button').allTextContents(), ['$1', '$5', '$10', '$25']);
+    assert.equal(await quick.getByRole('button', { name: '$1', exact: true }).getAttribute('aria-pressed'), 'true');
+    await quick.getByRole('button', { name: '$5', exact: true }).click();
+    assert.equal(await dialog.getByLabel('MAX USDC TO SPEND', { exact: false }).inputValue(), '5');
+    assert.equal(await quick.getByRole('button', { name: '$5', exact: true }).getAttribute('aria-pressed'), 'true');
+    await page.waitForFunction(() => !document.querySelector('.quote-feedback'));
+    assert.ok(calls.quoteBuy.includes(5000000n), 'the $5 budget is quoted onchain');
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+
+  const connected = await fixture({ width: 390, held: 500000n });
+  await connected.page.addInitScript(() => {
+    window.ethereum = {
+      on() {}, removeListener() {},
+      async request({ method }) {
+        if (method === 'eth_chainId') return '0x4cef52';
+        if (['eth_accounts', 'eth_requestAccounts'].includes(method)) return ['0x3333333333333333333333333333333333333333'];
+        if (method === 'wallet_requestPermissions') return [{ parentCapability: 'eth_accounts' }];
+        throw new Error(`Unexpected wallet request: ${method}`);
+      },
+    };
+  });
+  try {
+    const { page } = connected;
+    await page.goto(origin + '/markets');
+    await page.locator('.market-card-actions').getByRole('button', { name: 'BUY', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    const connect = dialog.getByRole('button', { name: 'Connect a wallet' });
+    if (await connect.count()) await connect.click();
+    const panel = dialog.locator('.fund-usdc');
+    await panel.waitFor();
+    assert.match(await panel.textContent(), /Not enough USDC on Arc.*0\.5 USDC/);
+    const link = panel.getByRole('link');
+    assert.equal(await link.getAttribute('target'), '_blank');
+    assert.match(await link.getAttribute('rel'), /noopener/);
+    assert.match(await link.getAttribute('href'), /^https:\/\/faucet\.circle\.com/, 'testnet builds point at the faucet');
+    const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
+    assert.ok(size.scroll <= size.width, 'the funding panel fits a phone');
+    assert.deepEqual(connected.errors, []);
+  } finally { await connected.context.close(); }
+});
+
+test('home explains the three starting steps with an external USDC route', async () => {
+  const { context, page, errors } = await fixture({ width: 1440 });
+  try {
+    await page.goto(origin + '/');
+    const steps = page.getByRole('region', { name: 'Start in three steps' });
+    assert.deepEqual(await steps.locator('strong').allTextContents(), ['GET USDC', 'LAUNCH FOR $0', 'TRADE FROM $1']);
+    const funding = steps.locator('a').first();
+    assert.equal(await funding.getAttribute('target'), '_blank');
+    assert.match(await funding.getAttribute('rel'), /noopener/);
+    assert.match(await steps.locator('a').nth(1).getAttribute('href'), /\/launch$/);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});

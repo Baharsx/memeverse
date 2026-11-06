@@ -1247,3 +1247,24 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
   .free-launch{display:flex;border-radius:22px;padding:8px 14px 8px 8px}
   .free-launch-copy small{font-size:12px}
 }
+
+/* Start in three steps: get USDC, launch for $0, trade from $1. */
+.economy-flow{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:900px){.economy-flow{grid-template-columns:1fr}}
+
+/* Buy form: one-tap budgets and a route to USDC on Arc. */
+.quick-amounts{display:flex;gap:8px;margin:12px 0 24px}
+.quick-amounts button{flex:1;min-width:0;min-height:40px;border:1px solid rgba(255,255,255,.14);border-radius:999px;
+  background:rgba(255,255,255,.04);color:var(--ink);font:600 14px/1 var(--ui);letter-spacing:-.01em;cursor:pointer;
+  transition:background .25s var(--ease),border-color .25s var(--ease),color .25s var(--ease)}
+.quick-amounts button:hover{border-color:rgba(198,244,50,.6)}
+.quick-amounts button[aria-pressed="true"]{background:var(--acid);border-color:var(--acid);color:#000}
+.fund-usdc{display:flex;gap:14px;align-items:center;justify-content:space-between;margin:14px 0 4px;padding:14px 16px;
+  border:1px solid rgba(198,244,50,.35);border-radius:16px;background:rgba(198,244,50,.06)}
+.fund-usdc b{display:block;color:var(--ink);font:650 14px/1.3 var(--ui)}
+.fund-usdc span{display:block;margin-top:4px;color:#b4b6bb;font:12.5px/1.5 var(--ui)}
+.fund-usdc .btn{flex:none;min-height:42px;padding:10px 16px;font-size:13px}
+.fund-link{display:inline-block;margin:12px 0 2px;color:#b4b6bb;font:13px/1.5 var(--ui)}
+.fund-link b{color:var(--acid);font-weight:600}
+.fund-link:hover b,.fund-link:focus-visible b{text-decoration:underline}
+@media (max-width:640px){.fund-usdc{flex-direction:column;align-items:stretch}.fund-usdc .btn{text-align:center}}
