@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { parseEventLogs } from 'viem';
@@ -116,20 +116,96 @@ function Mascot({ small = false }) {
   );
 }
 
+function prepareTickerImage(src) {
+  return new Promise((resolve) => {
+    const picture = new Image();
+    const finish = (ready) => {
+      clearTimeout(timeout);
+      picture.onload = null;
+      picture.onerror = null;
+      resolve(ready ? src : null);
+    };
+    const timeout = setTimeout(() => finish(false), 3000);
+    picture.onload = () => picture.decode().then(() => finish(true), () => finish(false));
+    picture.onerror = () => finish(false);
+    picture.src = src;
+  });
+}
+
+function MarketTicker({ items, artwork, viewportRef }) {
+  const sequenceRef = useRef(null);
+  const [layout, setLayout] = useState({ copies: 1, seconds: 60, ready: false });
+  const marketKey = items.map((market) => market.address).join(',');
+  useLayoutEffect(() => {
+    function measure() {
+      const width = sequenceRef.current?.getBoundingClientRect().width;
+      if (!width || !viewportRef.current) return;
+      const copies = Math.max(1, Math.ceil(viewportRef.current.clientWidth / width));
+      const seconds = Math.max(20, width * copies / 24);
+      setLayout((previous) => previous.copies === copies && previous.seconds === seconds && previous.ready
+        ? previous : { copies, seconds, ready: true });
+    }
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(sequenceRef.current);
+    observer.observe(viewportRef.current);
+    return () => observer.disconnect();
+  }, [marketKey, viewportRef]);
+
+  return (
+    <div className="marquee-track" data-ready={layout.ready} style={{ '--ticker-duration': `${layout.seconds}s` }}>
+      {[0, 1].map((cycle) => (
+        <div className="ticker-cycle" key={cycle} aria-hidden={cycle === 1 ? true : undefined}>
+          {Array.from({ length: layout.copies }, (_, copy) => (
+            <div className="ticker-sequence" key={copy} ref={cycle === 0 && copy === 0 ? sequenceRef : undefined} aria-hidden={copy > 0 ? true : undefined}>
+              {items.map((market, index) => (
+                <span
+                  className={`ticker-item${cycle === 0 ? ' ticker-enter' : ''}`}
+                  key={market.address}
+                  style={{ '--ticker-delay': `${Math.max(0, Math.min(items.length * layout.copies, 8) - 1 - Math.min(copy * items.length + index, 7)) * 90}ms` }}
+                >
+                  {artwork[market.address] ? <img className="ticker-avatar" src={artwork[market.address]} width="24" height="24" alt="" decoding="async" referrerPolicy="no-referrer" /> : <span className="ticker-avatar" aria-hidden="true" />}
+                  <span className="ticker-symbol">{market.symbol}</span>
+                  <b className="ticker-price">{marketSpotLabel(market, formatUsdc)}</b>
+                  <em className="up">ONCHAIN</em>
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Marquee() {
   const markets = useQuery(marketQueryOptions());
   // Same presentation filter as the Markets selector, so the ticker and the list can never
   // disagree about what a visitor is being shown.
   const items = publicMarkets(markets.data);
+  const imageKey = items.map((market) => market.address).join(',');
+  const images = useQuery({
+    queryKey: ['market-images', imageKey],
+    queryFn: () => getMarketImages(imageKey.split(',')),
+    enabled: items.length > 0,
+    staleTime: 30_000,
+  });
+  const [artwork, setArtwork] = useState(null);
+  const viewportRef = useRef(null);
+  useEffect(() => {
+    if (!imageKey || !images.data) return undefined;
+    let current = true;
+    const fallback = `${import.meta.env.BASE_URL}memeverse-ticker-mark-v1.webp`;
+    Promise.all(imageKey.split(',').map(async (address) => {
+      const requested = mediaContentUrl(images.data[address]?.url);
+      const ready = requested ? await prepareTickerImage(requested) : null;
+      return [address, ready ?? await prepareTickerImage(fallback)];
+    })).then((entries) => { if (current) setArtwork(Object.fromEntries(entries)); });
+    return () => { current = false; };
+  }, [imageKey, images.data]);
   return (
-    <div className="marquee" role="group" aria-label="Live market ticker">
-      <div>
-        {(items.length ? [...items, ...items] : [null, null]).map((market, index) => (
-          <span key={market ? `${market.address}-${index}` : `empty-${index}`}>
-            {market ? <>{market.symbol} <b>{marketSpotLabel(market, formatUsdc)}</b>{' '}<em className="up">ONCHAIN</em></> : <b>MEMEVERSE · CREATE & TRADE ON ARC</b>}
-          </span>
-        ))}
-      </div>
+    <div className="marquee" ref={viewportRef} role="group" aria-label="Live market ticker">
+      {items.length > 0 && artwork ? <MarketTicker items={items} artwork={artwork} viewportRef={viewportRef} /> : null}
     </div>
   );
 }

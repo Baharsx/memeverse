@@ -37,7 +37,7 @@ after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
 });
 
-async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n, total = 1 } = {}) {
+async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n, total = 1, artwork = false, mediaDelay = 0, imageDelay = 0, imageFailure = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion });
   context.setDefaultTimeout(10_000);
   const calls = { marketCount: 0, quoteBuy: [], quoteSell: [] };
@@ -72,6 +72,15 @@ async function fixture({ width = 390, reducedMotion = 'no-preference', empty = f
     const request = route.request();
     const url = new URL(request.url());
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST', 'access-control-allow-headers': 'content-type' } });
+    if (url.pathname === '/api/v1/media/markets') {
+      if (mediaDelay) await new Promise((resolve) => setTimeout(resolve, mediaDelay));
+      const addresses = (url.searchParams.get('markets') ?? '').split(',').filter(Boolean);
+      return route.fulfill({ json: { data: artwork ? Object.fromEntries(addresses.map((address) => [address, { url: '/api/v1/media/content/ticker-image.webp' }])) : {} } });
+    }
+    if (url.pathname === '/api/v1/media/content/ticker-image.webp') {
+      if (imageDelay) await new Promise((resolve) => setTimeout(resolve, imageDelay));
+      return imageFailure ? route.fulfill({ status: 404 }) : route.fulfill({ contentType: 'image/webp', body: await readFile('public/memeverse-hero-v1-640.webp') });
+    }
     if (url.pathname === '/api/v1/referrals/invite') return route.fulfill({ json: { data: { code: 'aB3_kD9-zX2q', chainId: 5042002 } } });
     if (url.pathname.startsWith('/api/')) {
       return route.fulfill({ json: { data: {}, status: 'ok', arc: { status: 'verified' } } });
@@ -190,8 +199,56 @@ test('loading and empty states are distinct, and reduced motion disables the tic
     await page.locator('.market-skeleton').first().waitFor();
     assert.equal(await page.locator('.market-empty').count(), 0);
     await page.getByText('No markets yet', { exact: true }).waitFor();
-    const motion = await page.locator('.marquee div').evaluate((node) => getComputedStyle(node).animationName);
-    assert.equal(motion, 'none');
+    assert.equal(await page.locator('.marquee').textContent(), '');
+    assert.equal(await page.locator('.marquee-track').count(), 0);
+  } finally { await context.close(); }
+});
+
+test('ticker stays empty until data and photos are ready, then reveals right-to-left with equal-size photos', async () => {
+  const { context, page, errors } = await fixture({ width: 1440, total: 6, delay: 40, artwork: true, mediaDelay: 600, imageDelay: 450 });
+  try {
+    await page.goto(origin + '/');
+    const ticker = page.getByRole('group', { name: 'Live market ticker' });
+    const initialHeight = (await ticker.boundingBox()).height;
+    await page.locator('.carousel-card').filter({ hasText: 'Pixel Possum' }).first().waitFor();
+    assert.equal(await ticker.textContent(), '', 'there must be no placeholder while photos are preparing');
+    await page.locator('.marquee-track[data-ready="true"]').waitFor();
+    assert.equal((await ticker.boundingBox()).height, initialHeight, 'the header must not jump when the ticker appears');
+    const avatars = page.locator('.ticker-cycle').first().locator('img.ticker-avatar');
+    assert.equal(await avatars.count(), 6);
+    const photos = await avatars.evaluateAll((nodes) => nodes.map((node) => ({
+      width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height,
+      ready: node.complete && node.naturalWidth > 0, source: node.currentSrc,
+    })));
+    assert.ok(photos.every((photo) => photo.ready && photo.width === 24 && photo.height === 24 && photo.source.includes('ticker-image.webp')));
+    const delays = await page.locator('.ticker-cycle').first().locator('.ticker-item').evaluateAll((nodes) => nodes.map((node) => parseFloat(getComputedStyle(node).animationDelay)));
+    assert.ok(delays[0] > delays.at(-1), 'the rightmost item should enter first');
+    await page.mouse.move(1200, 300);
+    await page.waitForTimeout(1350);
+    const offset = () => page.locator('.marquee-track').evaluate((node) => new DOMMatrixReadOnly(getComputedStyle(node).transform).m41);
+    const before = await offset();
+    await page.waitForTimeout(400);
+    const after = await offset();
+    assert.ok(before - after > 3 && before - after < 20, `the loop should travel slowly to the left (${before} → ${after})`);
+    await ticker.hover();
+    const paused = await offset();
+    await page.waitForTimeout(250);
+    assert.ok(Math.abs((await offset()) - paused) < .5, 'hover should pause the continuous movement');
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('ticker falls back for broken photos and remains static with reduced motion', async () => {
+  const { context, page } = await fixture({ artwork: true, imageFailure: true, reducedMotion: 'reduce' });
+  try {
+    await page.goto(origin + '/');
+    await page.locator('.marquee-track[data-ready="true"]').waitFor();
+    const track = page.locator('.marquee-track');
+    assert.equal(await track.evaluate((node) => getComputedStyle(node).animationName), 'none');
+    const avatar = track.locator('img.ticker-avatar').first();
+    assert.match(await avatar.getAttribute('src'), /memeverse-ticker-mark-v1\.webp$/);
+    assert.equal(await avatar.evaluate((node) => node.complete && node.naturalWidth > 0), true);
+    assert.ok((await page.locator('.ticker-cycle').first().boundingBox()).width >= 390, 'a short market list should still fill the viewport');
   } finally { await context.close(); }
 });
 

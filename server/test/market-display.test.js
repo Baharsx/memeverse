@@ -52,7 +52,7 @@ test('every surface prices a market through the shared sold-out helper', async (
     fileURLToPath(new URL('../../src/main.jsx', import.meta.url)),
     'utf8',
   );
-  const marquee = source.slice(source.indexOf('function Marquee'), source.indexOf('function Wallet'));
+  const marquee = source.slice(source.indexOf('function MarketTicker'), source.indexOf('function Wallet'));
 
   // The global ticker formatted spotPriceUsdc directly, so a sold-out market read as "0 USDC"
   // there while the Markets page correctly read SOLD OUT.
