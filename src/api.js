@@ -110,10 +110,15 @@ export function mediaContentUrl(path) {
 }
 
 /** An explicitly signed, idempotent wallet referral registration. */
-export async function registerReferral({ wallet, referrer, issuedAt, signature }) {
+export async function createReferralInvite(wallet) {
+  const result = await request('/api/v1/referrals/invite', { method: 'POST', body: JSON.stringify({ wallet }) });
+  return result.data;
+}
+
+export async function registerReferral({ wallet, referrer, code, issuedAt, signature }) {
   const result = await request('/api/v1/referrals/register', {
     method: 'POST',
-    body: JSON.stringify({ wallet, referrer, issuedAt, signature }),
+    body: JSON.stringify({ wallet, referrer, code, issuedAt, signature }),
   });
   return result.data;
 }

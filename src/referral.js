@@ -14,19 +14,24 @@ export function referralAddress(value) {
   }
 }
 
-export function referralMessage({ wallet, referrer, chainId, issuedAt }) {
+export function referralCode(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{12}$/.test(value) ? value : null;
+}
+
+export function referralMessage({ wallet, referrer, code, chainId, issuedAt }) {
   const a = referralAddress(wallet);
   const b = referralAddress(referrer);
-  if (!a || !b || a.toLowerCase() === b.toLowerCase()) throw new Error('Invalid referral wallets.');
+  const invite = referralCode(code);
+  if (!a || (code !== undefined ? !invite : !b || a.toLowerCase() === b.toLowerCase())) throw new Error('Invalid referral authorization.');
   if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error('Invalid Arc chain.');
   const date = new Date(issuedAt);
   if (!Number.isFinite(date.getTime()) || date.toISOString() !== issuedAt) throw new Error('Invalid signature time.');
   return [
     'MemeVerse Referral Attribution',
     'Domain: memeverse.biz',
-    'Version: 1',
+    invite ? 'Version: 2' : 'Version: 1',
     'Chain ID: ' + chainId,
-    'Referrer: ' + b,
+    invite ? 'Invite code: ' + invite : 'Referrer: ' + b,
     'New wallet: ' + a,
     'Issued at: ' + issuedAt,
     '',
@@ -35,11 +40,11 @@ export function referralMessage({ wallet, referrer, chainId, issuedAt }) {
   ].join('\n');
 }
 
-export function referralShareUrl(wallet, siteOrigin, basePath = '/') {
-  const address = referralAddress(wallet);
-  if (!address) return null;
+export function referralShareUrl(code, siteOrigin, basePath = '/') {
+  const invite = referralCode(code);
+  if (!invite) return null;
   const prefix = basePath === '/' ? '/' : '/' + basePath.replace(/^\/|\/$/g, '') + '/';
   const url = new URL(prefix + 'referral', siteOrigin);
-  url.searchParams.set('ref', address);
+  url.searchParams.set('ref', invite);
   return url.toString();
 }

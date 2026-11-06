@@ -34,7 +34,7 @@ Turn those four off in the Reown dashboard. The dashboard overrides the code.
 
 ## Referral attribution and community programs
 
-- **Referral**: Connect a wallet and share its unique referral URL. A new wallet must open that URL and explicitly sign a time-limited message. The API validates the wallet signature and Arc chain, and stores a one-time, immutable attribution on disk. Clicks alone are not referrals.
+- **Referral**: Connect a wallet to create a stable, random 12-character invite code. Shared links and invitation displays contain the code rather than the inviter's wallet. The invitee explicitly signs a time-limited message bound to that code and Arc chain. The server privately resolves the code and stores immutable attribution. Clicks alone are not referrals.
 - **Campaigns**: An informational preview of potential trading, content, and community programs. No live tasks, points, leaderboards, rewards, or automatic payout claims.
 - **No guarantees**: Trading, posting, connecting or registering a referral does not guarantee any payout. Rules, eligibility, budget and dates are not set.
 
@@ -44,7 +44,7 @@ Signed referral records (wallet, referrer, chain and creation time) live inside 
 
 Run `npm ci`, then `npm test` for application and contract tests, and `npm run build` for the deployment bundle.
 
-For browser regression checks, install Chromium once with `npx playwright install chromium`, then run `npm run test:ui`. This builds a separate test bundle in `cache/ui-dist` and checks mobile layouts, navigation, market filtering, import, trade-dialog keyboard focus, quote debouncing, and reduced motion. All RPC and API responses in this suite are browser fixtures; no wallet signatures or network transactions are sent. The regular deployment build and `.env.local` are preserved.
+For browser regression checks, install Chromium once with `npx playwright install chromium`, then run `npm run test:ui`. This builds a separate test bundle in `cache/ui-dist` and checks mobile layouts, navigation, creator/holding filters, private invite links, trade-dialog keyboard focus, quote debouncing, readable units, and motion. All RPC and API responses in this suite are browser fixtures; no network transactions are sent. The regular deployment build and `.env.local` are preserved.
 
 Run `npm run dev` to preview the app locally. The existing `.env.local` selects the network; pulling the repository does not switch it from testnet to mainnet.
 

@@ -112,10 +112,22 @@ test('sorts by newest block, reserve, and sold ratio', () => {
   assert.equal(marketSoldPercent({}), 0);
 });
 
-test('import helpers stay in the presentation layer', async () => {
+test('the markets page offers creator and holding filters without an import form', async () => {
   const source = await readFile(fileURLToPath(new URL('../../src/main.jsx', import.meta.url)), 'utf8');
   const marketsPage = source.slice(source.indexOf('function Markets()'));
-  assert.ok(marketsPage.includes('mergeTradeableMarkets('), 'the board merges factory + imported');
-  assert.ok(marketsPage.includes('probeMemeMarket('), 'import probes the contract on Arc');
-  assert.ok(marketsPage.includes('parseMarketAddress('), 'paste is validated before any RPC');
+  assert.equal(marketsPage.includes('IMPORT BY ADDRESS'), false);
+  assert.equal(marketsPage.includes('importOnchainMarket('), false);
+  assert.ok(marketsPage.includes('Launched by me'));
+  assert.ok(marketsPage.includes('My holdings'));
+});
+
+test('creator filters and holdings answer independent questions, including self-launched holdings', () => {
+  const wallet = '0x1111111111111111111111111111111111111111';
+  const rows = [
+    { ...FACTORY, creator: wallet, userBalance: 0n },
+    { ...IMPORTED, creator: wallet.toUpperCase(), userBalance: 12n },
+    { ...FACTORY, symbol: 'OTHER', creator: '0x2222222222222222222222222222222222222222', userBalance: 3n },
+  ];
+  assert.deepEqual(filterTradeableMarkets(rows, { createdBy: wallet }).map((m) => m.symbol), ['PXPS', 'AXO']);
+  assert.deepEqual(filterTradeableMarkets(rows, { onlyHeld: true }).map((m) => m.symbol), ['AXO', 'OTHER']);
 });

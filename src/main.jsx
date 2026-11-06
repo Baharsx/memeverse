@@ -41,10 +41,6 @@ import {
 import {
   filterTradeableMarkets,
   marketSoldPercent,
-  mergeTradeableMarkets,
-  parseMarketAddress,
-  persistImportedMarketAddress,
-  readImportedMarketAddresses,
   sortTradeableMarkets,
 } from './imported-markets';
 import {
@@ -59,7 +55,6 @@ import {
   minimumAfterSlippage,
   parseUsdc,
   parseWholeTokens,
-  probeMemeMarket,
   quoteBuy,
   quoteSell,
   tokenSupplyValue,
@@ -381,7 +376,7 @@ function Shell() {
         <NavLink className="brand" to="/">
           <img
             className="brand-lockup"
-            src={`${import.meta.env.BASE_URL}memeverse-lockup.png`}
+            src={`${import.meta.env.BASE_URL}memeverse-lockup-transparent-v2.webp`}
             alt="MemeVerse"
           />
         </NavLink>
@@ -985,10 +980,8 @@ function Markets() {
   const [sellAmount, setSellAmount] = useState('1');
   const [boardQuery, setBoardQuery] = useState('');
   const [boardSort, setBoardSort] = useState('newest');
-  const [onlyHeld, setOnlyHeld] = useState(false);
-  const [importValue, setImportValue] = useState('');
-  const [importState, setImportState] = useState({ status: 'IDLE', message: null });
-  const [importedAddresses, setImportedAddresses] = useState(() => readImportedMarketAddresses());
+  const [positionView, setPositionView] = useState('all');
+  const hasFilters = Boolean(boardQuery || positionView !== 'all');
   const slippageBps = 100;
   const markets = useQuery(marketQueryOptions(address));
   const usdcBalance = useQuery({
@@ -1001,30 +994,13 @@ function Markets() {
   /*
     What this page browses: every registered market except the project's own legacy test markets.
     The full factory result stays in `markets.data` and is untouched — this is the presentation
-    view of it. Imported onchain markets are merged on afterwards and never rewrite the factory set.
+    view of it. Positions and creator filters use the connected wallet's onchain data.
   */
   const visibleMarkets = useMemo(() => publicMarkets(markets.data), [markets.data]);
-  const importedMarkets = useQuery({
-    queryKey: ['imported-onchain-markets', importedAddresses.join(','), address ?? 'anonymous'],
-    queryFn: async () => {
-      const loaded = [];
-      for (const imported of importedAddresses) {
-        const probed = await probeMemeMarket(imported, address);
-        if (probed.ok) loaded.push(probed.market);
-      }
-      return loaded;
-    },
-    enabled: importedAddresses.length > 0,
-    placeholderData: address ? () => queryClient.getQueryData(['imported-onchain-markets', importedAddresses.join(','), 'anonymous']) : undefined,
-    retry: 1,
-    staleTime: 12_000,
-    refetchInterval: 15_000,
-  });
   const boardMarkets = useMemo(() => {
-    const merged = mergeTradeableMarkets(visibleMarkets, importedMarkets.data);
-    const filtered = filterTradeableMarkets(merged, { query: boardQuery, onlyHeld });
+    const filtered = filterTradeableMarkets(visibleMarkets, { query: boardQuery, onlyHeld: positionView === 'held', createdBy: positionView === 'created' ? address : null });
     return sortTradeableMarkets(filtered, boardSort);
-  }, [visibleMarkets, importedMarkets.data, boardQuery, boardSort, onlyHeld]);
+  }, [visibleMarkets, boardQuery, boardSort, positionView, address]);
   const visibleAddresses = boardMarkets.map((market) => market.address).join(',');
 
   /*
@@ -1118,7 +1094,7 @@ function Markets() {
   const approval = useOnchainAction();
   const buy = useOnchainAction();
   const sell = useOnchainAction();
-  const walletStateLoading = onArc && (markets.isPlaceholderData || importedMarkets.isPlaceholderData);
+  const walletStateLoading = onArc && markets.isPlaceholderData;
   const allowanceRequired = Boolean(selected && buyUnits > selected.usdcAllowance);
   const availability = marketAvailability(selected);
 
@@ -1131,54 +1107,10 @@ function Markets() {
   async function refreshMarketState() {
     await Promise.all([
       markets.refetch(),
-      importedMarkets.refetch(),
       usdcBalance.refetch(),
       queryClient.invalidateQueries({ queryKey: ['market-buy-quote'] }),
       queryClient.invalidateQueries({ queryKey: ['market-sell-quote'] }),
     ]);
-  }
-
-  async function importOnchainMarket(event) {
-    event.preventDefault();
-    const parsed = parseMarketAddress(importValue);
-    if (!parsed) {
-      setImportState({ status: 'ERROR', message: 'Paste a 20-byte Arc contract address.' });
-      return;
-    }
-    setImportState({ status: 'LOADING', message: 'Reading the contract on Arc…' });
-    try {
-      const probed = await probeMemeMarket(parsed, address);
-      if (!probed.ok) {
-        const copy = {
-          INVALID_ADDRESS: 'Paste a 20-byte Arc contract address.',
-          BANNED_CONTRACT: 'That address is a banned legacy contract and cannot be imported.',
-          NOT_MEME_MARKET: 'That contract is not a MemeVerse USDC market. Buy and sell only work on MemeMarket contracts.',
-          NOT_USDC_MARKET: 'That market does not settle in Arc USDC, so it cannot be traded here.',
-        }[probed.code] ?? 'That contract could not be loaded as a tradable market.';
-        setImportState({ status: 'ERROR', message: copy });
-        return;
-      }
-      const savedAddresses = persistImportedMarketAddress(probed.market.address);
-      // Keep the successfully read contract usable even if browser storage is full or blocked.
-      const nextAddresses = [...new Set([...savedAddresses, parseMarketAddress(probed.market.address)])];
-      queryClient.setQueryData(
-        ['imported-onchain-markets', nextAddresses.join(','), address ?? 'anonymous'],
-        mergeTradeableMarkets([probed.market], importedMarkets.data),
-      );
-      setBoardQuery('');
-      setOnlyHeld(false);
-      setImportedAddresses(nextAddresses);
-      openTrade(probed.market.address, 'BUY');
-      setImportValue('');
-      setImportState({
-        status: 'OK',
-        message: probed.market.origin === 'FACTORY'
-          ? `${probed.market.symbol} is already a live factory market.`
-          : `${probed.market.symbol} imported from Arc. You can buy and sell it against the USDC curve.`,
-      });
-    } catch (error) {
-      setImportState({ status: 'ERROR', message: error.shortMessage ?? error.message ?? 'Import failed.' });
-    }
   }
 
   async function approveUsdc() {
@@ -1250,49 +1182,26 @@ function Markets() {
             <option value="sold">Most sold</option>
           </select>
         </label>
-        <button
-          type="button"
-          className={`btn ghost filter-held ${onlyHeld ? 'active' : ''}`}
-          aria-pressed={onlyHeld}
-          disabled={!isConnected}
-          title={!isConnected ? 'Connect your wallet to view your positions' : undefined}
-          onClick={() => setOnlyHeld((current) => !current)}
-        >
-          {onlyHeld ? 'SHOWING YOUR BAGS' : 'YOUR POSITIONS'}
-        </button>
-        <form className="market-import" onSubmit={importOnchainMarket}>
-          <label htmlFor="import-market-address">
-            IMPORT BY ADDRESS
-          </label>
-          <span>
-            <input
-              id="import-market-address"
-              value={importValue}
-              onChange={(event) => setImportValue(event.target.value)}
-              placeholder="0x… market address on Arc"
-              spellCheck="false"
-            />
-            <button className="btn primary" disabled={importState.status === 'LOADING'}>
-              {importState.status === 'LOADING' ? 'CHECKING…' : 'IMPORT →'}
-            </button>
-          </span>
-        </form>
+        <label>
+          YOUR MARKETS
+          <select value={positionView} onChange={(event) => setPositionView(event.target.value)}>
+            <option value="all">All markets</option>
+            <option value="created" disabled={!isConnected}>Launched by me</option>
+            <option value="held" disabled={!isConnected}>My holdings</option>
+          </select>
+        </label>
       </div>
-      {importState.message ? (
-        <p className={importState.status === 'ERROR' ? 'agent-error' : 'import-ok'} role="status">
-          {importState.message}
-        </p>
-      ) : null}
+      {positionView !== 'all' ? <p className="market-view-hint">{positionView === 'created' ? 'Markets launched from your connected wallet.' : 'Tokens you currently hold, including tokens from your own launches.'}</p> : null}
       <div className="market-results" role="status" aria-live="polite">
-        <span>{markets.isPending ? 'Reading markets from Arc…' : `${boardMarkets.length} ${boardMarkets.length === 1 ? 'market' : 'markets'}${boardQuery || onlyHeld ? ' match your filters' : ' on this board'}`}</span>
+        <span>{markets.isPending ? 'Reading markets from Arc…' : `${boardMarkets.length} ${boardMarkets.length === 1 ? 'market' : 'markets'}${hasFilters ? ' match your filters' : ' on this board'}`}</span>
         {markets.isFetching && !markets.isPending ? <span>Updating…</span> : null}
       </div>
       {markets.isError ? <div className="inline-error" role="alert">{markets.data ? 'Live update failed. Showing the last loaded market data.' : 'Couldn’t reach Arc. Check your connection and retry.'} <button className="btn secondary" type="button" disabled={markets.isFetching} onClick={() => markets.refetch()}>{markets.isFetching ? 'RETRYING…' : 'TRY AGAIN'}</button></div> : null}
       {markets.isPending && !boardMarkets.length ? (
         <div className="market-board market-skeletons" aria-hidden="true">{[0, 1, 2].map((key) => <div className="market-card market-skeleton" key={key}><div /><span /><span /><span /></div>)}</div>
       ) : null}
-      {!markets.isPending && !markets.isError && !importedMarkets.isFetching && !boardMarkets.length ? (
-        <div className="empty market-empty"><Mascot small /><strong>{boardQuery || onlyHeld ? 'No markets match your filters' : 'No markets yet'}</strong><p>{boardQuery || onlyHeld ? 'Try a different name, ticker, or address.' : 'Create a market to start trading on Arc.'}</p>{boardQuery || onlyHeld ? <button className="btn secondary" type="button" onClick={() => { setBoardQuery(''); setOnlyHeld(false); }}>CLEAR FILTERS</button> : <NavLink className="btn primary" to="/launch">LAUNCH A MARKET →</NavLink>}</div>
+      {!markets.isPending && !markets.isError && !boardMarkets.length ? (
+        <div className="empty market-empty"><Mascot small /><strong>{hasFilters ? 'No markets match your filters' : 'No markets yet'}</strong><p>{hasFilters ? 'Try a different name, ticker, or address.' : 'Create a market to start trading on Arc.'}</p>{hasFilters ? <button className="btn secondary" type="button" onClick={() => { setBoardQuery(''); setPositionView('all'); }}>CLEAR FILTERS</button> : <NavLink className="btn primary" to="/launch">LAUNCH A MARKET →</NavLink>}</div>
       ) : null}
       {boardMarkets.length ? (
         <div className="market-board" role="list" aria-label="Onchain markets">

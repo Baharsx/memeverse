@@ -37,7 +37,7 @@ after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
 });
 
-async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false } = {}) {
+async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion });
   context.setDefaultTimeout(10_000);
   const calls = { marketCount: 0, quoteBuy: [], quoteSell: [] };
@@ -60,7 +60,7 @@ async function fixture({ width = 390, reducedMotion = 'no-preference', empty = f
         creatorFeesPaidUsdc: 10000n, treasuryFeesPaidUsdc: 10000n,
         creatorFeeBps: 100n, treasuryFeeBps: 100n, basePriceUsdc: 100n, slopePriceUsdc: 1000n,
         createdAt: 1700000000n, createdBlock: 100n, deployedAtBlock: 10n,
-        active: true, spotPriceUsdc: 100n, balanceOf: 0n, allowance: 0n,
+        active: true, spotPriceUsdc: 100n, balanceOf: held, allowance: 0n,
         quoteBuy: [10n ** 18n, 100n, 1n, 1n, 102n], quoteSell: [98n, 100n, 1n, 1n],
       };
       assert.ok(name in values, `unhandled RPC fixture: ${name}`);
@@ -72,6 +72,7 @@ async function fixture({ width = 390, reducedMotion = 'no-preference', empty = f
     const request = route.request();
     const url = new URL(request.url());
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST', 'access-control-allow-headers': 'content-type' } });
+    if (url.pathname === '/api/v1/referrals/invite') return route.fulfill({ json: { data: { code: 'aB3_kD9-zX2q', chainId: 5042002 } } });
     if (url.pathname.startsWith('/api/')) {
       return route.fulfill({ json: { data: {}, status: 'ok', arc: { status: 'verified' } } });
     }
@@ -136,7 +137,7 @@ test('home and market navigation reuse reads and move keyboard focus to the new 
     assert.equal(await page.locator('.site-header nav a[aria-current="page"]').textContent(), '02MARKETS');
     await page.locator('input[type="search"]').fill('does not exist');
     await page.locator('input[type="search"]').press('Enter');
-    assert.equal(await page.getByText('Paste a 20-byte Arc contract address.').count(), 0, 'search Enter must not submit the import form');
+    assert.equal(await page.locator('.market-import').count(), 0);
     await page.getByRole('button', { name: 'CLEAR FILTERS' }).click();
     await page.locator('.market-card-body strong').waitFor();
     await page.goBack();
@@ -179,25 +180,6 @@ test('trade sheet traps focus, restores its trigger, and debounces only the acti
   } finally { await context.close(); }
 });
 
-test('import opens the freshly read market even when a search previously hid every card', async () => {
-  const { context, page } = await fixture();
-  try {
-    await page.goto(origin + '/markets');
-    await page.locator('.market-card-body strong').waitFor();
-    await page.locator('input[type="search"]').fill('no match');
-    await page.locator('.market-import input').fill(IMPORTED);
-    await page.getByRole('button', { name: 'IMPORT →' }).click();
-    await page.getByRole('dialog').waitFor();
-    assert.match(await page.locator('#trade-modal-title').textContent(), /Imported Meme/);
-    await page.waitForTimeout(350);
-    assert.equal(await page.getByRole('dialog').count(), 1);
-    await page.keyboard.press('Escape');
-    assert.equal(await page.locator('input[type="search"]').inputValue(), '');
-    await page.reload();
-    await page.locator('.market-card-body strong').filter({ hasText: 'Imported Meme' }).waitFor();
-  } finally { await context.close(); }
-});
-
 test('loading and empty states are distinct, and reduced motion disables the ticker', async () => {
   const { context, page } = await fixture({ empty: true, delay: 500, reducedMotion: 'reduce' });
   try {
@@ -223,8 +205,8 @@ test('an RPC failure offers retry instead of claiming there are no markets', asy
   } finally { await context.close(); }
 });
 
-test('connecting a wallet inside the trade sheet preserves the chosen market', async () => {
-  const { context, page, errors } = await fixture({ delay: 100 });
+test('wallet connection preserves the trade, separates positions and creates a private invite', async () => {
+  const { context, page, errors } = await fixture({ delay: 100, held: 10n ** 18n });
   await page.addInitScript(() => {
     let connected = false;
     window.ethereum = {
@@ -248,6 +230,62 @@ test('connecting a wallet inside the trade sheet preserves the chosen market', a
     await page.getByRole('dialog').getByRole('button', { name: 'APPROVE MAX', exact: false }).waitFor({ state: 'visible' });
     await page.waitForFunction(() => !document.querySelector('.quote-feedback'));
     assert.equal(await page.getByRole('dialog').count(), 1);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.market-import').count(), 0);
+    await page.getByLabel('YOUR MARKETS').selectOption('created');
+    await page.getByText('No markets match your filters', { exact: true }).waitFor();
+    await page.getByLabel('YOUR MARKETS').selectOption('held');
+    await page.locator('.market-card-body strong').waitFor();
+    await page.locator('.site-header nav a[href$="/referral"]').click();
+    await page.waitForFunction(() => document.querySelector('#referral-link')?.value.includes('aB3_kD9-zX2q'));
+    const link = await page.locator('#referral-link').inputValue();
+    assert.equal(link.includes('0x'), false);
+    assert.ok(new URL(link).searchParams.get('ref').length === 12);
     assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('market-card hover and return interpolate gently instead of jumping', async () => {
+  const { context, page } = await fixture({ width: 1440 });
+  try {
+    await page.goto(origin + '/markets');
+    const card = page.locator('.market-card').first();
+    await card.waitFor();
+    const offset = () => card.evaluate((node) => new DOMMatrixReadOnly(getComputedStyle(node).transform).m42);
+    await card.hover();
+    await page.waitForTimeout(70);
+    const rising = await offset();
+    assert.ok(rising < 0 && rising > -3.9, `hover should be in motion, got ${rising}`);
+    await page.waitForTimeout(550);
+    assert.ok(Math.abs((await offset()) + 4) < .1);
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(70);
+    const falling = await offset();
+    assert.ok(falling < 0 && falling > -3.9, `return should be in motion, got ${falling}`);
+  } finally { await context.close(); }
+});
+
+test('hover keeps the carousel border inside its viewport and trade units stay readable', async () => {
+  const { context, page } = await fixture({ width: 1440, reducedMotion: 'reduce' });
+  try {
+    await page.goto(origin + '/');
+    const card = page.locator('.carousel-card').filter({ hasText: 'Pixel Possum' });
+    await card.hover();
+    const bounds = await card.evaluate((node) => ({
+      top: node.getBoundingClientRect().top,
+      viewportTop: node.closest('.carousel-track').getBoundingClientRect().top,
+    }));
+    assert.ok(bounds.top >= bounds.viewportTop + 1, 'hover must not clip the top border');
+    await page.locator('.site-header nav a[href$="/markets"]').click();
+    await page.locator('.market-card-actions').getByRole('button', { name: 'BUY', exact: true }).click();
+    const unit = page.getByRole('dialog').locator('.market-order form > label small');
+    const metrics = await unit.evaluate((node) => {
+      const bounds = node.getBoundingClientRect();
+      const input = node.parentElement.querySelector('input').getBoundingClientRect();
+      return { size: parseFloat(getComputedStyle(node).fontSize), right: bounds.right, inputRight: input.right, center: bounds.top + bounds.height / 2, inputCenter: input.top + input.height / 2 };
+    });
+    assert.ok(metrics.size >= 14, 'USDC must be readable');
+    assert.ok(metrics.right <= metrics.inputRight - 12, 'the unit needs breathing room inside the input');
+    assert.ok(Math.abs(metrics.center - metrics.inputCenter) <= 2, 'the unit should be centered vertically');
   } finally { await context.close(); }
 });

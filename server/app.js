@@ -163,6 +163,12 @@ export function createApp({
     response.send(content.bytes);
   });
 
+  app.post('/api/v1/referrals/invite', limiter.referral, requireOrigin, async (request, response) => {
+    if (!referralService) throw new DomainError('REFERRALS_UNAVAILABLE', 'Invites are not available.', { status: 503 });
+    response.set('cache-control', 'no-store');
+    response.json(responseData(await referralService.createInvite(request.body ?? {})));
+  });
+
   app.post('/api/v1/referrals/register', limiter.referral, requireOrigin,
     async (request, response) => {
       if (!referralService) {

@@ -109,10 +109,11 @@ export function mergeTradeableMarkets(factoryVisible, importedLoaded) {
   return merged;
 }
 
-export function filterTradeableMarkets(markets, { query = '', onlyHeld = false } = {}) {
+export function filterTradeableMarkets(markets, { query = '', onlyHeld = false, createdBy = null } = {}) {
   if (!Array.isArray(markets)) return [];
   const needle = String(query ?? '').trim().toLowerCase();
   return markets.filter((market) => {
+    if (createdBy && String(market.creator ?? '').toLowerCase() !== createdBy.toLowerCase()) return false;
     if (onlyHeld && !(market.userBalance > 0n)) return false;
     if (!needle) return true;
     const haystack = [

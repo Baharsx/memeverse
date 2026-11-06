@@ -1,17 +1,25 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useSignMessage } from 'wagmi';
 import { arc } from './arc.js';
 import { useArcNetwork } from './use-arc-network.js';
-import { registerReferral } from './api.js';
-import { referralAddress, referralMessage, referralShareUrl } from './referral.js';
+import { createReferralInvite, registerReferral } from './api.js';
+import { referralAddress, referralCode, referralMessage, referralShareUrl } from './referral.js';
 import { NavLink } from './router.jsx';
 
 export function Referral({ connectWallet }) {
   const { address, isConnected } = useArcNetwork();
   const { signMessageAsync } = useSignMessage();
-  const referrer = referralAddress(new URLSearchParams(window.location.search).get('ref'));
-  const validInvite = Boolean(referrer && (!address || referrer.toLowerCase() !== address.toLowerCase()));
-  const shareUrl = address ? referralShareUrl(address, window.location.origin, import.meta.env.BASE_URL) : null;
+  const [incoming] = useState(() => new URLSearchParams(window.location.search).get('ref'));
+  const legacyWallet = referralAddress(incoming);
+  const ownInvite = useQuery({ queryKey: ['referral-invite', arc.id, address], queryFn: () => createReferralInvite(address), enabled: Boolean(address), staleTime: Infinity, retry: 1 });
+  const legacyInvite = useQuery({ queryKey: ['referral-invite', arc.id, legacyWallet], queryFn: () => createReferralInvite(legacyWallet), enabled: Boolean(legacyWallet), staleTime: Infinity, retry: 1 });
+  const code = referralCode(incoming) ?? referralCode(legacyInvite.data?.code);
+  const validInvite = Boolean(code && code !== ownInvite.data?.code);
+  const shareUrl = address && ownInvite.data?.code ? referralShareUrl(ownInvite.data.code, window.location.origin, import.meta.env.BASE_URL) : null;
+  useEffect(() => {
+    if (legacyWallet && code) window.history.replaceState(window.history.state, '', referralShareUrl(code, window.location.origin, import.meta.env.BASE_URL));
+  }, [legacyWallet, code]);
   const [message, setMessage] = useState('');
   const [working, setWorking] = useState(false);
 
@@ -26,15 +34,15 @@ export function Referral({ connectWallet }) {
   }
 
   async function acceptInvite() {
-    if (!address || !validInvite || !referrer || working) return;
+    if (!address || !validInvite || !code || working) return;
     setWorking(true);
     setMessage('');
     try {
       const issuedAt = new Date().toISOString();
       const signature = await signMessageAsync({
-        message: referralMessage({ wallet: address, referrer, chainId: arc.id, issuedAt }),
+        message: referralMessage({ wallet: address, code, chainId: arc.id, issuedAt }),
       });
-      const result = await registerReferral({ wallet: address, referrer, issuedAt, signature });
+      const result = await registerReferral({ wallet: address, code, issuedAt, signature });
       setMessage(result.existing
         ? 'This wallet is already linked to the same referrer.'
         : 'Referral recorded. Reward eligibility rules will be announced separately.');
@@ -58,25 +66,26 @@ export function Referral({ connectWallet }) {
         <article className="rewards-panel">
           <span className="eyebrow">YOUR REFERRAL LINK</span>
           <h2>Bring your crew.</h2>
-          <p>Connect your wallet to generate a personal link. Your friend can then sign a free message to confirm who invited them.</p>
+          <p>Connect your wallet to generate a short, private invite code. Your wallet address stays out of the link.</p>
           {!isConnected ? <div className="trade-wallet">{connectWallet}</div> : null}
           <label className="referral-label" htmlFor="referral-link">SHAREABLE LINK</label>
           <div className="referral-copy">
-            <input id="referral-link" readOnly value={shareUrl ?? 'Connect your wallet to generate a link'} aria-label="Your referral link" onFocus={(event) => event.target.select()} />
+            <input id="referral-link" readOnly value={shareUrl ?? (address ? 'Creating your private link…' : 'Connect your wallet to generate a link')} aria-label="Your referral link" onFocus={(event) => event.target.select()} />
             <button className="btn primary" type="button" disabled={!shareUrl} onClick={copyInvite}>COPY LINK</button>
           </div>
-          <p className="rewards-note">Sharing a link is free. A visit alone does not count as a verified referral.</p>
+          {ownInvite.isError ? <p className="inline-error" role="alert">Couldn’t create your invite. <button className="btn secondary" type="button" onClick={() => ownInvite.refetch()}>TRY AGAIN</button></p> : null}
+          <p className="rewards-note">Your link uses a random code instead of a wallet address. A visit alone does not count as a verified referral.</p>
           {validInvite ? (
             <div className="referral-invite">
-              <span className="eyebrow">YOU WERE INVITED BY</span>
-              <strong>{referrer}</strong>
+              <span className="eyebrow">YOUR INVITATION</span>
+              <strong>{code}</strong>
               <p>Register this referral with your connected wallet. Signing grants no spending permission and transfers no funds.</p>
               <button className="btn secondary" type="button" disabled={!isConnected || working} onClick={acceptInvite}>
                 {working ? 'SIGNING / SAVING…' : isConnected ? 'CONFIRM REFERRAL →' : 'CONNECT WALLET FIRST'}
               </button>
             </div>
           ) : null}
-          {referrer && !validInvite ? <p className="rewards-note">You cannot refer your own wallet.</p> : null}
+          {code && !validInvite ? <p className="rewards-note">You cannot refer your own wallet.</p> : null}
           {message ? <p className="referral-feedback" role="status">{message}</p> : null}
         </article>
         <aside className="rewards-panel rewards-explainer">

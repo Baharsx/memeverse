@@ -856,7 +856,7 @@ main{
 .carousel-head{padding:18px 0 14px}
 .carousel-head h2{font-weight:600;letter-spacing:-.045em}
 .carousel-head p{font-family:var(--ui);font-size:15px;line-height:1.45;letter-spacing:-.015em}
-.carousel-track{padding:4px 2px 12px;gap:14px;scroll-padding-inline:2px}
+.carousel-track{padding:12px 2px 20px;gap:14px;scroll-padding-inline:2px}
 .carousel-controls button{
   border-radius:999px;border-color:rgba(255,255,255,.12);
   background:rgba(255,255,255,.06);
@@ -970,7 +970,7 @@ label>input:focus-visible,label>textarea:focus-visible,label>select:focus-visibl
   .btn.primary:hover{background:#d7ff62;border-color:#d7ff62}
   .secondary:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.22)}
   .carousel-card:hover,.market-card:hover,.economy-step:hover{
-    transform:translateY(-6px);
+    transform:translateY(-4px);
     box-shadow:0 24px 50px rgba(0,0,0,.38);
   }
   .carousel-card:hover img{transform:scale(1.035)}
@@ -1145,7 +1145,9 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 .trade-wallet p{margin:0;font:14px/1.5 var(--ui);color:#b4b6bb}
 .trade-wallet .wallet{min-height:44px;padding:10px 16px;border:1px solid var(--acid);border-radius:999px;color:var(--acid);font:600 14px var(--ui)}
 .market-order>.network-switch{margin-bottom:16px}
-.market-order label input{padding-right:76px}
+.market-order label input{padding-right:104px;appearance:textfield;-moz-appearance:textfield}
+.market-order label input::-webkit-inner-spin-button,.market-order label input::-webkit-outer-spin-button{appearance:none;-webkit-appearance:none;margin:0}
+.market-order label small{right:16px;bottom:16px;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c7c9cd;font:600 14px/20px var(--ui);pointer-events:none}
 .btn:disabled,.btn.primary:disabled{cursor:not-allowed;opacity:.45;transform:none;box-shadow:none}
 .site-header nav a{min-height:44px;display:inline-flex;align-items:center;justify-content:center}
 @media(max-width:800px){
@@ -1163,6 +1165,14 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 @media(hover:none){
   .btn:hover,.carousel-card:hover,.economy-step:hover{transform:none;box-shadow:none}
 }
+:root{--ease:cubic-bezier(.25,.46,.45,.94)}
+.market-card,.carousel-card,.economy-step,.home-community-card,.not-found-links a{
+  transition:transform .52s cubic-bezier(.25,.46,.45,.94),box-shadow .52s cubic-bezier(.25,.46,.45,.94),border-color .32s ease,background .32s ease;
+}
+.brand-lockup{width:184px;height:auto;max-width:100%;object-fit:contain}
+.market-toolbar{grid-template-columns:minmax(180px,1.5fr) minmax(160px,1fr) minmax(180px,1fr)}
+.market-view-hint{margin:-8px 0 18px;color:#b4b6bb;font:13px/1.6 var(--ui)}
+@media(max-width:800px){.brand-lockup{width:150px;max-width:100%}.market-toolbar{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
