@@ -1301,3 +1301,5 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 .activity-empty p{margin:6px 0 14px;color:var(--mute);font:13.5px/1.5 var(--ui)}
 .activity-empty .btn{font-size:13px;min-height:42px;padding:10px 16px}
 @media (max-width:860px){.home-activity{grid-template-columns:1fr}}
+.home-activity .market-image{border-radius:12px;border-color:rgba(255,255,255,.1);background:#0d0d0e}
+.home-activity .market-image-fallback{padding:20%;opacity:.9;border-radius:0;background:transparent}

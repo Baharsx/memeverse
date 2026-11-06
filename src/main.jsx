@@ -765,7 +765,7 @@ function HomeActivity({ listed, images }) {
         )}
       </div>
       <div className="activity-panel">
-        <header><span><i aria-hidden="true" />LIVE TRADES</span><small>ONCHAIN</small></header>
+        <header><span><i aria-hidden="true" />LATEST TRADES</span><small>ONCHAIN</small></header>
         {recent.length ? (
           <ul className="trade-feed">
             {recent.map((trade) => {
