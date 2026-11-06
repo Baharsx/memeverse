@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { encodeFunctionData, maxUint256 } from 'viem';
 import { network } from 'hardhat';
+import { marketMinimumBuyUsdc } from '../../src/market-display.js';
 
 const { viem } = await network.create();
 const wallets = await viem.getWalletClients();
@@ -105,6 +106,27 @@ describe('MemeVerseFactory', () => {
 });
 
 describe('MemeMarket', () => {
+  it('matches the displayed minimum to real whole-token quotes including both fees', async () => {
+    for (const options of [
+      { basePrice: USDC, slopePrice: 1000n, supply: 1000000n },
+      { basePrice: 99n, creatorFeeBps: 111, treasuryFeeBps: 222 },
+      { basePrice: 1n, creatorFeeBps: 0, treasuryFeeBps: 0 },
+    ]) {
+      const { market } = await createMarket(options);
+      const minimum = marketMinimumBuyUsdc({
+        spotPriceUsdc: await market.read.spotPriceUsdc(),
+        creatorFeeBps: await market.read.creatorFeeBps(),
+        treasuryFeeBps: await market.read.treasuryFeeBps(),
+        soldTokenCount: await market.read.soldTokenCount(),
+        totalSupplyTokens: await market.read.totalSupplyTokens(),
+      });
+      assert.equal((await market.read.quoteBuy([minimum - 1n]))[0], 0n);
+      const quote = await market.read.quoteBuy([minimum]);
+      assert.equal(quote[0], TOKEN);
+      assert.equal(quote[4], minimum);
+    }
+  });
+
   it('starts with the complete fixed supply in market inventory', async () => {
     const { market } = await createMarket();
     assert.equal(await market.read.totalSupply(), 1_000n * TOKEN);

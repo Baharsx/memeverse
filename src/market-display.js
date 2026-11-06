@@ -55,6 +55,21 @@ export function marketAvailability(market) {
   return { soldOut, canBuy: !soldOut, canSell: true };
 }
 
+/** Exact minimum budget for the next whole token, including independently rounded fees. */
+export function marketMinimumBuyUsdc(market) {
+  if (!market || isMarketSoldOut(market) || market.spotPriceUsdc === undefined
+    || market.creatorFeeBps === undefined || market.treasuryFeeBps === undefined) return null;
+  const price = BigInt(market.spotPriceUsdc);
+  return price + price * BigInt(market.creatorFeeBps) / 10000n
+    + price * BigInt(market.treasuryFeeBps) / 10000n;
+}
+
+export function marketBuyPriceLabel(market, formatUsdc) {
+  if (isMarketSoldOut(market)) return SOLD_OUT_LABEL;
+  const minimum = marketMinimumBuyUsdc(market);
+  return minimum === null ? '—' : `${formatUsdc(minimum)} USDC`;
+}
+
 export function marketSpotLabel(market, formatUsdc) {
   if (isMarketSoldOut(market)) return SOLD_OUT_LABEL;
   return `${formatUsdc(market.spotPriceUsdc)} USDC`;

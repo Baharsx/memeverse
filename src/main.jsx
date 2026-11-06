@@ -34,6 +34,8 @@ import { Referral, Campaigns } from './rewards-views.jsx';
 import {
   marketAvailability,
   marketDescriptionForDisplay,
+  marketMinimumBuyUsdc,
+  marketBuyPriceLabel,
   marketSpotLabel,
   marketSpotPerTokenLabel,
   publicMarkets,
@@ -495,71 +497,104 @@ const economySteps = [
 
 function AssetCarousel({ label, detail, trackRef, count, children }) {
   const [autoPaused, setAutoPaused] = useState(false);
+  const moveRef = useRef(null);
+  const cards = React.Children.toArray(children);
   useEffect(() => {
     const node = trackRef.current;
-    if (!node || count < 2 || autoPaused) return undefined;
+    if (!node || count < 2) return undefined;
     const container = node.closest('.carousel');
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
-    let frame, previous = 0, position = node.scrollLeft, direction = 1, pausedUntil = 0, hovering = false, visible = true;
-    const enter = () => { hovering = true; };
-    const leave = () => { hovering = false; };
-    const pause = () => { pausedUntil = performance.now() + 7000; };
-    const observer = new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; });
+    let frame = 0, timer = 0, hovering = false, visible = false;
+    function geometry() {
+      const first = node.querySelector('.carousel-card');
+      const next = first?.nextElementSibling;
+      return first && next ? { step: next.offsetLeft - first.offsetLeft, cycle: node.querySelector('.carousel-copy').offsetLeft - first.offsetLeft } : null;
+    }
+    function schedule() {
+      clearTimeout(timer);
+      if (!autoPaused && !reduced.matches && !hovering && visible && !document.hidden
+        && !container.contains(document.activeElement)) timer = setTimeout(() => move(1), 10000);
+    }
+    function normalize() {
+      const size = geometry();
+      if (!size || frame) return;
+      if (node.scrollLeft >= size.cycle) node.scrollTo({ left: node.scrollLeft % size.cycle, behavior: 'instant' });
+    }
+    function stop() {
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      frame = 0;
+    }
+    function move(direction) {
+      stop();
+      const size = geometry();
+      if (!size) return;
+      normalize();
+      if (direction < 0 && node.scrollLeft < 1) node.scrollTo({ left: size.cycle, behavior: 'instant' });
+      const start = node.scrollLeft;
+      const target = Math.max(0, (Math.round(start / size.step) + direction) * size.step);
+      if (reduced.matches) {
+        node.scrollTo({ left: target, behavior: 'instant' });
+        normalize();
+        return;
+      }
+      const started = performance.now();
+      function animate(now) {
+        const progress = Math.min(1, (now - started) / 650);
+        const eased = progress < .5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
+        node.scrollTo({ left: start + (target - start) * eased, behavior: 'instant' });
+        if (progress < 1) frame = requestAnimationFrame(animate);
+        else { frame = 0; normalize(); schedule(); }
+      }
+      frame = requestAnimationFrame(animate);
+    }
+    const enter = () => { hovering = true; clearTimeout(timer); };
+    const leave = () => { hovering = false; schedule(); };
+    const interact = () => { stop(); schedule(); };
+    const focus = () => clearTimeout(timer);
+    const blur = () => schedule();
+    const visibility = () => { if (document.hidden) stop(); else schedule(); };
+    const observer = new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      if (visible) schedule(); else stop();
+    });
     observer.observe(node);
+    moveRef.current = move;
     container.addEventListener('pointerenter', enter);
     container.addEventListener('pointerleave', leave);
-    container.addEventListener('pointerdown', pause, { passive: true });
-    container.addEventListener('wheel', pause, { passive: true });
-    node.addEventListener('carousel-manual-scroll', pause);
-    function advance(now) {
-      const elapsed = previous ? Math.min((now - previous) / 1000, .05) : 0;
-      previous = now;
-      const maximum = node.scrollWidth - node.clientWidth;
-      if (reduced.matches || hovering || !visible || document.hidden || now < pausedUntil || node.contains(document.activeElement) || maximum <= 0) {
-        position = node.scrollLeft;
-      } else {
-        position = Math.max(0, Math.min(maximum, position + direction * 12 * elapsed));
-        node.scrollTo({ left: position, behavior: 'instant' });
-        if (position >= maximum) direction = -1;
-        else if (position <= 0) direction = 1;
-      }
-      frame = requestAnimationFrame(advance);
-    }
-    frame = requestAnimationFrame(advance);
+    container.addEventListener('pointerdown', interact, { passive: true });
+    container.addEventListener('wheel', interact, { passive: true });
+    container.addEventListener('focusin', focus);
+    container.addEventListener('focusout', blur);
+    node.addEventListener('scrollend', normalize);
+    document.addEventListener('visibilitychange', visibility);
+    reduced.addEventListener('change', interact);
     return () => {
-      cancelAnimationFrame(frame); observer.disconnect();
+      stop(); observer.disconnect(); moveRef.current = null;
       container.removeEventListener('pointerenter', enter); container.removeEventListener('pointerleave', leave);
-      container.removeEventListener('pointerdown', pause); container.removeEventListener('wheel', pause);
-      node.removeEventListener('carousel-manual-scroll', pause);
+      container.removeEventListener('pointerdown', interact); container.removeEventListener('wheel', interact);
+      container.removeEventListener('focusin', focus); container.removeEventListener('focusout', blur);
+      node.removeEventListener('scrollend', normalize);
+      document.removeEventListener('visibilitychange', visibility);
+      reduced.removeEventListener('change', interact);
     };
   }, [count, autoPaused, trackRef]);
-
-  function scrollCards(direction) {
-    const node = trackRef.current;
-    if (!node) return;
-    node.dispatchEvent(new Event('carousel-manual-scroll'));
-    const card = node.querySelector('.carousel-card');
-    const width = card ? card.getBoundingClientRect().width + 16 : 296;
-    node.scrollBy({ left: direction * width, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
-  }
 
   return (
     <div className="carousel" aria-roledescription="carousel" aria-label={label}>
       <div className="carousel-head">
-        <div>
-          <h2>{label}</h2>
-          <p>{detail}</p>
-        </div>
+        <div><h2>{label}</h2><p>{detail}</p></div>
         {count > 1 ? (
           <div className="carousel-controls">
-            <button type="button" onClick={() => scrollCards(-1)} aria-label={`Previous ${label}`}>←</button>
+            <button type="button" onClick={() => moveRef.current?.(-1)} aria-label={`Previous ${label}`}>←</button>
             <button type="button" aria-pressed={autoPaused} onClick={() => setAutoPaused((paused) => !paused)} aria-label={autoPaused ? 'Resume automatic scrolling' : 'Pause automatic scrolling'}>{autoPaused ? '▶' : 'Ⅱ'}</button>
-            <button type="button" onClick={() => scrollCards(1)} aria-label={`Next ${label}`}>→</button>
+            <button type="button" onClick={() => moveRef.current?.(1)} aria-label={`Next ${label}`}>→</button>
           </div>
         ) : null}
       </div>
       <div className="carousel-track" ref={trackRef}>
         {children}
+        {count > 1 ? [0, 1].flatMap((copy) => cards.filter((card) => card.props.className === 'carousel-card').map((card) => React.cloneElement(card, { key: `loop-${copy}-${card.key}`, className: 'carousel-card carousel-copy', 'aria-hidden': true, tabIndex: -1 }))) : null}
       </div>
     </div>
   );
@@ -1139,7 +1174,9 @@ function Markets() {
   const buy = useOnchainAction();
   const sell = useOnchainAction();
   const walletStateLoading = onArc && markets.isPlaceholderData;
-  const allowanceRequired = Boolean(selected && buyUnits > selected.usdcAllowance);
+  const allowanceRequired = Boolean(selected && buyQuote.data?.[0] > 0n && buyUnits > selected.usdcAllowance);
+  const minimumBuyUsdc = marketMinimumBuyUsdc(selected);
+  const belowMinimumBuy = Boolean(buyQuote.data && buyQuote.data[0] === 0n && minimumBuyUsdc > 0n && buyUnits < minimumBuyUsdc);
   const availability = marketAvailability(selected);
 
   function openTrade(address, nextSide) {
@@ -1158,7 +1195,7 @@ function Markets() {
   }
 
   async function approveUsdc() {
-    if (!onArc || walletStateLoading || !selected || !buyQuote.data || buyUnits <= 0n) return;
+    if (!onArc || walletStateLoading || !selected || !buyQuote.data || buyQuote.data[0] === 0n || buyUnits <= 0n) return;
     try {
       await approval.execute({
         address: arcContracts.usdc,
@@ -1173,7 +1210,7 @@ function Markets() {
 
   async function buyTokens(event) {
     event.preventDefault();
-    if (!onArc || walletStateLoading || !selected || !buyQuote.data || buyUnits <= 0n || allowanceRequired) return;
+    if (!onArc || walletStateLoading || !selected || !buyQuote.data || buyQuote.data[0] === 0n || buyUnits <= 0n || allowanceRequired) return;
     try {
       await buy.execute({
         address: selected.address,
@@ -1298,7 +1335,7 @@ function Markets() {
                   </div>
                 </div>
                 <dl>
-                  <dt>LIVE PRICE</dt><dd>{marketSpotLabel(selected, formatUsdc)}</dd>
+                  <dt>LIVE BUY PRICE</dt><dd>{marketBuyPriceLabel(selected, formatUsdc)}<small className="price-fee-note">Per whole token · includes fees</small></dd>
                   <dt>USDC IN MARKET</dt><dd>{formatUsdc(selected.reserveUsdc)} USDC</dd>
                   <dt>SUPPLY SOLD</dt><dd>{selected.soldTokenCount.toLocaleString()} / {selected.totalSupplyTokens.toLocaleString()}</dd>
                   <dt>CREATOR</dt><dd>{shortAddress(selected.creator)}</dd>
@@ -1323,6 +1360,7 @@ function Markets() {
                 ) : side === 'BUY' ? <form onSubmit={buyTokens}>
                   <label>MAX USDC TO SPEND<input value={buyAmount} onChange={(event) => setBuyAmount(event.target.value)} type="text" inputMode="decimal" required /><small>USDC</small></label>
                   <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={buyQuote.data ? formatTokenAmount(buyQuote.data[0], 0) : '—'} aria-label="Estimated tokens received" /><small>{selected.symbol}</small></label>
+                  {belowMinimumBuy ? <div className="quote-minimum" role="status"><p>This market trades whole tokens. The minimum for 1 {selected.symbol} is <b>{formatUsdc(minimumBuyUsdc)} USDC</b>, including creator and treasury fees.</p><button type="button" className="btn secondary" onClick={() => setBuyAmount(formatUsdc(minimumBuyUsdc).replaceAll(',', ''))}>USE {formatUsdc(minimumBuyUsdc)} USDC →</button></div> : null}
                   <details className="trade-details" key={`${selected.address}-buy`}><summary>TRADE DETAILS <span>Fees, limits & wallet balance</span></summary>
                   <div className="trade-review">
                     <span>WALLET BALANCE <b>{onArc && usdcBalance.data !== undefined ? `${formatUsdc(usdcBalance.data)} USDC` : 'CONNECT ON ARC'}</b></span>
@@ -1335,12 +1373,14 @@ function Markets() {
                     <span>MINIMUM OUT / SLIPPAGE <b>{buyQuote.data ? `${formatTokenAmount(minimumAfterSlippage(buyQuote.data[0], slippageBps), 2)} / 1%` : '—'}</b></span>
                     <span>CREATOR FEE RATE <b>{Number(selected.creatorFeeBps) / 100}%</b></span>
                     <span>TREASURY FEE RATE <b>{Number(selected.treasuryFeeBps) / 100}%</b></span>
+                    <span>BASE PRICE / TOKEN <b>{marketSpotLabel(selected, formatUsdc)}</b></span>
+                    <span>MINIMUM BUY WITH FEES <b>{minimumBuyUsdc === null ? '—' : `${formatUsdc(minimumBuyUsdc)} USDC`}</b></span>
                     <span>NETWORK <b>{network.chain.name}</b></span>
                     <span>UNSPENT MAX INPUT <b>{buyQuote.data ? `${formatUsdc(buyUnits - buyQuote.data[4])} USDC` : '—'}</b></span>
                   </div></details>
                   {buyInputError ? <p className="inline-error">{buyInputError}</p> : null}
                   {!buyInputError && buyUnits > 0n && !buyQuote.data ? <p className="quote-feedback" role="status">{buyQuoteResult.isError ? 'Quote unavailable. Check your connection or try another amount.' : 'Updating your buy quote…'}</p> : null}
-                  {allowanceRequired ? <button className="btn secondary full" type="button" disabled={!onArc || walletStateLoading || !buyQuote.data || approval.state.status === 'WALLET_SIGNATURE' || approval.state.status === 'SUBMITTED'} onClick={approveUsdc}>APPROVE MAX {buyAmount || '0'} USDC →</button> : null}
+                  {allowanceRequired ? <button className="btn secondary full" type="button" disabled={!onArc || walletStateLoading || !buyQuote.data || buyQuote.data[0] === 0n || approval.state.status === 'WALLET_SIGNATURE' || approval.state.status === 'SUBMITTED'} onClick={approveUsdc}>APPROVE MAX {buyAmount || '0'} USDC →</button> : null}
                   <button className="btn primary full" disabled={!onArc || walletStateLoading || !buyQuote.data || buyQuote.data[0] === 0n || allowanceRequired || ['WALLET_SIGNATURE', 'SUBMITTED'].includes(buy.state.status)}>SIGN BUY ON ARC →</button>
                   <TransactionStatus state={approval.state} />
                   <TransactionStatus state={buy.state} />

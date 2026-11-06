@@ -8,6 +8,8 @@ import {
   isLegacyHiddenMarket,
   isMarketSoldOut,
   marketAvailability,
+  marketMinimumBuyUsdc,
+  marketBuyPriceLabel,
   marketDescriptionForDisplay,
   marketSpotLabel,
   marketSpotPerTokenLabel,
@@ -222,4 +224,15 @@ test('mainnet genesis shows up-to-date copy without changing other onchain descr
   assert.match(marketDescriptionForDisplay(genesis), /Creator and treasury fees settle/);
   assert.equal(marketDescriptionForDisplay({ address: '0x1111111111111111111111111111111111111111', description: 'Original creator text.' }), 'Original creator text.');
   assert.equal(marketDescriptionForDisplay({}), '');
+});
+
+test('minimum whole-token purchase includes both fees with contract rounding', () => {
+  const price = { ...market(0n, 1000000n, 1000000n), creatorFeeBps: 100n, treasuryFeeBps: 100n };
+  assert.equal(marketMinimumBuyUsdc(price), 1020000n);
+  assert.equal(marketBuyPriceLabel(price, formatUsdc), '1.02 USDC');
+  assert.equal(marketMinimumBuyUsdc({ ...price, spotPriceUsdc: 99n }), 99n, 'round each fee separately');
+  assert.equal(marketMinimumBuyUsdc({ ...price, soldTokenCount: 1000000n }), null);
+  assert.equal(marketBuyPriceLabel({ ...price, soldTokenCount: 1000000n }, formatUsdc), SOLD_OUT_LABEL);
+  assert.equal(marketMinimumBuyUsdc(null), null);
+  assert.equal(marketMinimumBuyUsdc(market(0n, 10n)), null);
 });

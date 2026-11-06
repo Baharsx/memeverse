@@ -37,7 +37,7 @@ after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
 });
 
-async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n, total = 1, artwork = false, mediaDelay = 0, imageDelay = 0, imageFailure = false } = {}) {
+async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n, total = 1, artwork = false, mediaDelay = 0, imageDelay = 0, imageFailure = false, highPrice = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion });
   context.setDefaultTimeout(10_000);
   const calls = { marketCount: 0, quoteBuy: [], quoteSell: [] };
@@ -60,8 +60,8 @@ async function fixture({ width = 390, reducedMotion = 'no-preference', empty = f
         creatorFeesPaidUsdc: 10000n, treasuryFeesPaidUsdc: 10000n,
         creatorFeeBps: 100n, treasuryFeeBps: 100n, basePriceUsdc: 100n, slopePriceUsdc: 1000n,
         createdAt: 1700000000n, createdBlock: 100n, deployedAtBlock: 10n,
-        active: true, spotPriceUsdc: 100n, balanceOf: held, allowance: 0n,
-        quoteBuy: [10n ** 18n, 100n, 1n, 1n, 102n], quoteSell: [98n, 100n, 1n, 1n],
+        active: true, spotPriceUsdc: highPrice ? 1000000n : 100n, balanceOf: held, allowance: 0n,
+        quoteBuy: highPrice ? (args?.[0] < 1020000n ? [0n, 0n, 0n, 0n, 0n] : [10n ** 18n, 1000000n, 10000n, 10000n, 1020000n]) : [10n ** 18n, 100n, 1n, 1n, 102n], quoteSell: [98n, 100n, 1n, 1n],
       };
       assert.ok(name in values, `unhandled RPC fixture: ${name}`);
       result = values[name];
@@ -432,28 +432,82 @@ test('launch previews form values and requires artwork picked through the previe
   } finally { await context.close(); }
 });
 
-test('market carousel scrolls slowly, pauses on hover, and offers an explicit pause control', async () => {
+test('carousel waits ten seconds, moves exactly one card smoothly, and loops forward', async () => {
   const { context, page } = await fixture({ width: 1440, total: 6 });
   try {
+    await page.clock.install();
     await page.goto(origin + '/');
     const track = page.locator('.carousel-track');
-    await page.waitForFunction(() => document.querySelectorAll('.carousel-card').length === 6);
+    await page.waitForFunction(() => document.querySelectorAll('.carousel-card:not(.carousel-copy)').length === 6);
     await track.scrollIntoViewIfNeeded();
     await page.mouse.move(0, 0);
-    const before = await track.evaluate((node) => node.scrollLeft);
-    await page.waitForTimeout(900);
-    const after = await track.evaluate((node) => node.scrollLeft);
-    assert.ok(after - before > 3 && after - before < 20, `expected a gentle scroll, got ${after - before}px`);
-    await page.locator('.carousel-card').nth(1).hover();
-    const hovered = await track.evaluate((node) => node.scrollLeft);
-    await page.waitForTimeout(400);
-    assert.ok(Math.abs((await track.evaluate((node) => node.scrollLeft)) - hovered) <= 1);
+    await page.waitForTimeout(100);
+    const step = await track.evaluate((node) => node.children[1].offsetLeft - node.children[0].offsetLeft);
+    const offset = () => track.evaluate((node) => node.scrollLeft);
+    await page.clock.runFor(9900);
+    assert.equal(await offset(), 0, 'the carousel must stay still between steps');
+    await page.clock.runFor(300);
+    const moving = await offset();
+    assert.ok(moving > 0 && moving < step - 1, 'one soft transition, not an immediate jump');
+    await page.clock.runFor(600);
+    assert.ok(Math.abs(await offset() - step) <= 1, 'advance exactly one card');
+    const stationary = await offset();
+    await page.clock.runFor(9000);
+    assert.equal(await offset(), stationary);
+    await page.locator('.carousel-card:not(.carousel-copy)').nth(2).hover();
+    await page.clock.runFor(15000);
+    assert.equal(await offset(), stationary, 'hover pauses scheduled steps');
     await page.getByRole('button', { name: 'Pause automatic scrolling' }).click();
     await page.mouse.move(0, 0);
-    const paused = await track.evaluate((node) => node.scrollLeft);
+    await page.evaluate(() => document.activeElement.blur());
+    await page.clock.runFor(15000);
+    assert.equal(await offset(), stationary, 'explicit pause stays paused');
+    await page.getByRole('button', { name: 'Resume automatic scrolling' }).click();
+    await page.mouse.move(0, 0);
+    await page.evaluate(() => document.activeElement.blur());
+    await page.clock.runFor(10800);
+    assert.ok(Math.abs(await offset() - 2 * step) <= 1);
+    for (let next = 3; next <= 6; next++) {
+      await page.clock.runFor(10800);
+      assert.ok(Math.abs(await offset() - (next % 6) * step) <= 1, 'wrap forward without a long reverse scroll');
+    }
+    await page.getByRole('button', { name: 'Previous Explore markets' }).click();
+    await page.clock.runFor(800);
+    assert.ok(Math.abs(await offset() - 5 * step) <= 1, 'previous wraps back by one card');
+    assert.equal(await page.locator('.carousel-copy[aria-hidden="true"][tabindex="-1"]').count(), 12);
+  } finally { await context.close(); }
+});
+
+test('whole-token minimum includes fees and both wallet and disabled buy labels survive hover', async () => {
+  const { context, page, calls, errors } = await fixture({ width: 1440, highPrice: true, reducedMotion: 'reduce' });
+  try {
+    await page.goto(origin + '/markets');
+    await page.locator('.market-card-actions').getByRole('button', { name: 'BUY', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.locator('.quote-minimum').waitFor();
+    assert.equal(await dialog.getByLabel('Estimated tokens received').inputValue(), '0');
+    assert.match(await dialog.locator('.market-proof dd').first().textContent(), /1.02 USDC/);
+    assert.match(await dialog.locator('.quote-minimum').textContent(), /whole tokens.*1.02 USDC/);
+    assert.equal(await dialog.getByRole('button', { name: 'APPROVE MAX', exact: false }).count(), 0);
+    const buy = dialog.getByRole('button', { name: 'SIGN BUY ON ARC', exact: false });
+    assert.ok(await buy.isDisabled());
+    const style = (node) => { const css = getComputedStyle(node); return { color: css.color, background: css.backgroundColor, opacity: css.opacity }; };
+    const before = await buy.evaluate(style);
+    await buy.hover({ force: true });
     await page.waitForTimeout(400);
-    assert.ok(Math.abs((await track.evaluate((node) => node.scrollLeft)) - paused) <= 1);
-    assert.equal(await page.getByRole('button', { name: 'Resume automatic scrolling' }).count(), 1);
-    assert.equal((await page.locator('.marquee').textContent()).includes('READING'), false);
+    assert.deepEqual(await buy.evaluate(style), before, 'a disabled button must not acquire the enabled hover colors');
+    assert.notEqual(before.color, before.background);
+    const wallet = dialog.locator('.trade-wallet .wallet');
+    await wallet.hover();
+    await page.waitForTimeout(400);
+    const hovered = await wallet.evaluate(style);
+    assert.equal(hovered.color, 'rgb(0, 0, 0)');
+    assert.equal(hovered.background, 'rgb(198, 244, 50)');
+    await dialog.getByRole('button', { name: 'USE 1.02 USDC', exact: false }).click();
+    await page.waitForFunction(() => document.querySelector('input[aria-label="Estimated tokens received"]')?.value === '1');
+    assert.equal(await dialog.getByLabel('MAX USDC TO SPEND', { exact: false }).inputValue(), '1.02');
+    assert.deepEqual(calls.quoteBuy, [1000000n, 1020000n]);
+    assert.equal(await dialog.locator('.quote-minimum').count(), 0);
+    assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });
