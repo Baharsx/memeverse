@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { decodeEventLog, getAddress, parseAbi } from 'viem';
+import { PROGRAM_START } from '../../src/rewards.js';
 
 /**
  * Indexes public trade activity for every registered MemeVerse market.
@@ -236,17 +237,29 @@ export class ActivityIndexer {
     }
   }
 
-  /** Trades indexed before fees were recorded get theirs from the transaction receipt, once. */
+  /**
+   * Trades indexed before fees were recorded get theirs from the event logs of their own block, once.
+   * Only trades the rewards program can count (from PROGRAM_START) are fetched; a block that cannot
+   * be read is retried on a later tick and never stops the indexer.
+   */
   async backfillFees() {
-    for (const trade of this.state.trades) {
-      if (trade.treasuryFee !== undefined) continue;
-      const receipt = await this.call(() => this.publicClient.getTransactionReceipt({ hash: trade.tx }));
-      const logIndex = Number(trade.id.split(':')[1]);
-      const log = receipt.logs.find((item) => Number(item.logIndex) === logIndex);
-      if (!log) continue;
-      const { args } = decodeEventLog({ abi: activityAbi, data: log.data, topics: log.topics });
-      trade.treasuryFee = args.treasuryFeeUsdc.toString();
-      trade.creatorFee = args.creatorFeeUsdc.toString();
+    const missing = this.state.trades.filter((trade) => trade.treasuryFee === undefined
+      && (this.state.blockTimes[trade.block] ?? 0) >= PROGRAM_START);
+    for (const block of [...new Set(missing.map((trade) => trade.block))]) {
+      let logs;
+      try {
+        logs = await this.logs(Object.keys(this.state.markets), BigInt(block), BigInt(block));
+      } catch {
+        continue;
+      }
+      for (const trade of missing.filter((item) => item.block === block)) {
+        const logIndex = Number(trade.id.split(':')[1]);
+        const log = logs.find((item) => item.transactionHash === trade.tx && Number(item.logIndex) === logIndex);
+        if (!log) continue;
+        const { args } = decodeEventLog({ abi: activityAbi, data: log.data, topics: log.topics });
+        trade.treasuryFee = args.treasuryFeeUsdc.toString();
+        trade.creatorFee = args.creatorFeeUsdc.toString();
+      }
     }
   }
 

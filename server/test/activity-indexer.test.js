@@ -115,3 +115,20 @@ test('the activity endpoint is public, bounded and degrades when no indexer runs
     assert.deepEqual(body.data.recent, []);
   } finally { await bare.close(); }
 });
+
+test('fees of trades indexed before fees were stored are filled from their own block, and only for the program', async () => {
+  const { PROGRAM_START } = await import('../../src/rewards.js');
+  const recent = buy(MARKET, ALICE, 2_000_000n, 10n ** 18n, 500);
+  const old = buy(MARKET, BOB, 1_000_000n, 10n ** 18n, 400);
+  const state = { version: 1, cursor: '600', markets: { [MARKET]: {} }, trades: [], balances: {}, blockTimes: { 500: PROGRAM_START + 60, 400: PROGRAM_START - 60 } };
+  applyLogs(state, [old, recent]);
+  for (const trade of state.trades) { delete trade.treasuryFee; delete trade.creatorFee; }
+  const requested = [];
+  const client = { async getLogs({ fromBlock, toBlock }) { requested.push([fromBlock, toBlock]); if (fromBlock === 500n) return [recent]; throw new Error('pruned'); } };
+  const indexer = new ActivityIndexer({ publicClient: client, factories: [FACTORY], stateFile: '/dev/null', spacingMs: 0, sleep: async () => {} });
+  indexer.state = state;
+  await indexer.backfillFees();
+  assert.deepEqual(requested, [[500n, 500n]], 'trades before the program are never fetched');
+  assert.equal(state.trades.find((trade) => trade.trader === ALICE).treasuryFee, '0');
+  assert.equal(state.trades.find((trade) => trade.trader === BOB).treasuryFee, undefined);
+});

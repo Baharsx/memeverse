@@ -20,6 +20,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { arc } from 'viem/chains';
 import { assertMainnetChainId, parseDeployerPrivateKey } from './mainnet-deploy-plan.js';
 import { REFERRAL_SHARE_BPS, TRADING_SHARE_BPS, computeRewards, payoutPlan } from '../src/rewards.js';
+import { resolveArcNetwork } from '../src/arc-networks.js';
 import { readPayouts, readReferrals } from '../server/domain/rewards-service.js';
 
 const USDC = '0x3600000000000000000000000000000000000000';
@@ -63,7 +64,9 @@ async function main() {
   if (!storageDir) throw new Error('MEDIA_STORAGE_DIR is required.');
   const rewardsDir = join(storageDir, 'rewards');
   const ledgerFile = join(rewardsDir, 'payouts.json');
-  const client = createPublicClient({ chain: arc, transport: http(env.ARC_RPC_URL || 'https://rpc.mainnet.arc.io') });
+  // The same endpoint selection the API uses (VITE_ARC_RPC_URL before the legacy ARC_RPC_URL).
+  const rpcUrl = resolveArcNetwork(env).readRpcUrl;
+  const client = createPublicClient({ chain: arc, transport: http(rpcUrl) });
   assertMainnetChainId(await client.getChainId());
 
   const factories = [env.VITE_MEMEVERSE_FACTORY_ADDRESS, env.VITE_FRACTIONAL_FACTORY_ADDRESS].filter(Boolean);
@@ -94,7 +97,7 @@ async function main() {
   const lockFile = join(rewardsDir, 'payout.lock');
   const lock = await open(lockFile, 'wx').catch(() => { throw new Error('Another payout run holds the lock.'); });
   try {
-    const signer = createWalletClient({ account, chain: arc, transport: http(env.ARC_RPC_URL || 'https://rpc.mainnet.arc.io') });
+    const signer = createWalletClient({ account, chain: arc, transport: http(rpcUrl) });
     const ledger = [...payouts];
     for (const item of plan) {
       const entry = { wallet: getAddress(item.wallet), amount: item.amount.toString(), status: 'pending', at: new Date().toISOString() };
