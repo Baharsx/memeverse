@@ -74,6 +74,34 @@ export const marketPublicClient = createPublicClient({
   transport: fallback([http(ARC_READ_RPC_URL), http(ARC_READ_FALLBACK_RPC_URL)]),
 });
 
+/** One client per Arc RPC, asked in parallel so a throttled endpoint never delays a confirmation. */
+const receiptClients = [...new Set([ARC_READ_RPC_URL, ARC_READ_FALLBACK_RPC_URL].filter(Boolean))]
+  .map((url) => createPublicClient({ chain: arc, transport: http(url, { retryCount: 0, timeout: 8_000 }) }));
+
+export const RECEIPT_TIMEOUT_MS = 120_000;
+
+/**
+ * Waits for a transaction by asking every Arc RPC every 1.5 s. `confirmed`, when given, checks the
+ * resulting chain state directly (an allowance, for example) and counts as confirmation too.
+ * A timeout means "not seen yet", not "failed": the message says the transaction may still land.
+ */
+export async function waitForArcReceipt(hash, { confirmed, timeoutMs = RECEIPT_TIMEOUT_MS, intervalMs = 1_500 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const receipt = await Promise.any(receiptClients.map((client) => client.getTransactionReceipt({ hash }))).catch(() => null);
+    if (receipt) return receipt;
+    if (confirmed && await confirmed().catch(() => false)) return { status: 'success', transactionHash: hash, observed: true };
+    if (Date.now() >= deadline) {
+      throw new Error('Arc has not confirmed this yet. It may still go through, so check the transaction before trying again.');
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, intervalMs));
+  }
+}
+
+export async function readUsdcAllowance(owner, spender) {
+  return marketPublicClient.readContract({ address: arcContracts.usdc, abi: usdcAbi, functionName: 'allowance', args: [owner, spender] });
+}
+
 export function parseUsdc(value) {
   if (!/^\d+(?:\.\d{1,6})?$/.test(value.trim())) throw new Error('Enter a USDC amount with at most 6 decimals.');
   return parseUnits(value, USDC_DECIMALS);

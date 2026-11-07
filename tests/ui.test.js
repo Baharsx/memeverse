@@ -60,7 +60,7 @@ async function fixture({ width = 390, reducedMotion = 'no-preference', empty = f
         creatorFeesPaidUsdc: 10000n, treasuryFeesPaidUsdc: 10000n,
         creatorFeeBps: 100n, treasuryFeeBps: 100n, basePriceUsdc: 100n, slopePriceUsdc: 1000n,
         createdAt: 1700000000n, createdBlock: 100n, deployedAtBlock: 10n,
-        active: true, spotPriceUsdc: highPrice ? 1000000n : 100n, balanceOf: held, allowance: 0n,
+        active: true, spotPriceUsdc: highPrice ? 1000000n : 100n, balanceOf: held, allowance: connection.approved ? 10n ** 30n : 0n,
         quoteBuy: fractional ? [980392156862745098n, 980393n, 9803n, 9803n, 999999n] : highPrice ? (args?.[0] < 1020000n ? [0n, 0n, 0n, 0n, 0n] : [10n ** 18n, 1000000n, 10000n, 10000n, 1020000n]) : [10n ** 18n, 100n, 1n, 1n, 102n], quoteSell: [98n, 100n, 1n, 1n],
       };
       assert.ok(name in values, `unhandled RPC fixture: ${name}`);
@@ -95,6 +95,7 @@ async function fixture({ width = 390, reducedMotion = 'no-preference', empty = f
           let result;
           if (item.method === 'eth_chainId') result = '0x4cef52';
           else if (item.method === 'eth_blockNumber') result = '0x100';
+          else if (item.method === 'eth_getTransactionReceipt') result = null; // Receipts lag; tests that need state use reads.
           else if (item.method === 'eth_call') result = readCall(item.params[0].data, item.params[0].to);
           else throw new Error(`Unexpected RPC method ${item.method}`);
           return { jsonrpc: '2.0', id: item.id, result };
@@ -763,6 +764,41 @@ test('cancelling a wallet that never answers frees the trade button at once', as
     await page.waitForFunction(() => /ALLOW USDC & BUY/.test(document.querySelector('.trade-cta')?.textContent ?? ''));
     assert.equal(await cta.isDisabled(), false, 'the button is usable again');
     assert.equal(await dialog.locator('.trade-progress').count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('an allowance confirms from chain state even when receipts never arrive, then the buy is requested', async () => {
+  const { context, page, errors, connection } = await fixture({ width: 390, held: 10n ** 30n });
+  await page.exposeFunction('approveOnChain', () => { connection.approved = true; });
+  await page.addInitScript(() => {
+    let sent = 0;
+    window.ethereum = {
+      on() {}, removeListener() {},
+      async request({ method }) {
+        if (method === 'eth_chainId') return '0x4cef52';
+        if (['eth_accounts', 'eth_requestAccounts'].includes(method)) return ['0x3333333333333333333333333333333333333333'];
+        if (method === 'wallet_requestPermissions') return [{ parentCapability: 'eth_accounts' }];
+        if (method === 'eth_sendTransaction') {
+          sent += 1;
+          if (sent === 1) { await window.approveOnChain(); return '0x' + 'ab'.repeat(32); }
+          return new Promise(() => {}); // The buy waits in the wallet.
+        }
+        throw new Error(`Unexpected wallet request: ${method}`);
+      },
+    };
+  });
+  try {
+    await page.goto(origin + '/markets');
+    await page.locator('.market-card-actions').getByRole('button', { name: 'BUY', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    const connect = dialog.getByRole('button', { name: 'Connect a wallet' });
+    if (await connect.count()) await connect.click();
+    await page.waitForFunction(() => /ALLOW USDC & BUY/.test(document.querySelector('.trade-cta')?.textContent ?? '') && !document.querySelector('.trade-cta')?.disabled);
+    await dialog.locator('.trade-cta').click();
+    // No receipt ever arrives, yet the allowance read moves the flow to the buy signature.
+    await page.waitForFunction(() => document.querySelector('.trade-progress')?.textContent.includes('Step 2 of 2'), null, { timeout: 15_000 });
+    assert.match(await dialog.locator('.trade-cta').textContent(), /CONFIRM IN YOUR WALLET/);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });

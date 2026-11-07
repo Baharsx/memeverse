@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { useWriteContract } from 'wagmi';
-import { marketPublicClient } from './market.js';
+import { waitForArcReceipt } from './market.js';
 
 /**
  * One onchain write and its lifecycle. Some wallets never answer when a request is dismissed,
@@ -12,14 +12,14 @@ export function useOnchainAction() {
   const [state, setState] = useState({ status: 'IDLE', hash: null, error: null });
   const runRef = useRef(0);
 
-  const execute = useCallback(async (request) => {
+  const execute = useCallback(async (request, { confirmed } = {}) => {
     const run = ++runRef.current;
     setState({ status: 'WALLET_SIGNATURE', hash: null, error: null });
     let hash = null;
     try {
       hash = await writeContractAsync(request);
       setState({ status: 'SUBMITTED', hash, error: null });
-      const receipt = await marketPublicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+      const receipt = await waitForArcReceipt(hash, { confirmed });
       if (receipt.status !== 'success') throw new Error('The Arc transaction reverted.');
       setState({ status: 'CONFIRMED', hash, error: null });
       return receipt;

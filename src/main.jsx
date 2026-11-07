@@ -55,6 +55,7 @@ import {
   loadUsdcBalance,
   marketAbi,
   minimumAfterSlippage,
+  readUsdcAllowance,
   parseUsdc,
   parseTokenAmount,
   quoteBuy,
@@ -1324,7 +1325,11 @@ function Markets() {
     try {
       if (allowanceRequired) {
         setBuyStep('approve');
-        await approval.execute({ address: arcContracts.usdc, abi: usdcAbi, functionName: 'approve', args: [market, units], chainId: arc.id });
+        await approval.execute(
+          { address: arcContracts.usdc, abi: usdcAbi, functionName: 'approve', args: [market, units], chainId: arc.id },
+          // The allowance itself proves the approval, even when receipts lag behind.
+          { confirmed: async () => (await readUsdcAllowance(address, market)) >= units },
+        );
         if (run !== buyRunRef.current) return; // Cancelled while the allowance was pending.
       }
       setBuyStep('trade');
