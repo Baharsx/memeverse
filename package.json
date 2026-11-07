@@ -20,7 +20,9 @@
     "preview": "vite preview",
     "test": "node --test server/test/*.test.js && npm run contracts:test",
     "test:ui": "node scripts/test-ui.js",
-    "check": "npm test && npm run build"
+    "check": "npm test && npm run build",
+    "rewards:plan": "node scripts/pay-rewards.js",
+    "rewards:pay": "node scripts/pay-rewards.js --broadcast"
   },
   "dependencies": {
     "@openzeppelin/contracts": "5.1.0",

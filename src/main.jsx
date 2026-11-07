@@ -477,7 +477,7 @@ function Shell() {
             <Route path="/trade" element={<Markets />} />
             <Route path="/launch" element={<Launch />} />
             <Route path="/referral" element={<Referral connectWallet={<Wallet />} />} />
-            <Route path="/campaigns" element={<Campaigns />} />
+            <Route path="/campaigns" element={<Campaigns connectWallet={<Wallet />} />} />
           </Routes>
         </div>
       </main>

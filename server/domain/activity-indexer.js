@@ -68,6 +68,8 @@ export function applyLogs(state, logs) {
       side: buy ? 'BUY' : 'SELL',
       trader: getAddress(buy ? event.args.buyer : event.args.seller),
       usdc: (buy ? event.args.actualUsdcSpent : event.args.usdcOut).toString(),
+      treasuryFee: event.args.treasuryFeeUsdc.toString(),
+      creatorFee: event.args.creatorFeeUsdc.toString(),
       tokens: (buy ? event.args.tokenOut : event.args.tokenIn).toString(),
       block: log.blockNumber.toString(),
       tx: log.transactionHash,
@@ -234,6 +236,25 @@ export class ActivityIndexer {
     }
   }
 
+  /** Trades indexed before fees were recorded get theirs from the transaction receipt, once. */
+  async backfillFees() {
+    for (const trade of this.state.trades) {
+      if (trade.treasuryFee !== undefined) continue;
+      const receipt = await this.call(() => this.publicClient.getTransactionReceipt({ hash: trade.tx }));
+      const logIndex = Number(trade.id.split(':')[1]);
+      const log = receipt.logs.find((item) => Number(item.logIndex) === logIndex);
+      if (!log) continue;
+      const { args } = decodeEventLog({ abi: activityAbi, data: log.data, topics: log.topics });
+      trade.treasuryFee = args.treasuryFeeUsdc.toString();
+      trade.creatorFee = args.creatorFeeUsdc.toString();
+    }
+  }
+
+  /** Every trade with its block time, for the rewards ledger. */
+  trades() {
+    return this.state.trades.map((trade) => ({ ...trade, at: this.state.blockTimes[trade.block] ?? null }));
+  }
+
   async tick() {
     if (this.state.cursor === null) {
       const starts = await Promise.all(this.factories.map((factory) => this.read(factory, 'deployedAtBlock')));
@@ -253,6 +274,7 @@ export class ActivityIndexer {
       if (chunks % 25 === 0) await this.save(); // Long backfills resume close to where they stopped.
     }
     await this.stampTimes();
+    await this.backfillFees();
     await this.save();
   }
 

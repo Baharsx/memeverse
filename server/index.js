@@ -9,6 +9,7 @@ import { createReferralService } from './domain/referral-service.js';
 import { join } from 'node:path';
 import { createPublicClient, http } from 'viem';
 import { ActivityIndexer } from './domain/activity-indexer.js';
+import { RewardsService } from './domain/rewards-service.js';
 
 loadLocalEnvironment();
 
@@ -37,7 +38,14 @@ const activityIndexer = new ActivityIndexer({
   stateFile: join(config.mediaStorageDir, 'activity', 'state.json'),
 });
 activityIndexer.start();
-const app = createApp({ config, arcRpc, mediaService, referralService, activityIndexer });
+// The treasury receives the platform fee; it never earns a share of it.
+const rewardsService = new RewardsService({ indexer: activityIndexer, storageDir: config.mediaStorageDir });
+for (const factory of [config.marketFactoryAddress, config.fractionalFactoryAddress].filter(Boolean)) {
+  activityIndexer.publicClient.readContract({ address: factory, abi: [{ type: 'function', name: 'treasury', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }], functionName: 'treasury' })
+    .then((treasury) => { if (!rewardsService.exclude.includes(treasury)) rewardsService.exclude.push(treasury); })
+    .catch((error) => console.warn(JSON.stringify({ type: 'treasury_lookup_failed', message: String(error?.message).slice(0, 200) })));
+}
+const app = createApp({ config, arcRpc, mediaService, referralService, activityIndexer, rewardsService });
 
 const server = app.listen(config.port, '127.0.0.1', () => {
   console.info(JSON.stringify({

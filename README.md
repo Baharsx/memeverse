@@ -34,13 +34,17 @@ Reown AppKit provides wallet connection. Visitors connect and sign with their ow
 
 Turn those four off in the Reown dashboard. The dashboard overrides the code.
 
-## Referral attribution and community programs
+## Rewards: referral and weekly trading pool
 
-- **Referral**: Connect a wallet to create a stable, random 12-character invite code. Shared links and invitation displays contain the code rather than the inviter's wallet. The invitee explicitly signs a time-limited message bound to that code and Arc chain. The server privately resolves the code and stores immutable attribution. Clicks alone are not referrals.
-- **Campaigns**: An informational preview of potential trading, content, and community programs. No live tasks, points, leaderboards, rewards, or automatic payout claims.
-- **No guarantees**: Trading, posting, connecting or registering a referral does not guarantee any payout. Rules, eligibility, budget and dates are not set.
+Rewards are paid in USDC from MemeVerse's own trading revenue (the 1% treasury fee on every trade):
 
-Signed referral records (wallet, referrer, chain and creation time) live inside `MEDIA_STORAGE_DIR/referrals/`. They contain no signatures or private keys. Back up that directory with the media storage. The API service user must have write permission to `MEDIA_STORAGE_DIR`. See [rewards status and implementation](docs/REWARDS.md).
+- **Weekly trading pool**: 30% of the treasury fee, shared by everyone who traded that week by volume.
+- **Referral**: 20% of the treasury fee on every trade an invited wallet makes after it signs the invite. Invite links carry a random code, never a wallet address; clicks alone are not referrals.
+- **Platform**: keeps the other 50%. No wallet can ever get back more than half of the fee it paid, so wash trading and self-referral always lose money.
+
+Weeks end every Monday 00:00 UTC; `npm run rewards:plan` and `npm run rewards:pay` settle them from the treasury. See [rewards rules, safety and operations](docs/REWARDS.md).
+
+Signed referral records (wallet, referrer, chain and creation time) live inside `MEDIA_STORAGE_DIR/referrals/`. They contain no signatures or private keys. Back up that directory with the media storage. The API service user must have write permission to `MEDIA_STORAGE_DIR`.
 
 ## Local checks
 

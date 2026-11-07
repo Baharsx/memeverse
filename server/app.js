@@ -18,6 +18,7 @@ export function createApp({
   mediaService,
   referralService,
   activityIndexer = null,
+  rewardsService = null,
   logger = console,
 }) {
   const app = express();
@@ -194,6 +195,18 @@ export function createApp({
     const limit = Math.min(Math.max(Number.parseInt(String(request.query.limit ?? '20'), 10) || 20, 1), 500);
     response.set('cache-control', 'public, max-age=5');
     response.json(responseData(activityIndexer.snapshot({ limit })));
+  });
+
+  // Revenue-funded rewards: this week's pool and leaderboard, past weeks, and one wallet's numbers.
+  app.get('/api/v1/rewards', async (_request, response) => {
+    if (!rewardsService?.available) return response.json(responseData(null));
+    response.set('cache-control', 'public, max-age=5');
+    response.json(responseData(await rewardsService.summary()));
+  });
+  app.get('/api/v1/rewards/:wallet', async (request, response) => {
+    if (!rewardsService?.available) return response.json(responseData(null));
+    response.set('cache-control', 'public, max-age=5');
+    response.json(responseData(await rewardsService.wallet(request.params.wallet)));
   });
 
   app.use((_request, _response, next) => {

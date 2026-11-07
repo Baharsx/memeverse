@@ -1352,3 +1352,57 @@ html{scrollbar-gutter:stable;scroll-padding-top:130px}
 
 .trade-cancel{padding:0;border:0;background:none;color:var(--ink);font:inherit;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 .trade-cancel:hover,.trade-cancel:focus-visible{color:var(--acid)}
+
+/* Revenue-funded rewards: referral and weekly trading pool. */
+.rewards-page{display:flex;flex-direction:column;gap:16px}
+.rewards-page .rewards-intro{margin-bottom:8px}
+.rewards-page .rewards-panel{padding:22px 24px}
+.reward-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:16px}
+.reward-stat{display:flex;flex-direction:column;gap:6px;min-width:0;padding:14px 16px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.025)}
+.reward-stat small{color:var(--mute);font:600 10px/1.2 var(--mono);letter-spacing:.1em}
+.reward-stat strong{font:650 22px/1.1 var(--ui);letter-spacing:-.02em;overflow-wrap:anywhere}
+.reward-stat.accent strong{color:var(--acid)}
+.pool-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:20px;align-items:center;
+  background:radial-gradient(520px 220px at 0% 0%,rgba(198,244,50,.13),transparent 70%),rgba(255,255,255,.027);border-color:rgba(198,244,50,.28)}
+.pool-main{display:flex;flex-direction:column;gap:8px}
+.pool-main small{color:var(--acid);font:600 11px var(--mono);letter-spacing:.12em}
+.pool-main strong{font:800 clamp(44px,7vw,72px)/1 var(--display);letter-spacing:-.04em}
+.pool-main span{color:#b4b6bb;font:14px/1.5 var(--ui)}
+.pool-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.pool-facts .reward-stat{margin:0}
+.connect-panel{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.connect-panel p{margin:0;color:#b4b6bb;font:15px/1.5 var(--ui)}
+.reward-board{list-style:none;margin:14px 0 0;padding:0}
+.reward-board li{display:grid;grid-template-columns:28px minmax(0,1fr) auto auto;gap:14px;align-items:center;padding:11px 8px;border-top:1px solid rgba(255,255,255,.06);font:14px var(--ui)}
+.reward-board li:first-child{border-top:0}
+.reward-board li b{color:var(--acid);font:700 13px var(--mono);text-align:center}
+.reward-board li span:nth-child(2){font-family:var(--mono);font-size:13px;color:#d6d7da}
+.reward-board li span:nth-child(3){color:var(--mute)}
+.reward-board li strong{color:var(--acid);min-width:64px;text-align:right}
+.reward-board li.is-you{border-radius:12px;background:rgba(198,244,50,.07)}
+.reward-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;list-style:none;margin:0;padding:0}
+.reward-steps li{display:flex;gap:12px;padding:18px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.02)}
+.reward-steps b{color:var(--acid);font:700 12px var(--mono)}
+.reward-steps span{display:flex;flex-direction:column;gap:5px;color:#b4b6bb;font:13.5px/1.5 var(--ui)}
+.reward-steps strong{color:var(--ink);font:650 15px/1.3 var(--ui)}
+.reward-history{list-style:none;margin:12px 0 0;padding:0}
+.reward-history li{display:grid;grid-template-columns:minmax(0,1fr) auto 90px;gap:12px;padding:10px 4px;border-top:1px solid rgba(255,255,255,.06);color:#b4b6bb;font:14px var(--ui)}
+.reward-history li:first-child{border-top:0}
+.reward-history strong{color:var(--ink);text-align:right}
+.reward-history a{color:var(--acid)}
+.rewards-fineprint{margin:4px 2px 0;color:var(--mute);font:12.5px/1.65 var(--ui);max-width:80ch}
+.rewards-fineprint a{color:var(--acid)}
+.referral-share .referral-copy{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;margin-top:12px}
+.referral-share .referral-copy .btn{min-height:48px;display:inline-flex;align-items:center;justify-content:center}
+.btn.disabled{opacity:.45;pointer-events:none}
+.referral-invite{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:18px 22px;border:1px solid rgba(198,244,50,.4);border-radius:18px;background:rgba(198,244,50,.07)}
+.referral-invite strong{display:block;font:650 17px/1.3 var(--ui)}
+.referral-invite p{margin:4px 0 0;color:#b4b6bb;font:13.5px/1.5 var(--ui)}
+@media (max-width:760px){
+  .pool-card{grid-template-columns:1fr}
+  .reward-steps{grid-template-columns:1fr}
+  .referral-share .referral-copy{grid-template-columns:1fr 1fr}
+  .referral-share .referral-copy input{grid-column:1/-1}
+  .reward-board li{grid-template-columns:24px minmax(0,1fr) auto;gap:10px}
+  .reward-board li span:nth-child(3){display:none}
+}

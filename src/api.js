@@ -135,3 +135,14 @@ export async function getActivity(limit = 12) {
     return { recent: [], markets: {} };
   }
 }
+
+/** Revenue-funded rewards: this week's pool, leaderboard and history. Null when unavailable. */
+export async function getRewards() {
+  try { return (await request('/api/v1/rewards'))?.data ?? null; } catch { return null; }
+}
+
+/** One wallet's rewards: this week, earned, paid, unpaid and invite counts. */
+export async function getWalletRewards(wallet) {
+  if (!wallet) return null;
+  try { return (await request(`/api/v1/rewards/${wallet}`))?.data ?? null; } catch { return null; }
+}

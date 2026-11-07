@@ -37,7 +37,7 @@ after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
 });
 
-async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n, total = 1, artwork = false, mediaDelay = 0, imageDelay = 0, imageFailure = false, highPrice = false, fractional = false, activity = null } = {}) {
+async function fixture({ width = 390, reducedMotion = 'no-preference', empty = false, delay = 0, offline = false, held = 0n, total = 1, artwork = false, mediaDelay = 0, imageDelay = 0, imageFailure = false, highPrice = false, fractional = false, activity = null, rewards = null } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion });
   context.setDefaultTimeout(10_000);
   const calls = { marketCount: 0, quoteBuy: [], quoteSell: [] };
@@ -82,6 +82,8 @@ async function fixture({ width = 390, reducedMotion = 'no-preference', empty = f
       return imageFailure ? route.fulfill({ status: 404 }) : route.fulfill({ contentType: 'image/webp', body: await readFile('public/memeverse-hero-v1-640.webp') });
     }
     if (url.pathname === '/api/v1/activity' && activity) return route.fulfill({ json: { data: activity } });
+    if (url.pathname === '/api/v1/rewards' && rewards) return route.fulfill({ json: { data: rewards.summary } });
+    if (url.pathname.startsWith('/api/v1/rewards/') && rewards) return route.fulfill({ json: { data: rewards.wallet } });
     if (url.pathname === '/api/v1/referrals/invite') return route.fulfill({ json: { data: { code: 'aB3_kD9-zX2q', chainId: 5042002 } } });
     if (url.pathname.startsWith('/api/')) {
       return route.fulfill({ json: { data: {}, status: 'ok', arc: { status: 'verified' } } });
@@ -799,6 +801,81 @@ test('an allowance confirms from chain state even when receipts never arrive, th
     // No receipt ever arrives, yet the allowance read moves the flow to the buy signature.
     await page.waitForFunction(() => document.querySelector('.trade-progress')?.textContent.includes('Step 2 of 2'), null, { timeout: 15_000 });
     assert.match(await dialog.locator('.trade-cta').textContent(), /CONFIRM IN YOUR WALLET/);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+const rewardsFixture = (() => {
+  const end = Math.floor(Date.now() / 1000) + 2 * 86_400 + 3 * 3_600;
+  return {
+    summary: {
+      program: { tradingShareBps: 3000, referralShareBps: 2000, minPayout: '50000' },
+      current: { epoch: 1, start: end - 7 * 86_400, end, volume: '125500000', trades: 9, tradingPool: '376500', referral: '20000', traders: 3 },
+      leaderboard: [
+        { rank: 1, wallet: '0x3333333333333333333333333333333333333333', volume: '100000000', reward: '300000' },
+        { rank: 2, wallet: '0x52e1d2a7ECe14cb84aA74687Fafe40D5794de2fF', volume: '25500000', reward: '76500' },
+      ],
+      history: [],
+      paid: { total: '0', recent: [] },
+    },
+    wallet: { wallet: '0x3333333333333333333333333333333333333333', epoch: 1, thisWeek: { volume: '100000000', trading: '300000', referral: '4500' }, earned: '0', paid: '0', unpaid: '0', invited: 2, invitedTraded: 1 },
+  };
+})();
+
+async function connectedFixture(options) {
+  const result = await fixture(options);
+  await result.page.addInitScript(() => {
+    window.ethereum = {
+      on() {}, removeListener() {},
+      async request({ method }) {
+        if (method === 'eth_chainId') return '0x4cef52';
+        if (['eth_accounts', 'eth_requestAccounts'].includes(method)) return ['0x3333333333333333333333333333333333333333'];
+        if (method === 'wallet_requestPermissions') return [{ parentCapability: 'eth_accounts' }];
+        throw new Error(`Unexpected wallet request: ${method}`);
+      },
+    };
+  });
+  return result;
+}
+
+test('the campaign page shows the live revenue-funded pool, the leaderboard and your share', async () => {
+  for (const width of [1440, 390]) {
+    const { context, page, errors } = await connectedFixture({ width, rewards: rewardsFixture });
+    try {
+      await page.goto(origin + '/campaigns');
+      const pool = page.getByRole('article', { name: "This week's pool" });
+      await page.waitForFunction(() => document.querySelector('.pool-main strong')?.textContent === '$0.37');
+      assert.match(await pool.textContent(), /ends in 2d [23]h/);
+      assert.match(await pool.textContent(), /TRADERS3.*TRADES9.*VOLUME\$125\.50/);
+      const connect = page.locator('.connect-panel .wallet');
+      if (await connect.count()) await connect.click();
+      await page.locator('[aria-label="Your rewards"]').waitFor();
+      const board = page.locator('.reward-board li');
+      assert.equal(await board.count(), 2);
+      assert.match(await board.first().textContent(), /0x3333…3333 · you.*\$100.*\$0\.30/);
+      assert.match(await page.locator('[aria-label="Your rewards"]').textContent(), /YOUR SHARE SO FAR\$0\.30/);
+      const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
+      assert.ok(size.scroll <= size.width, `campaigns overflow at ${width}px`);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  }
+});
+
+test('the referral page gives a private link, a share-on-X button and invite earnings', async () => {
+  const { context, page, errors } = await connectedFixture({ width: 390, rewards: rewardsFixture });
+  try {
+    await page.goto(origin + '/referral');
+    const connect = page.locator('.referral-share .wallet');
+    if (await connect.count()) await connect.click();
+    await page.waitForFunction(() => document.querySelector('#referral-link')?.value.includes('aB3_kD9-zX2q'));
+    const share = page.getByRole('link', { name: 'SHARE ON X ↗' });
+    const intent = new URL(await share.getAttribute('href'));
+    assert.equal(intent.origin + intent.pathname, 'https://x.com/intent/post');
+    assert.match(intent.searchParams.get('text'), /\$0 on @memeversebiz[\s\S]*ref=aB3_kD9-zX2q/);
+    assert.equal(intent.searchParams.get('text').includes('0x3333'), false, 'the wallet address never enters the share text');
+    assert.match(await page.locator('[aria-label="Your rewards"]').textContent(), /FRIENDS JOINED2.*FRIENDS TRADING1.*THIS WEEK\$0\.0045/);
+    const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
+    assert.ok(size.scroll <= size.width);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });

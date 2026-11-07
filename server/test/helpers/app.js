@@ -35,6 +35,7 @@ export async function startTestApp({
   mediaService,
   referralService,
   activityIndexer,
+  rewardsService,
 } = {}) {
   const config = baseTestConfig(configOverrides);
   const app = createApp({
@@ -43,6 +44,7 @@ export async function startTestApp({
     mediaService,
     referralService,
     activityIndexer,
+    rewardsService,
     logger: { info() {}, error() {} },
   });
   const server = app.listen(0, '127.0.0.1');
