@@ -72,7 +72,7 @@ import {
 } from './media-views.jsx';
 import { getActivity, getMarketImages } from './api';
 import { TREND_PERIODS, defaultTrendPeriod, formatDollars, shortTrader, timeAgo, trendingMarkets } from './activity';
-import { SELL_PRESETS, sellPresetAmount, tradeButtonState, tradeStatusLine } from './trade-flow';
+import { SELL_PRESETS, maxBuyAmount, sellPresetAmount, tradeButtonState, tradeStatusLine } from './trade-flow';
 import { QUICK_BUY_AMOUNTS, fundingLink, needsMoreUsdc } from './funding';
 import { MEDIA_ACTIONS } from './media-authorization';
 import { canRetryLaunchArtwork, launchArtworkStage } from './media-upload';
@@ -1287,6 +1287,7 @@ function Markets() {
   const minimumBuyUsdc = marketMinimumBuyUsdc(selected);
   // Legacy (v1) markets sell whole tokens only, so a budget below one token quotes zero.
   const lowUsdc = needsMoreUsdc({ onArc, balance: usdcBalance.data, budget: buyUnits });
+  const maxBuy = onArc ? maxBuyAmount(usdcBalance.data) : '';
   const wholeTokenOnlyZero = Boolean(selected && selected.tradingVersion !== 2 && buyQuote.data && buyQuote.data[0] === 0n && buyUnits > 0n);
   const availability = marketAvailability(selected);
 
@@ -1472,22 +1473,16 @@ function Markets() {
                     {QUICK_BUY_AMOUNTS.map((amount) => (
                       <button key={amount} type="button" aria-pressed={buyAmount === amount} onClick={() => setBuyAmount(amount)}>${amount}</button>
                     ))}
+                    {maxBuy ? <button type="button" aria-pressed={buyAmount === maxBuy} onClick={() => setBuyAmount(maxBuy)} title="Your USDC balance, keeping a little for gas">MAX</button> : null}
                   </div>
                   <label className="quote-output">YOU RECEIVE (ESTIMATED)<input readOnly value={buyQuote.data ? formatTokenAmount(buyQuote.data[0], 6) : '—'} aria-label="Estimated tokens received" /><small>{selected.symbol}</small></label>
-                  {lowUsdc ? (
-                    <div className="fund-usdc" role="status">
-                      <div><b>Not enough USDC on Arc</b><span>Your wallet holds {formatUsdc(usdcBalance.data)} USDC. {ARC_IS_MAINNET ? 'Bridge more from Base or another chain with Relay' : 'Claim test USDC from the Circle faucet'}, then come back to buy.</span></div>
-                      <a className="btn primary" href={FUNDING.href} target="_blank" rel="noreferrer noopener">{FUNDING.label} ↗</a>
-                    </div>
-                  ) : (
-                    <a className="fund-link" href={FUNDING.href} target="_blank" rel="noreferrer noopener">Need USDC on Arc? <b>{ARC_IS_MAINNET ? 'Bridge in with Relay' : 'Get test USDC from the Circle faucet'} ↗</b></a>
-                  )}
+                  <a className="fund-link" href={FUNDING.href} target="_blank" rel="noreferrer noopener">Need USDC on Arc? <b>{ARC_IS_MAINNET ? 'Bridge in with Relay' : 'Get test USDC from the Circle faucet'} ↗</b></a>
                   {wholeTokenOnlyZero ? <p className="whole-token-note" role="status">{selected.symbol} trades in whole tokens only. One token costs {formatUsdc(minimumBuyUsdc)} USDC with fees.</p> : null}
                   {buyInputError ? <p className="inline-error">{buyInputError}</p> : null}
                   {!buyInputError && buyUnits > 0n && !buyQuote.data ? <p className="quote-feedback" role="status">{buyQuoteResult.isError ? 'Quote unavailable. Check your connection or try another amount.' : 'Updating your buy quote…'}</p> : null}
                   <TradeAction
-                    button={tradeButtonState({ side: 'BUY', step: buyStep, needsApproval: allowanceRequired && onArc, approval: approval.state, action: buy.state, ready: onArc && !walletStateLoading && Boolean(buyQuote.data) && buyQuote.data[0] > 0n })}
-                    line={tradeStatusLine({ side: 'BUY', step: buyStep, needsApproval: allowanceRequired && onArc, approval: approval.state, action: buy.state })}
+                    button={tradeButtonState({ side: 'BUY', step: buyStep, needsApproval: allowanceRequired && onArc, blockedLabel: lowUsdc ? 'NOT ENOUGH USDC' : null, approval: approval.state, action: buy.state, ready: onArc && !walletStateLoading && Boolean(buyQuote.data) && buyQuote.data[0] > 0n })}
+                    line={tradeStatusLine({ side: 'BUY', step: buyStep, needsApproval: allowanceRequired && onArc && !lowUsdc, approval: approval.state, action: buy.state })}
                   />
                 </form> : <form onSubmit={sellTokens}>
                   <label>TOKEN AMOUNT<input value={sellAmount} onChange={(event) => setSellAmount(event.target.value)} type="text" inputMode={selected.tradingVersion === 2 ? "decimal" : "numeric"} required /><small>{selected.symbol}</small></label>

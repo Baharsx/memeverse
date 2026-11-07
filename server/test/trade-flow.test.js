@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { friendlyTradeError, sellPresetAmount, tradeButtonState, tradeStatusLine } from '../../src/trade-flow.js';
+import { friendlyTradeError, maxBuyAmount, sellPresetAmount, tradeButtonState, tradeStatusLine } from '../../src/trade-flow.js';
 
 const idle = { status: 'IDLE', hash: null, error: null };
 
@@ -36,4 +36,11 @@ test('sell presets use exact fractions or whole tokens', () => {
 
 test('a blocked sale reads as a calm disabled button', () => {
   assert.deepEqual(tradeButtonState({ side: 'SELL', step: null, action: { status: 'IDLE' }, ready: false, blockedLabel: 'NO DGR TO SELL' }), { busy: false, label: 'NO DGR TO SELL', progress: null, disabled: true });
+});
+
+test('MAX buys the balance and keeps a small USDC gas reserve', () => {
+  assert.equal(maxBuyAmount(458544n), '0.428544');
+  assert.equal(maxBuyAmount(25_000_000n), '24.97');
+  assert.equal(maxBuyAmount(30_000n), '', 'nothing to spend after gas');
+  assert.equal(maxBuyAmount(undefined), '');
 });

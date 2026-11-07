@@ -66,3 +66,12 @@ export function sellPresetAmount(balance, numerator, denominator, fractional) {
   if (units <= 0n) return '';
   return formatUnits(units, 18);
 }
+
+/** USDC kept back by MAX: gas on Arc is paid in USDC, enough for an allowance and a buy. */
+export const GAS_RESERVE_USDC = 30_000n;
+
+/** The MAX buy budget as an input string: the whole balance minus the gas reserve. */
+export function maxBuyAmount(balance) {
+  if (typeof balance !== 'bigint' || balance <= GAS_RESERVE_USDC) return '';
+  return formatUnits(balance - GAS_RESERVE_USDC, 6);
+}

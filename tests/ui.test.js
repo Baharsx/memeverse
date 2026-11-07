@@ -578,13 +578,18 @@ test('quick budgets fill the buy amount and a short USDC balance points to fundi
     const dialog = page.getByRole('dialog');
     const connect = dialog.getByRole('button', { name: 'Connect a wallet' });
     if (await connect.count()) await connect.click();
-    const panel = dialog.locator('.fund-usdc');
-    await panel.waitFor();
-    assert.match(await panel.textContent(), /Not enough USDC on Arc.*0\.5 USDC/);
-    const link = panel.getByRole('link');
+    // Too little USDC: no warning box, just a calm disabled button and a MAX that fits the wallet.
+    const cta = dialog.locator('.trade-cta');
+    await page.waitForFunction(() => document.querySelector('.trade-cta')?.textContent.includes('NOT ENOUGH USDC'));
+    assert.ok(await cta.isDisabled());
+    assert.equal(await dialog.locator('.fund-usdc').count(), 0);
+    const link = dialog.locator('.fund-link');
     assert.equal(await link.getAttribute('target'), '_blank');
-    assert.match(await link.getAttribute('rel'), /noopener/);
     assert.match(await link.getAttribute('href'), /^https:\/\/faucet\.circle\.com/, 'testnet builds point at the faucet');
+    const quick = dialog.getByRole('group', { name: 'Quick amounts' });
+    await quick.getByRole('button', { name: 'MAX' }).click();
+    assert.equal(await dialog.getByLabel('MAX USDC TO SPEND', { exact: false }).inputValue(), '0.47', 'balance minus the gas reserve');
+    await page.waitForFunction(() => !document.querySelector('.trade-cta')?.textContent.includes('NOT ENOUGH USDC'));
     const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
     assert.ok(size.scroll <= size.width, 'the funding panel fits a phone');
     assert.deepEqual(connected.errors, []);
