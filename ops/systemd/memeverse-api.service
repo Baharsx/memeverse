@@ -6,20 +6,47 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/memeverse
+# Public configuration only. Signing keys live in /etc/memeverse/secrets/ (root-only) and are never
+# loaded into this internet-facing process; see ops/memeverse-pay-rewards.sh.
 EnvironmentFile=/etc/memeverse/memeverse.env
-ExecStart=/usr/bin/npm run start:api
+Environment=HOME=/opt/memeverse
+Environment=PATH=/opt/nodejs22/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/nodejs22/bin/node server/index.js
 Restart=on-failure
 RestartSec=5
 User=memeverse
 Group=memeverse
+UMask=0027
+
+# Sandbox. The whole filesystem is read-only to this process, so even a code-execution bug cannot
+# rewrite the application, its config or anything else on the host.
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
-# The single writable path this service needs. ProtectSystem=strict keeps the entire filesystem
-# read-only otherwise, so creator media is the one exception rather than a general relaxation.
-# Narrowed to the media directory itself: nothing else under /var/lib becomes writable.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+# Creator media, referrals, rewards ledger and the activity index: the only writable path.
 ReadWritePaths=/var/lib/memeverse/media
+# Nothing the API needs; hidden so a compromised process cannot read history or old wallet data.
+InaccessiblePaths=-/etc/memeverse/secrets -/opt/memeverse/.git -/opt/memeverse/.ows -/opt/memeverse/.circle -/opt/memeverse/.circle-cli -/opt/memeverse-releases -/opt/memeverse-worktrees
 
 [Install]
 WantedBy=multi-user.target

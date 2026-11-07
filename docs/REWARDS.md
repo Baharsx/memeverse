@@ -43,8 +43,16 @@ publishes only counts per wallet (friends joined, friends trading), never who re
 
 ## Payouts
 
-`npm run rewards:plan` (on the production host) prints every payout due, the treasury balance and
-the safety ceiling without sending anything. `npm run rewards:pay` sends them from the treasury key.
+On the production host, as root, `memeverse-pay-rewards` prints every payout due, the treasury
+balance and the safety ceiling without sending anything. `memeverse-pay-rewards --broadcast` sends
+them from the treasury key.
+
+The treasury key lives only in `/etc/memeverse/secrets/treasury.env` (root:root 0600). It is not in
+`/etc/memeverse/memeverse.env`, so the internet-facing API never holds it. The wrapper
+([`ops/memeverse-pay-rewards.sh`](../ops/memeverse-pay-rewards.sh), installed as
+`/usr/local/sbin/memeverse-pay-rewards`) reads it as root and passes it through the environment to
+`scripts/pay-rewards.js`, which runs as the `memeverse` user, and only for `--broadcast`.
+`npm run rewards:plan` still works for a plan; `npm run rewards:pay` no longer finds a key.
 
 - Only weeks that have ended are paid. Balances under 0.05 USDC carry over to a later payout.
 - The total of all payouts can never exceed 50% of the treasury fees of ended weeks; the script
