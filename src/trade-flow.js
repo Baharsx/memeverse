@@ -25,13 +25,13 @@ export function tradeButtonState({ side, step, needsApproval, approval, action, 
   const total = buying && (needsApproval || step === 'approve' || approval?.hash) ? 2 : 1;
   if (step === 'approve') {
     const signing = approval?.status !== 'SUBMITTED';
-    return { busy: true, label: signing ? 'CONFIRM IN YOUR WALLET' : 'ALLOWING USDC…', progress: `Step 1 of 2 · ${signing ? 'Allow USDC for this buy' : 'Waiting for Arc'}` };
+    return { busy: true, cancellable: signing, label: signing ? 'CONFIRM IN YOUR WALLET' : 'ALLOWING USDC…', progress: `Step 1 of 2 · ${signing ? 'Allow USDC for this buy' : 'Waiting for Arc'}` };
   }
   if (step === 'trade' || BUSY.has(action?.status)) {
     const signing = action?.status !== 'SUBMITTED';
     const verb = buying ? 'BUYING…' : 'SELLING…';
     const prefix = total === 2 ? 'Step 2 of 2 · ' : '';
-    return { busy: true, label: signing ? 'CONFIRM IN YOUR WALLET' : verb, progress: `${prefix}${signing ? `Approve the ${buying ? 'buy' : 'sale'} in your wallet` : 'Waiting for Arc'}` };
+    return { busy: true, cancellable: signing, label: signing ? 'CONFIRM IN YOUR WALLET' : verb, progress: `${prefix}${signing ? `Approve the ${buying ? 'buy' : 'sale'} in your wallet` : 'Waiting for Arc'}` };
   }
   if (blockedLabel) return { busy: false, label: blockedLabel, progress: null, disabled: true };
   const label = buying ? (needsApproval ? 'ALLOW USDC & BUY →' : 'BUY NOW →') : 'SELL NOW →';

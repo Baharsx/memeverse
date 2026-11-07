@@ -730,3 +730,39 @@ test('selling more than the position disables the button calmly instead of showi
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });
+
+test('cancelling a wallet that never answers frees the trade button at once', async () => {
+  const { context, page, errors } = await fixture({ width: 390, held: 10n ** 30n });
+  await page.addInitScript(() => {
+    window.ethereum = {
+      on() {}, removeListener() {},
+      async request({ method }) {
+        if (method === 'eth_chainId') return '0x4cef52';
+        if (['eth_accounts', 'eth_requestAccounts'].includes(method)) return ['0x3333333333333333333333333333333333333333'];
+        if (method === 'wallet_requestPermissions') return [{ parentCapability: 'eth_accounts' }];
+        if (method === 'eth_sendTransaction') return new Promise(() => {}); // A wallet that silently drops the request.
+        if (method === 'eth_estimateGas') return '0x5208';
+        if (method === 'eth_gasPrice' || method === 'eth_maxPriorityFeePerGas') return '0x1';
+        if (method === 'eth_getBlockByNumber') return { baseFeePerGas: '0x1', number: '0x100' };
+        if (method === 'eth_getTransactionCount') return '0x0';
+        throw new Error(`Unexpected wallet request: ${method}`);
+      },
+    };
+  });
+  try {
+    await page.goto(origin + '/markets');
+    await page.locator('.market-card-actions').getByRole('button', { name: 'BUY', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    const connect = dialog.getByRole('button', { name: 'Connect a wallet' });
+    if (await connect.count()) await connect.click();
+    const cta = dialog.locator('.trade-cta');
+    await page.waitForFunction(() => /ALLOW USDC & BUY/.test(document.querySelector('.trade-cta')?.textContent ?? '') && !document.querySelector('.trade-cta')?.disabled);
+    await cta.click();
+    await page.waitForFunction(() => document.querySelector('.trade-cta')?.textContent.includes('CONFIRM IN YOUR WALLET'));
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.waitForFunction(() => /ALLOW USDC & BUY/.test(document.querySelector('.trade-cta')?.textContent ?? ''));
+    assert.equal(await cta.isDisabled(), false, 'the button is usable again');
+    assert.equal(await dialog.locator('.trade-progress').count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});

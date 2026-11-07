@@ -1,28 +1,41 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useWriteContract } from 'wagmi';
 import { marketPublicClient } from './market.js';
 
+/**
+ * One onchain write and its lifecycle. Some wallets never answer when a request is dismissed,
+ * so `reset` frees the UI at once; a request it superseded can no longer mark the action failed,
+ * but if the person still signs it, the transaction is tracked as usual.
+ */
 export function useOnchainAction() {
   const { writeContractAsync } = useWriteContract();
   const [state, setState] = useState({ status: 'IDLE', hash: null, error: null });
+  const runRef = useRef(0);
 
   const execute = useCallback(async (request) => {
-    setState({ status: 'REQUESTED', hash: null, error: null });
+    const run = ++runRef.current;
+    setState({ status: 'WALLET_SIGNATURE', hash: null, error: null });
+    let hash = null;
     try {
-      setState({ status: 'WALLET_SIGNATURE', hash: null, error: null });
-      const hash = await writeContractAsync(request);
+      hash = await writeContractAsync(request);
       setState({ status: 'SUBMITTED', hash, error: null });
       const receipt = await marketPublicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
       if (receipt.status !== 'success') throw new Error('The Arc transaction reverted.');
       setState({ status: 'CONFIRMED', hash, error: null });
       return receipt;
     } catch (error) {
-      const message = error?.shortMessage ?? error?.message ?? 'Transaction failed.';
-      setState((current) => ({ status: 'FAILED', hash: current.hash, error: message }));
+      // A dismissed request that was already cancelled here stays silent.
+      if (run === runRef.current || hash) {
+        const message = error?.shortMessage ?? error?.message ?? 'Transaction failed.';
+        setState({ status: 'FAILED', hash, error: message });
+      }
       throw error;
     }
   }, [writeContractAsync]);
 
-  const reset = useCallback(() => setState({ status: 'IDLE', hash: null, error: null }), []);
+  const reset = useCallback(() => {
+    runRef.current += 1;
+    setState({ status: 'IDLE', hash: null, error: null });
+  }, []);
   return { state, execute, reset };
 }

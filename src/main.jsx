@@ -1134,13 +1134,13 @@ function TransactionStatus({ state }) {
 }
 
 /** One button for the whole onchain flow, plus a single status line beneath it. */
-function TradeAction({ button, line }) {
+function TradeAction({ button, line, onCancel }) {
   return (
     <div className="trade-action">
       <button className={`btn primary full trade-cta${button.busy ? ' busy' : ''}`} disabled={button.busy || button.disabled} aria-busy={button.busy}>
         {button.busy ? <i className="trade-spinner" aria-hidden="true" /> : null}{button.label}
       </button>
-      {button.progress ? <p className="trade-progress">{button.progress}</p> : null}
+      {button.progress ? <p className="trade-progress">{button.progress}{button.cancellable && onCancel ? <> · <button type="button" className="trade-cancel" onClick={onCancel}>Cancel</button></> : null}</p> : null}
       <p className={`trade-line ${line?.tone ?? ''}`} role="status" aria-live="polite">
         {line ? <>{line.tone === 'done' ? <b aria-hidden="true">✓</b> : null}<span>{line.text}</span>{line.hash ? <ExternalLink href={`${arcLinks.explorer}/tx/${line.hash}`}>View transaction ↗</ExternalLink> : null}</> : null}
       </p>
@@ -1278,6 +1278,8 @@ function Markets() {
   const sell = useOnchainAction();
   const [buyStep, setBuyStep] = useState(null);
   const [sellStep, setSellStep] = useState(null);
+  const buyRunRef = useRef(0);
+  const sellRunRef = useRef(0);
   const walletStateLoading = onArc && markets.isPlaceholderData;
   // A sale the wallet cannot cover simply disables the button with a calm reason, never a red error.
   const sellBlockedLabel = !selected || !onArc || walletStateLoading ? null
@@ -1316,23 +1318,39 @@ function Markets() {
     const market = selected.address;
     const units = buyUnits;
     const quote = buyQuote.data;
+    const run = ++buyRunRef.current;
     approval.reset();
     buy.reset();
     try {
       if (allowanceRequired) {
         setBuyStep('approve');
         await approval.execute({ address: arcContracts.usdc, abi: usdcAbi, functionName: 'approve', args: [market, units], chainId: arc.id });
+        if (run !== buyRunRef.current) return; // Cancelled while the allowance was pending.
       }
       setBuyStep('trade');
       await buy.execute({ address: market, abi: marketAbi, functionName: 'buy', args: [units, minimumAfterSlippage(quote[0], slippageBps)], chainId: arc.id });
     } catch { /* The status line presents the wallet/provider error. */ }
-    setBuyStep(null);
+    if (run === buyRunRef.current) setBuyStep(null);
     await refreshMarketState();
+  }
+
+  function cancelBuy() {
+    buyRunRef.current += 1;
+    setBuyStep(null);
+    approval.reset();
+    buy.reset();
+  }
+
+  function cancelSell() {
+    sellRunRef.current += 1;
+    setSellStep(null);
+    sell.reset();
   }
 
   async function sellTokens(event) {
     event.preventDefault();
     if (sellStep || !onArc || walletStateLoading || !selected || !sellQuote.data || sellUnits <= 0n || sellUnits > selected.userBalance) return;
+    const run = ++sellRunRef.current;
     sell.reset();
     setSellStep('trade');
     try {
@@ -1344,7 +1362,7 @@ function Markets() {
         chainId: arc.id,
       });
     } catch { /* The status line presents the wallet/provider error. */ }
-    setSellStep(null);
+    if (run === sellRunRef.current) setSellStep(null);
     await refreshMarketState();
   }
 
@@ -1482,6 +1500,7 @@ function Markets() {
                   {!buyInputError && buyUnits > 0n && !buyQuote.data ? <p className="quote-feedback" role="status">{buyQuoteResult.isError ? 'Quote unavailable. Check your connection or try another amount.' : 'Updating your buy quote…'}</p> : null}
                   <TradeAction
                     button={tradeButtonState({ side: 'BUY', step: buyStep, needsApproval: allowanceRequired && onArc, blockedLabel: lowUsdc ? 'NOT ENOUGH USDC' : null, approval: approval.state, action: buy.state, ready: onArc && !walletStateLoading && Boolean(buyQuote.data) && buyQuote.data[0] > 0n })}
+                    onCancel={cancelBuy}
                     line={tradeStatusLine({ side: 'BUY', step: buyStep, needsApproval: allowanceRequired && onArc && !lowUsdc, approval: approval.state, action: buy.state })}
                   />
                 </form> : <form onSubmit={sellTokens}>
@@ -1502,6 +1521,7 @@ function Markets() {
                   {!sellInputError && sellUnits > 0n && !sellQuote.data ? <p className="quote-feedback" role="status">{sellQuoteResult.isError ? 'Quote unavailable. Check your connection or try another amount.' : 'Updating your sell quote…'}</p> : null}
                   <TradeAction
                     button={tradeButtonState({ side: 'SELL', step: sellStep, needsApproval: false, action: sell.state, blockedLabel: sellBlockedLabel, ready: onArc && !walletStateLoading && Boolean(sellQuote.data) && sellQuote.data[0] > 0n && sellUnits <= selected.userBalance })}
+                    onCancel={cancelSell}
                     line={tradeStatusLine({ side: 'SELL', step: sellStep, action: sell.state })}
                   />
                 </form>}

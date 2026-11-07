@@ -44,3 +44,9 @@ test('MAX buys the balance and keeps a small USDC gas reserve', () => {
   assert.equal(maxBuyAmount(30_000n), '', 'nothing to spend after gas');
   assert.equal(maxBuyAmount(undefined), '');
 });
+
+test('only a pending wallet signature offers Cancel', () => {
+  assert.equal(tradeButtonState({ side: 'BUY', step: 'trade', action: { status: 'WALLET_SIGNATURE' } }).cancellable, true);
+  assert.equal(tradeButtonState({ side: 'BUY', step: 'approve', approval: { status: 'WALLET_SIGNATURE' } }).cancellable, true);
+  assert.equal(tradeButtonState({ side: 'BUY', step: 'trade', action: { status: 'SUBMITTED', hash: '0x1' } }).cancellable, false, 'a sent transaction cannot be cancelled');
+});
