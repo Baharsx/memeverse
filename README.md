@@ -1,78 +1,47 @@
-# MemeVerse
+# MemeVerse — shut down
 
-A meme becomes a market. Launch, discover, and trade meme markets in USDC on Arc. Creator and treasury fees settle inside each trade.
+**MemeVerse was shut down on 2026-11-13 and will not be continued.**
 
-Live at **<https://memeverse.biz>**.
+The website (memeverse.biz) and its API are offline and have been removed from the server. This
+repository is archived and kept read-only for reference. There is no support, no new release and no
+further development.
 
-Token artwork is selected during launch and attached once after the market confirms. The first successful image is permanent in the application: later replacements are rejected, while retrying the same image remains safe.
+## If you hold a MemeVerse token
 
-```
-LAUNCH → MARKETS → REFERRAL → CAMPAIGNS
-```
+The markets are smart contracts on Arc mainnet (chain `5042`). They have no admin key and cannot be
+paused or switched off, so they keep working without the website. You can still sell your tokens
+back to the market contract from the wallet that holds them.
 
-Launch and Markets are live on Arc mainnet, chain `5042`, using real USDC. Contract code has not been independently audited. Referral attribution is available via wallet signature; campaign and monetary rewards are **not live**. No reward payouts, allocations, or rankings are implied.
-
-Proof and addresses: [`docs/MAINNET.md`](./docs/MAINNET.md).
-
-Update the live site, as root:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Baharsx/memeverse/main/scripts/update-production.sh | sudo bash
-```
-
-## Wallet connection (Reown AppKit)
-
-Reown AppKit provides wallet connection. Visitors connect and sign with their own wallet.
-
-| Setting | Value | Why |
+| Market | Symbol | Contract |
 |---|---|---|
-| Allowed origin | `https://memeverse.biz` | Must match the site |
-| Email login | Disabled | A wallet signature, not an email |
-| Social login | Disabled | Same |
-| Swaps | Disabled | Not a MemeVerse product |
-| On-ramp | Disabled | Not a MemeVerse product |
+| MEMEVERSE GENESIS | MMV | `0xDCa07Bd83bc7A4220C79afB60F8C2Bb7DC746932` |
+| Flash | FLS | `0x52e1d2a7ECe14cb84aA74687Fafe40D5794de2fF` |
+| UCat | UCAT | `0x1Cb84539b3FCFEd5c01d4b805Fe9aD38214aFB00` |
+| doge lord | DLORD | `0x75115A62D31bC4B9289b9CA89BFE5663B80B9358` |
+| Doge Rocket | DGR | `0xE56C90df9b96e1Ff55E2f280C03Ace846A01e54C` |
+| Magic hand | MGH | `0x2f212429FC9B78c58EcFDe64F62c6f11e914555D` |
 
-Turn those four off in the Reown dashboard. The dashboard overrides the code.
+All six were created by factory `0x177492EFFbe5F7847994696ef4C9B24b8C9C13BE`. The market contract is
+also the token contract.
 
-## Rewards: referral and weekly trading pool
+To sell:
 
-Rewards are paid in USDC from MemeVerse's own trading revenue (the 1% treasury fee on every trade):
+1. Read `quoteSell(uint256 tokenIn)` on the market to see the USDC you would receive (`usdcOut`,
+   six decimals).
+2. Call `sell(uint256 tokenIn, uint256 minimumUsdcOut)` from your wallet. No approval is needed.
 
-- **Weekly trading pool**: 30% of the treasury fee, shared by everyone who traded that week by volume.
-- **Referral**: 20% of the treasury fee on every trade an invited wallet makes after it signs the invite. Invite links carry a random code, never a wallet address; clicks alone are not referrals.
-- **Platform**: keeps the other 50%. No wallet can ever get back more than half of the fee it paid, so wash trading and self-referral always lose money.
+`tokenIn` is in 18-decimal units and must be whole tokens: 3 tokens is `3000000000000000000`.
+Use the `usdcOut` from step 1, or slightly less, as `minimumUsdcOut`. USDC is also the gas token on
+Arc, so keep a little USDC in the wallet. The contract source is in [`contracts/`](./contracts) and
+its ABI in [`contracts/artifacts/MemeMarket.json`](./contracts/artifacts/MemeMarket.json).
 
-Weeks end every Monday 00:00 UTC; `npm run rewards:plan` and `npm run rewards:pay` settle them from the treasury. See [rewards rules, safety and operations](docs/REWARDS.md).
+Check the chain id in your wallet before you sign. Nobody from MemeVerse will contact you; treat any
+message offering help, refunds or a migration as a scam.
 
-Signed referral records (wallet, referrer, chain and creation time) live inside `MEDIA_STORAGE_DIR/referrals/`. They contain no signatures or private keys. Back up that directory with the media storage. The API service user must have write permission to `MEDIA_STORAGE_DIR`.
+## Rewards
 
-## Local checks
-
-Run `npm ci`, then `npm test` for application and contract tests, and `npm run build` for the deployment bundle.
-
-For browser regression checks, install Chromium once with `npx playwright install chromium`, then run `npm run test:ui`. This builds a separate test bundle in `cache/ui-dist` and checks mobile layouts, navigation, creator/holding filters, private invite links, trade-dialog keyboard focus, quote debouncing, readable units, and motion. All RPC and API responses in this suite are browser fixtures; no network transactions are sent. The regular deployment build and `.env.local` are preserved.
-
-Run `npm run dev` to preview the app locally. The existing `.env.local` selects the network; pulling the repository does not switch it from testnet to mainnet.
-
-## Production
-
-The site is a single-page app. `/`, `/markets`, `/launch`, `/referral`, and `/campaigns` must all open on refresh. nginx serves the files and these headers:
-
-```nginx
-location /memeverse/ {
-  alias /opt/memeverse/dist/;
-  try_files $uri $uri/ /memeverse/index.html;
-  add_header X-Frame-Options "DENY" always;
-  add_header Referrer-Policy "no-referrer" always;
-  add_header Content-Security-Policy "frame-ancestors 'none';" always;
-}
-location /api/ {
-  proxy_pass http://127.0.0.1:8787;
-}
-```
-
-`frame-ancestors` has to travel over HTTP. A meta tag cannot set it.
+The rewards program ended with the shutdown. No payouts are pending.
 
 ## License
 
-[MIT](./LICENSE). Copyright (c) 2026 Soheil SL. The file is the full MIT license, warranty disclaimer included.
+[MIT](./LICENSE). Copyright (c) 2026 Soheil SL.
